@@ -10,6 +10,7 @@ export TARGET_TRIPLE=aarch64-linux-gnu
 export CROSS_COMPILE=/usr/bin/$TARGET_TRIPLE-
 
 colcon build \
+    --parallel-workers 4 \
     --merge-install \
     --cmake-force-configure \
     --cmake-args \

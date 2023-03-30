@@ -206,6 +206,17 @@ protected:
   // Files and if we should save total state
   bool save_total_state = false;
   std::ofstream of_state_est, of_state_std, of_state_gt;
+
+  struct HeisenbergImgFile {
+    int64_t ts;
+    std::string full_path;
+  };
+  using HeisenbergImgFileQueue = std::deque<HeisenbergImgFile>;
+  std::map<std::string, HeisenbergImgFileQueue> camera_name_to_img_queue;
+  std::map<std::string, image_transport::Publisher> camera_name_to_img_publisher;
+  HeisenbergImgFileQueue load_heisenberg_img_queue(const std::string& img_folder);
+  void load_heisenberg_img_queues(const std::string& dataset);
+  void heisenberg_imu_hook_for_img_publishing(const sensor_msgs::msg::Imu::SharedPtr msg);
 };
 
 } // namespace ov_msckf
