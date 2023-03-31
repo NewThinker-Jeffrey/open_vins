@@ -1010,6 +1010,13 @@ void ROS2Visualizer::load_heisenberg_img_queues(const std::string& dataset) {
 }
 
 void ROS2Visualizer::heisenberg_imu_hook_for_img_publishing(const sensor_msgs::msg::Imu::SharedPtr msg) {
+  msg->angular_velocity.x *= M_PI / 180.0;
+  msg->angular_velocity.y *= M_PI / 180.0;
+  msg->angular_velocity.z *= M_PI / 180.0;
+  msg->linear_acceleration.x *= 9.8;
+  msg->linear_acceleration.y *= 9.8;
+  msg->linear_acceleration.z *= 9.8;
+
   int64_t imu_ts = msg->header.stamp.sec;
   imu_ts = imu_ts * 1000000000 + msg->header.stamp.nanosec;
   for (auto & item : camera_name_to_img_queue) {

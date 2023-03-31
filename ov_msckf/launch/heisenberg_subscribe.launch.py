@@ -121,7 +121,7 @@ def launch_setup(context):
 
     node3 = ExecuteProcess(
         cmd=[[
-            'sleep 10 && ros2 bag play {}'.format(os.path.join(dataset, "vio_gt.bag"))
+            'sleep 5 && ros2 bag play {}'.format(os.path.join(dataset, "vio_gt.bag"))
         ]],
         shell=True,
         condition=IfCondition(LaunchConfiguration("bagplay_enable")),

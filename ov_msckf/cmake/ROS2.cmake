@@ -93,6 +93,11 @@ ament_target_dependencies(run_subscribe_msckf ${ament_libraries})
 target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
 install(TARGETS run_subscribe_msckf DESTINATION lib/${PROJECT_NAME})
 
+add_executable(heisenberg_export_imu src/heisenberg_export_imu.cpp)
+ament_target_dependencies(heisenberg_export_imu ${ament_libraries})
+target_link_libraries(heisenberg_export_imu ov_msckf_lib ${thirdparty_libraries})
+install(TARGETS heisenberg_export_imu DESTINATION lib/${PROJECT_NAME})
+
 add_executable(run_simulation src/run_simulation.cpp)
 ament_target_dependencies(run_simulation ${ament_libraries})
 target_link_libraries(run_simulation ov_msckf_lib ${thirdparty_libraries})
