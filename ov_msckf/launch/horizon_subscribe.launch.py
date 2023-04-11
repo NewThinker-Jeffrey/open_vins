@@ -13,7 +13,10 @@ launch_args = [
         name="ov_enable", default_value="true", description="enable OpenVINS node"
     ),
     DeclareLaunchArgument(
-        name="bagplay_enable", default_value="false", description="enable bag play node"
+        name="image_decompress_enable", default_value="true", description="enable image_decompress_enable node"
+    ),
+    DeclareLaunchArgument(
+        name="bagplay_enable", default_value="true", description="enable bag play node"
     ),
     DeclareLaunchArgument(
         name="rviz_enable", default_value="false", description="enable rviz node"
@@ -22,14 +25,14 @@ launch_args = [
         name="bagplay_rate", default_value="1.0", description="bagplay_rate"
     ),
     DeclareLaunchArgument(
-        name="dataset",
-        default_value="/home/isaac/Work/datasets/Heisenberg/visual_inertial_0.5m_s_0328",
-        description="path to your dataset (heisenberg datasets)",
+        name="horizon_bag",
+        default_value="/home/isaac/Work/datasets/Horizon/data/ros2bag_2",
+        description="path to your horizon_bag",
     ),
     DeclareLaunchArgument(
         name="config",
-        default_value="heisenberg_1",
-        description="heisenberg_1, heisenberg_2...",
+        default_value="horizon",
+        description="horizon...",
     ),
     DeclareLaunchArgument(
         name="config_path",
@@ -60,9 +63,9 @@ launch_args = [
 
 def launch_setup(context):
     config_path = LaunchConfiguration("config_path").perform(context)
-    dataset = LaunchConfiguration("dataset").perform(context)
+    horizon_bag = LaunchConfiguration("horizon_bag").perform(context)
     bagplay_rate = LaunchConfiguration("bagplay_rate").perform(context)
-    print("dataset: {}".format(dataset))
+    print("horizon_bag: {}".format(horizon_bag))
     if not config_path:
         configs_dir = os.path.join(get_package_share_directory("ov_msckf"), "config")
         available_configs = os.listdir(configs_dir)
@@ -100,7 +103,7 @@ def launch_setup(context):
             {"max_cameras": LaunchConfiguration("max_cameras")},
             {"save_total_state": LaunchConfiguration("save_total_state")},
             {"config_path": config_path},
-            {"heisenberg_dataset": dataset},
+            {"horizon_bag": horizon_bag},
         ],
     )
 
@@ -121,13 +124,21 @@ def launch_setup(context):
 
     node3 = ExecuteProcess(
         cmd=[[
-            'sleep 5 && ros2 bag play {}'.format(os.path.join(dataset, "vio_gt.bag"))
+            'sleep 5 && ros2 bag play {} -r {}'.format(horizon_bag, bagplay_rate)
         ]],
         shell=True,
         condition=IfCondition(LaunchConfiguration("bagplay_enable")),
     )
 
-    return [node3, node1, node2]
+    node4 = ExecuteProcess(
+        cmd=[[
+            'ros2 run image_transport republish compressed --ros-args --remap in/compressed:=/image_jpeg  --ros-args --remap out:=/image_decompressed'
+        ]],
+        shell=True,
+        condition=IfCondition(LaunchConfiguration("image_decompress_enable")),
+    )
+
+    return [node4, node3, node1, node2]
 
 
 def generate_launch_description():

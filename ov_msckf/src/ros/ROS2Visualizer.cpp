@@ -1010,6 +1010,9 @@ void ROS2Visualizer::load_heisenberg_img_queues(const std::string& dataset) {
 }
 
 void ROS2Visualizer::heisenberg_imu_hook_for_img_publishing(const sensor_msgs::msg::Imu::SharedPtr msg) {
+  if (!_node->has_parameter("heisenberg_dataset")) {
+    return;
+  }
   msg->angular_velocity.x *= M_PI / 180.0;
   msg->angular_velocity.y *= M_PI / 180.0;
   msg->angular_velocity.z *= M_PI / 180.0;
