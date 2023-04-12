@@ -61,12 +61,13 @@ list(APPEND LIBRARY_SOURCES
         src/state/Propagator.cpp
         src/core/VioManager.cpp
         src/core/VioManagerHelper.cpp
+        src/core/VioDataFlow.cpp
         src/update/UpdaterHelper.cpp
         src/update/UpdaterMSCKF.cpp
         src/update/UpdaterSLAM.cpp
         src/update/UpdaterZeroVelocity.cpp
 )
-list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROSVisualizerHelper.cpp)
+list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROS2VisualizerForFolderBasedDataset.cpp src/ros/ROSVisualizerHelper.cpp)
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_msckf_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
 ament_target_dependencies(ov_msckf_lib ${ament_libraries})
@@ -92,6 +93,11 @@ add_executable(run_subscribe_msckf src/run_subscribe_msckf.cpp)
 ament_target_dependencies(run_subscribe_msckf ${ament_libraries})
 target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
 install(TARGETS run_subscribe_msckf DESTINATION lib/${PROJECT_NAME})
+
+add_executable(run_folder_based_msckf src/run_folder_based_msckf.cpp)
+ament_target_dependencies(run_folder_based_msckf ${ament_libraries})
+target_link_libraries(run_folder_based_msckf ov_msckf_lib ${thirdparty_libraries})
+install(TARGETS run_folder_based_msckf DESTINATION lib/${PROJECT_NAME})
 
 add_executable(heisenberg_export_imu src/heisenberg_export_imu.cpp)
 ament_target_dependencies(heisenberg_export_imu ${ament_libraries})
