@@ -93,6 +93,9 @@ public:
    * @param timestamp Timestamps that our measurements must occur after
    */
   void clean_older_measurements(double timestamp);
+
+
+  void clean_future_measurements(double timestamp_now);
 };
 
 } // namespace ov_core

@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
   params.use_multi_threading_subs = true;
   sys = std::make_shared<VioManager>(params);
   viz = std::make_shared<ROS2VisualizerForFolderBasedDataset>(node, sys);
-  viz->setup_subscribers(parser);
+  viz->setup_player(parser);
 
   // Ensure we read in all parameters required
   if (!parser->successful()) {

@@ -25,6 +25,7 @@
 
 #include "feat/Feature.h"
 #include "feat/FeatureInitializer.h"
+#include "feat/FeatureDatabase.h"
 #include "state/State.h"
 #include "state/StateHelper.h"
 #include "types/Landmark.h"
@@ -40,8 +41,8 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-UpdaterSLAM::UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_aruco, ov_core::FeatureInitializerOptions &feat_init_options)
-    : _options_slam(options_slam), _options_aruco(options_aruco) {
+UpdaterSLAM::UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_aruco, ov_core::FeatureInitializerOptions &feat_init_options, std::shared_ptr<ov_core::FeatureDatabase> db)
+    : _options_slam(options_slam), _options_aruco(options_aruco), _db(db) {
 
   // Save our raw pixel noise squared
   _options_slam.sigma_pix_sq = std::pow(_options_slam.sigma_pix, 2);
@@ -64,6 +65,8 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
   if (feature_vec.empty())
     return;
 
+  PRINT_INFO("DEBUG POINT 4.1\n");
+
   // Start timing
   boost::posix_time::ptime rT0, rT1, rT2, rT3;
   rT0 = boost::posix_time::microsec_clock::local_time();
@@ -73,29 +76,44 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
   for (const auto &clone_imu : state->_clones_IMU) {
     clonetimes.emplace_back(clone_imu.first);
   }
+  double max_clonetime = *std::max_element(clonetimes.begin(), clonetimes.end());
+
+  // create cloned features containing no 'future' observations.
+  std::map<std::shared_ptr<Feature>, std::shared_ptr<Feature>> cloned_features;
 
   // 1. Clean all feature measurements and make sure they all have valid clone times
   auto it0 = feature_vec.begin();
   while (it0 != feature_vec.end()) {
-
-    // Clean the feature
-    (*it0)->clean_old_measurements(clonetimes);
+    {
+      std::unique_lock<std::mutex> lck(_db->get_mutex());
+      // Clean the feature
+      (*it0)->clean_old_measurements(clonetimes);
+      cloned_features[*it0] = std::make_shared<Feature>(*(*it0));
+    }
+    auto& cloned_feature = cloned_features[*it0];
+    cloned_feature->clean_future_measurements(max_clonetime);
 
     // Count how many measurements
     int ct_meas = 0;
-    for (const auto &pair : (*it0)->timestamps) {
-      ct_meas += (*it0)->timestamps[pair.first].size();
+    for (const auto &pair : cloned_feature->timestamps) {
+      // ct_meas += (*it0)->timestamps[pair.first].size();
+      ct_meas += cloned_feature->timestamps[pair.first].size();
     }
 
     // Remove if we don't have enough
     if (ct_meas < 2) {
-      (*it0)->to_delete = true;
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it0)->to_delete = true;
+      }
       it0 = feature_vec.erase(it0);
     } else {
       it0++;
     }
   }
   rT1 = boost::posix_time::microsec_clock::local_time();
+
+  PRINT_INFO("DEBUG POINT 4.2\n");
 
   // 2. Create vector of cloned *CAMERA* poses at each of our clone timesteps
   std::unordered_map<size_t, std::unordered_map<double, FeatureInitializer::ClonePose>> clones_cam;
@@ -117,27 +135,42 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     clones_cam.insert({clone_calib.first, clones_cami});
   }
 
+  PRINT_INFO("DEBUG POINT 4.3\n");
+
+
   // 3. Try to triangulate all MSCKF or new SLAM features that have measurements
   auto it1 = feature_vec.begin();
   while (it1 != feature_vec.end()) {
-
     // Triangulate the feature and remove if it fails
     bool success_tri = true;
+    auto& cloned_feature = cloned_features[(*it1)];
     if (initializer_feat->config().triangulate_1d) {
-      success_tri = initializer_feat->single_triangulation_1d(*it1, clones_cam);
+      success_tri = initializer_feat->single_triangulation_1d(cloned_feature, clones_cam);
     } else {
-      success_tri = initializer_feat->single_triangulation(*it1, clones_cam);
+      success_tri = initializer_feat->single_triangulation(cloned_feature, clones_cam);
     }
 
     // Gauss-newton refine the feature
     bool success_refine = true;
     if (initializer_feat->config().refine_features) {
-      success_refine = initializer_feat->single_gaussnewton(*it1, clones_cam);
+      success_refine = initializer_feat->single_gaussnewton(cloned_feature, clones_cam);
+    }
+
+    {
+      // copy back the triangulaion result
+      std::unique_lock<std::mutex> lck(_db->get_mutex());
+      (*it1)->anchor_cam_id = cloned_feature->anchor_cam_id;
+      (*it1)->anchor_clone_timestamp = cloned_feature->anchor_clone_timestamp;
+      (*it1)->p_FinA = cloned_feature->p_FinA;
+      (*it1)->p_FinG = cloned_feature->p_FinG;
     }
 
     // Remove the feature if not a success
     if (!success_tri || !success_refine) {
-      (*it1)->to_delete = true;
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it1)->to_delete = true;
+      }
       it1 = feature_vec.erase(it1);
       continue;
     }
@@ -145,16 +178,20 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
   }
   rT2 = boost::posix_time::microsec_clock::local_time();
 
+  PRINT_INFO("DEBUG POINT 4.4\n");
+
+
   // 4. Compute linear system for each feature, nullspace project, and reject
   auto it2 = feature_vec.begin();
   while (it2 != feature_vec.end()) {
 
     // Convert our feature into our current format
     UpdaterHelper::UpdaterHelperFeature feat;
-    feat.featid = (*it2)->featid;
-    feat.uvs = (*it2)->uvs;
-    feat.uvs_norm = (*it2)->uvs_norm;
-    feat.timestamps = (*it2)->timestamps;
+    auto& cloned_feature = cloned_features[*it2];
+    feat.featid = cloned_feature->featid;
+    feat.uvs = cloned_feature->uvs;
+    feat.uvs_norm = cloned_feature->uvs_norm;
+    feat.timestamps = cloned_feature->timestamps;
 
     // If we are using single inverse depth, then it is equivalent to using the msckf inverse depth
     auto feat_rep =
@@ -166,13 +203,13 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
 
     // Save the position and its fej value
     if (LandmarkRepresentation::is_relative_representation(feat.feat_representation)) {
-      feat.anchor_cam_id = (*it2)->anchor_cam_id;
-      feat.anchor_clone_timestamp = (*it2)->anchor_clone_timestamp;
-      feat.p_FinA = (*it2)->p_FinA;
-      feat.p_FinA_fej = (*it2)->p_FinA;
+      feat.anchor_cam_id = cloned_feature->anchor_cam_id;
+      feat.anchor_clone_timestamp = cloned_feature->anchor_clone_timestamp;
+      feat.p_FinA = cloned_feature->p_FinA;
+      feat.p_FinA_fej = cloned_feature->p_FinA;
     } else {
-      feat.p_FinG = (*it2)->p_FinG;
-      feat.p_FinG_fej = (*it2)->p_FinG;
+      feat.p_FinG = cloned_feature->p_FinG;
+      feat.p_FinG_fej = cloned_feature->p_FinG;
     }
 
     // Our return values (feature jacobian, state jacobian, residual, and order of state jacobian)
@@ -211,7 +248,7 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     auto landmark = std::make_shared<Landmark>(landmark_size);
     landmark->_featid = feat.featid;
     landmark->_feat_representation = feat_rep;
-    landmark->_unique_camera_id = (*it2)->anchor_cam_id;
+    landmark->_unique_camera_id = cloned_feature->anchor_cam_id;
     if (LandmarkRepresentation::is_relative_representation(feat.feat_representation)) {
       landmark->_anchor_cam_id = feat.anchor_cam_id;
       landmark->_anchor_clone_timestamp = feat.anchor_clone_timestamp;
@@ -231,15 +268,24 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     double chi2_multipler =
         ((int)feat.featid < state->_options.max_aruco_features) ? _options_aruco.chi2_multipler : _options_slam.chi2_multipler;
     if (StateHelper::initialize(state, landmark, Hx_order, H_x, H_f, R, res, chi2_multipler)) {
-      state->_features_SLAM.insert({(*it2)->featid, landmark});
-      (*it2)->to_delete = true;
+      state->_features_SLAM.insert({cloned_feature->featid, landmark});
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());      
+        // (*it2)->to_delete = true;
+        (*it2)->clean_older_measurements(max_clonetime);
+      }
       it2++;
     } else {
-      (*it2)->to_delete = true;
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());      
+        (*it2)->to_delete = true;
+      }
       it2 = feature_vec.erase(it2);
     }
   }
   rT3 = boost::posix_time::microsec_clock::local_time();
+
+  PRINT_INFO("DEBUG POINT 4.5\n");
 
   // Debug print timing information
   if (!feature_vec.empty()) {
@@ -265,29 +311,42 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
   for (const auto &clone_imu : state->_clones_IMU) {
     clonetimes.emplace_back(clone_imu.first);
   }
+  double max_clonetime = *std::max_element(clonetimes.begin(), clonetimes.end());
+
+  // create cloned features containing no 'future' observations.
+  std::map<std::shared_ptr<Feature>, std::shared_ptr<Feature>> cloned_features;
 
   // 1. Clean all feature measurements and make sure they all have valid clone times
   auto it0 = feature_vec.begin();
   while (it0 != feature_vec.end()) {
-
-    // Clean the feature
-    (*it0)->clean_old_measurements(clonetimes);
+    {
+      std::unique_lock<std::mutex> lck(_db->get_mutex());
+      // Clean the feature
+      (*it0)->clean_old_measurements(clonetimes);
+      cloned_features[*it0] = std::make_shared<Feature>(*(*it0));
+    }
+    auto& cloned_feature = cloned_features[*it0];
+    cloned_feature->clean_future_measurements(max_clonetime);
 
     // Count how many measurements
     int ct_meas = 0;
-    for (const auto &pair : (*it0)->timestamps) {
-      ct_meas += (*it0)->timestamps[pair.first].size();
+    for (const auto &pair : cloned_feature->timestamps) {
+      // ct_meas += (*it0)->timestamps[pair.first].size();
+      ct_meas += cloned_feature->timestamps[pair.first].size();
     }
 
     // Get the landmark and its representation
     // For single depth representation we need at least two measurement
     // This is because we do nullspace projection
-    std::shared_ptr<Landmark> landmark = state->_features_SLAM.at((*it0)->featid);
+    std::shared_ptr<Landmark> landmark = state->_features_SLAM.at(cloned_feature->featid);
     int required_meas = (landmark->_feat_representation == LandmarkRepresentation::Representation::ANCHORED_INVERSE_DEPTH_SINGLE) ? 2 : 1;
 
     // Remove if we don't have enough
     if (ct_meas < 1) {
-      (*it0)->to_delete = true;
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it0)->to_delete = true;
+      }
       it0 = feature_vec.erase(it0);
     } else if (ct_meas < required_meas) {
       it0 = feature_vec.erase(it0);
@@ -300,8 +359,11 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
   // Calculate the max possible measurement size
   size_t max_meas_size = 0;
   for (size_t i = 0; i < feature_vec.size(); i++) {
-    for (const auto &pair : feature_vec.at(i)->timestamps) {
-      max_meas_size += 2 * feature_vec.at(i)->timestamps[pair.first].size();
+    // for (const auto &pair : feature_vec.at(i)->timestamps) {
+    //   max_meas_size += 2 * feature_vec.at(i)->timestamps[pair.first].size();
+    // }
+    for (const auto &pair : cloned_features[feature_vec.at(i)]->timestamps) {
+      max_meas_size += 2 * cloned_features[feature_vec.at(i)]->timestamps[pair.first].size();
     }
   }
 
@@ -320,20 +382,21 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
   // 4. Compute linear system for each feature, nullspace project, and reject
   auto it2 = feature_vec.begin();
   while (it2 != feature_vec.end()) {
+    auto& cloned_feature = cloned_features[*it2];
 
     // Ensure we have the landmark and it is the same
-    assert(state->_features_SLAM.find((*it2)->featid) != state->_features_SLAM.end());
-    assert(state->_features_SLAM.at((*it2)->featid)->_featid == (*it2)->featid);
+    assert(state->_features_SLAM.find(cloned_feature->featid) != state->_features_SLAM.end());
+    assert(state->_features_SLAM.at(cloned_feature->featid)->_featid == cloned_feature->featid);
 
     // Get our landmark from the state
-    std::shared_ptr<Landmark> landmark = state->_features_SLAM.at((*it2)->featid);
+    std::shared_ptr<Landmark> landmark = state->_features_SLAM.at(cloned_feature->featid);
 
     // Convert the state landmark into our current format
     UpdaterHelper::UpdaterHelperFeature feat;
-    feat.featid = (*it2)->featid;
-    feat.uvs = (*it2)->uvs;
-    feat.uvs_norm = (*it2)->uvs_norm;
-    feat.timestamps = (*it2)->timestamps;
+    feat.featid = cloned_feature->featid;
+    feat.uvs = cloned_feature->uvs;
+    feat.uvs_norm = cloned_feature->uvs_norm;
+    feat.timestamps = cloned_feature->timestamps;
 
     // If we are using single inverse depth, then it is equivalent to using the msckf inverse depth
     feat.feat_representation = landmark->_feat_representation;
@@ -414,7 +477,10 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
       } else {
         landmark->update_fail_count++;
       }
-      (*it2)->to_delete = true;
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it2)->to_delete = true;
+      }
       it2 = feature_vec.erase(it2);
       continue;
     }
@@ -452,8 +518,12 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
 
   // We have appended all features to our Hx_big, res_big
   // Delete it so we do not reuse information
-  for (size_t f = 0; f < feature_vec.size(); f++) {
-    feature_vec[f]->to_delete = true;
+  {
+    std::unique_lock<std::mutex> lck(_db->get_mutex());
+    for (size_t f = 0; f < feature_vec.size(); f++) {
+      // feature_vec[f]->to_delete = true;
+      feature_vec[f]->clean_older_measurements(max_clonetime);
+    }
   }
 
   // Return if we don't have anything and resize our matrices

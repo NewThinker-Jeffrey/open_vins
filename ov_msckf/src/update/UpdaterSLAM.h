@@ -32,6 +32,7 @@
 namespace ov_core {
 class Feature;
 class FeatureInitializer;
+class FeatureDatabase;
 } // namespace ov_core
 namespace ov_type {
 class Landmark;
@@ -60,7 +61,7 @@ public:
    * @param options_aruco Updater options (include measurement noise value) for ARUCO features
    * @param feat_init_options Feature initializer options
    */
-  UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_aruco, ov_core::FeatureInitializerOptions &feat_init_options);
+  UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_aruco, ov_core::FeatureInitializerOptions &feat_init_options, std::shared_ptr<ov_core::FeatureDatabase> db);
 
   /**
    * @brief Given tracked SLAM features, this will try to use them to update the state.
@@ -108,6 +109,9 @@ protected:
 
   /// Chi squared 95th percentile table (lookup would be size of residual)
   std::map<int, double> chi_squared_table;
+
+  /// Feature tracker database with all features in it
+  std::shared_ptr<ov_core::FeatureDatabase> _db;
 };
 
 } // namespace ov_msckf

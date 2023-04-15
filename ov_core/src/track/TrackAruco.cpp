@@ -167,14 +167,14 @@ void TrackAruco::perform_tracking(double timestamp, const cv::Mat &imgin, size_t
   PRINT_ALL("[TIME-ARUCO]: %.4f seconds for total\n", (rT3 - rT1).total_microseconds() * 1e-6);
 }
 
-void TrackAruco::display_active(cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::string overlay) {
+void TrackAruco::display_active(double timestamp, cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::string overlay) {
 
   // Cache the images to prevent other threads from editing while we viz (which can be slow)
   std::map<size_t, cv::Mat> img_last_cache, img_mask_last_cache;
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last_cache = img_last;
-    img_mask_last_cache = img_mask_last;
+    img_last_cache = history_vars.at(timestamp).img;
+    img_mask_last_cache = history_vars.at(timestamp).img_mask;
   }
   auto ids_aruco_cache = ids_aruco;
   auto corners_cache = corners;

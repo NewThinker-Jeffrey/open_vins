@@ -95,6 +95,7 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
     pts_last[cam_id] = good_left;
     ids_last[cam_id] = good_ids_left;
     desc_last[cam_id] = good_desc_left;
+    internal_add_last_to_history(message.timestamp);
     return;
   }
 
@@ -165,6 +166,7 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
     pts_last[cam_id] = good_left;
     ids_last[cam_id] = good_ids_left;
     desc_last[cam_id] = good_desc_left;
+    internal_add_last_to_history(message.timestamp);
   }
   rT5 = boost::posix_time::microsec_clock::local_time();
 
@@ -224,6 +226,7 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
     ids_last[cam_id_right] = good_ids_right;
     desc_last[cam_id_left] = good_desc_left;
     desc_last[cam_id_right] = good_desc_right;
+    internal_add_last_to_history(message.timestamp);
     return;
   }
 
@@ -340,6 +343,7 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
     ids_last[cam_id_right] = good_ids_right;
     desc_last[cam_id_left] = good_desc_left;
     desc_last[cam_id_right] = good_desc_right;
+    internal_add_last_to_history(message.timestamp);
   }
   rT5 = boost::posix_time::microsec_clock::local_time();
 

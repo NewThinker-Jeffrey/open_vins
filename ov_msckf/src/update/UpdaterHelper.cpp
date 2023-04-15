@@ -485,3 +485,32 @@ void UpdaterHelper::measurement_compress_inplace(Eigen::MatrixXd &H_x, Eigen::Ve
   H_x.conservativeResize(r, H_x.cols());
   res.conservativeResize(r, res.cols());
 }
+
+
+std::vector<double> UpdaterHelper::cut_timestamps(const std::vector<double>& timestamps, double max_time) {
+  std::vector<double> out;
+  out.reserve(timestamps.size());
+  double prev_ts = -1;
+  for (const auto& ts : timestamps) {
+    assert(ts > prev_ts);
+    prev_ts = ts;
+
+    if (ts > max_time) {
+      // we assume the input array 'timestamps' is already sorted
+      break;
+    }
+    out.push_back(ts);
+  }
+  return out;
+}
+
+
+std::unordered_map<size_t, std::vector<double>>
+UpdaterHelper::cut_timestamps(const std::unordered_map<size_t, std::vector<double>>& timestamps, double max_time) {
+  std::unordered_map<size_t, std::vector<double>> out;
+  for (const auto& item : timestamps) {
+    out[item.first] = cut_timestamps(item.second, max_time);
+  }
+  return out;
+}
+

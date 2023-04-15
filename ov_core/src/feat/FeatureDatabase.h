@@ -158,6 +158,8 @@ public:
    */
   void append_new_measurements(const std::shared_ptr<FeatureDatabase> &database);
 
+  std::mutex& get_mutex() {return mtx;}
+
 protected:
   /// Mutex lock for our map
   std::mutex mtx;

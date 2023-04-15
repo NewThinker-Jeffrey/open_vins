@@ -103,7 +103,7 @@ public:
    * @param r2,g2,b2 second color to draw in
    * @param overlay Text overlay to replace to normal "cam0" in the top left of screen
    */
-  virtual void display_active(cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::string overlay = "");
+  virtual void display_active(double timestamp, cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::string overlay = "");
 
   /**
    * @brief Shows a "trail" for each feature (i.e. its history)
@@ -113,7 +113,7 @@ public:
    * @param highlighted unique ids which we wish to highlight (e.g. slam feats)
    * @param overlay Text overlay to replace to normal "cam0" in the top left of screen
    */
-  virtual void display_history(cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::vector<size_t> highlighted = {},
+  virtual void display_history(double timestamp, cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::vector<size_t> highlighted = {},
                                std::string overlay = "");
 
   /**
@@ -134,15 +134,15 @@ public:
   void change_feat_id(size_t id_old, size_t id_new);
 
   /// Getter method for active features in the last frame (observations per camera)
-  std::unordered_map<size_t, std::vector<cv::KeyPoint>> get_last_obs() {
+  std::unordered_map<size_t, std::vector<cv::KeyPoint>> get_last_obs(double timestamp) {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    return pts_last;
+    return history_vars.at(timestamp).pts;
   }
 
   /// Getter method for active features in the last frame (ids per camera)
-  std::unordered_map<size_t, std::vector<size_t>> get_last_ids() {
+  std::unordered_map<size_t, std::vector<size_t>> get_last_ids(double timestamp) {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    return ids_last;
+    return history_vars.at(timestamp).ids;
   }
 
   /// Getter method for number of active features
@@ -150,6 +150,11 @@ public:
 
   /// Setter method for number of active features
   void set_num_features(int _num_features) { num_features = _num_features; }
+
+  void clear_older_history(double timestamp) {
+    std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    internal_clear_older_history(timestamp);
+  }
 
 protected:
   /// Camera object which has all calibration in it
@@ -187,6 +192,38 @@ protected:
 
   /// Set of IDs of each current feature in the database
   std::unordered_map<size_t, std::vector<size_t>> ids_last;
+
+  struct HistoryVars {
+    std::map<size_t, cv::Mat> img;
+    std::map<size_t, cv::Mat> img_mask;
+    std::unordered_map<size_t, std::vector<cv::KeyPoint>> pts;
+    std::unordered_map<size_t, std::vector<size_t>> ids;
+  };
+
+  std::map<double, HistoryVars> history_vars;  // time to history vars
+
+  void internal_add_last_to_history(double timestamp) {
+    auto& h = history_vars[timestamp];
+    h.img = img_last;
+    h.img_mask = img_mask_last;
+    h.pts = pts_last;
+    h.ids = ids_last;
+  }
+
+  void internal_clear_older_history(double timestamp) {
+    auto it = history_vars.begin();
+    while (it != history_vars.end()) {
+      if (it->first < timestamp) {
+        it = history_vars.erase(it);
+      } else {
+        it ++;
+      }
+    }
+  }
+
+  // double last_img_time;
+
+
 
   /// Master ID for this tracker (atomic to allow for multi-threading)
   std::atomic<size_t> currid;

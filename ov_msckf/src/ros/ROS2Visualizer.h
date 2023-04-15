@@ -55,6 +55,8 @@
 #include <boost/filesystem.hpp>
 #include <cv_bridge/cv_bridge.h>
 
+#include "core/VioManager.h"
+
 namespace ov_core {
 class YamlParser;
 struct CameraData;
@@ -62,7 +64,6 @@ struct CameraData;
 
 namespace ov_msckf {
 
-class VioManager;
 class Simulator;
 
 /**
@@ -206,6 +207,9 @@ protected:
   // Files and if we should save total state
   bool save_total_state = false;
   std::ofstream of_state_est, of_state_std, of_state_gt;
+
+  std::shared_ptr<std::thread> _vis_thread;
+  std::shared_ptr<VioManager::Output> _vis_output;
 
   struct HeisenbergImgFile {
     int64_t ts;

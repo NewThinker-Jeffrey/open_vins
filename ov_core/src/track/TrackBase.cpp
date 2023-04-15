@@ -40,16 +40,16 @@ TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> camera
   }
 }
 
-void TrackBase::display_active(cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::string overlay) {
+void TrackBase::display_active(double timestamp, cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::string overlay) {
 
   // Cache the images to prevent other threads from editing while we viz (which can be slow)
   std::map<size_t, cv::Mat> img_last_cache, img_mask_last_cache;
   std::unordered_map<size_t, std::vector<cv::KeyPoint>> pts_last_cache;
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last_cache = img_last;
-    img_mask_last_cache = img_mask_last;
-    pts_last_cache = pts_last;
+    img_last_cache = history_vars.at(timestamp).img;
+    img_mask_last_cache = history_vars.at(timestamp).img_mask;
+    pts_last_cache = history_vars.at(timestamp).pts;
   }
 
   // Get the largest width and height
@@ -116,7 +116,7 @@ void TrackBase::display_active(cv::Mat &img_out, int r1, int g1, int b1, int r2,
   }
 }
 
-void TrackBase::display_history(cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::vector<size_t> highlighted,
+void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::vector<size_t> highlighted,
                                 std::string overlay) {
 
   // Cache the images to prevent other threads from editing while we viz (which can be slow)
@@ -125,10 +125,10 @@ void TrackBase::display_history(cv::Mat &img_out, int r1, int g1, int b1, int r2
   std::unordered_map<size_t, std::vector<size_t>> ids_last_cache;
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last_cache = img_last;
-    img_mask_last_cache = img_mask_last;
-    pts_last_cache = pts_last;
-    ids_last_cache = ids_last;
+    img_last_cache = history_vars.at(timestamp).img;
+    img_mask_last_cache = history_vars.at(timestamp).img_mask;
+    pts_last_cache = history_vars.at(timestamp).pts;
+    ids_last_cache = history_vars.at(timestamp).ids;
   }
 
   // Get the largest width and height
@@ -182,6 +182,7 @@ void TrackBase::display_history(cv::Mat &img_out, int r1, int g1, int b1, int r2
       Feature feat;
       if (!database->get_feature_clone(ids_last_cache[pair.first].at(i), feat))
         continue;
+      feat.clean_future_measurements(timestamp);
       if (feat.uvs.empty() || feat.uvs[pair.first].empty() || feat.to_delete)
         continue;
       // Draw the history of this point (start at the last inserted one)

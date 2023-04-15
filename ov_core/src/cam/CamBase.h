@@ -51,6 +51,8 @@ public:
 
   virtual ~CamBase() {}
 
+  virtual std::shared_ptr<CamBase> clone() = 0;
+
   /**
    * @brief This will set and update the camera calibration values.
    * This should be called on startup for each camera and after update!

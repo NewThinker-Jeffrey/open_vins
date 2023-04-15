@@ -93,7 +93,9 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
 
   // Run the initialization in a second thread so it can go as slow as it desires
   thread_init_running = true;
-  std::thread thread([&] {
+  initialization_thread_ = std::make_shared<std::thread>([&] {
+    pthread_setname_np(pthread_self(), "ov_init");
+
     // Returns from our initializer
     double timestamp;
     Eigen::MatrixXd covariance;
@@ -180,9 +182,9 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
   // If we are single threaded, then run single threaded
   // Otherwise detach this thread so it runs in the background!
   if (!params.use_multi_threading_subs) {
-    thread.join();
+    initialization_thread_->join();
   } else {
-    thread.detach();
+    initialization_thread_->detach();
   }
   return false;
 }
@@ -197,17 +199,17 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
   assert(state->_clones_IMU.find(message.timestamp) != state->_clones_IMU.end());
   active_tracks_time = message.timestamp;
   active_image = cv::Mat();
-  trackFEATS->display_active(active_image, 255, 255, 255, 255, 255, 255, " ");
-  if (!active_image.empty()) {
-    active_image = active_image(cv::Rect(0, 0, message.images.at(0).cols, message.images.at(0).rows));
-  }
+  // trackFEATS->display_active(active_image, 255, 255, 255, 255, 255, 255, " ");
+  // if (!active_image.empty()) {
+  //   active_image = active_image(cv::Rect(0, 0, message.images.at(0).cols, message.images.at(0).rows));
+  // }
   active_tracks_posinG.clear();
   active_tracks_uvd.clear();
 
   // Current active tracks in our frontend
   // TODO: should probably assert here that these are at the message time...
-  auto last_obs = trackFEATS->get_last_obs();
-  auto last_ids = trackFEATS->get_last_ids();
+  auto last_obs = trackFEATS->get_last_obs(message.timestamp);
+  auto last_ids = trackFEATS->get_last_ids(message.timestamp);
 
   // New set of linear systems that only contain the latest track info
   std::map<size_t, Eigen::Matrix3d> active_feat_linsys_A_new;
@@ -386,7 +388,7 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
   PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds total\n" RESET, (retri_rT3 - retri_rT1).total_microseconds() * 1e-6);
 }
 
-cv::Mat VioManager::get_historical_viz_image() {
+cv::Mat VioManager::get_historical_viz_image(double timestamp) {
 
   // Return if not ready yet
   if (state == nullptr || trackFEATS == nullptr)
@@ -404,9 +406,9 @@ cv::Mat VioManager::get_historical_viz_image() {
 
   // Get the current active tracks
   cv::Mat img_history;
-  trackFEATS->display_history(img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
+  trackFEATS->display_history(timestamp, img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
   if (trackARUCO != nullptr) {
-    trackARUCO->display_history(img_history, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay);
+    trackARUCO->display_history(timestamp, img_history, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay);
     // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay);
   }
 

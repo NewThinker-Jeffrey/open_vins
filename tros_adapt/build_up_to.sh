@@ -13,6 +13,7 @@ export CROSS_COMPILE=/usr/bin/$TARGET_TRIPLE-
 colcon build \
     --parallel-workers 2 \
     --merge-install \
+    --symlink-install \
     --cmake-force-configure \
     --cmake-args \
     --no-warn-unused-cli \

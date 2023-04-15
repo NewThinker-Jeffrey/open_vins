@@ -74,6 +74,10 @@ struct VioManagerOptions {
   /// Our state initialization options (e.g. window size, num features, if we should get the calibration)
   ov_init::InertialInitializerOptions init_options;
 
+  /// If false, feature tracking and state update will run in the same thread sequentially.
+  /// Otherwise, a separate thread will be created for feature tracking and state update each.
+  bool async_img_process = false;
+
   /// Delay, in seconds, that we should wait from init before we start estimating SLAM features
   double dt_slam_delay = 2.0;
 
@@ -117,6 +121,7 @@ struct VioManagerOptions {
       parser->parse_config("zupt_only_at_beginning", zupt_only_at_beginning);
       parser->parse_config("record_timing_information", record_timing_information);
       parser->parse_config("record_timing_filepath", record_timing_filepath);
+      parser->parse_config("async_img_process", async_img_process);
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
@@ -126,6 +131,7 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - zupt_only_at_beginning?: %d\n", zupt_only_at_beginning);
     PRINT_DEBUG("  - record timing?: %d\n", (int)record_timing_information);
     PRINT_DEBUG("  - record timing filepath: %s\n", record_timing_filepath.c_str());
+    PRINT_DEBUG("  - async_img_process: %d\n", async_img_process);
   }
 
   // NOISE / CHI2 ============================

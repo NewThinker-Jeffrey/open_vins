@@ -32,6 +32,7 @@
 namespace ov_core {
 class Feature;
 class FeatureInitializer;
+class FeatureDatabase;
 } // namespace ov_core
 
 namespace ov_msckf {
@@ -57,7 +58,7 @@ public:
    * @param options Updater options (include measurement noise value)
    * @param feat_init_options Feature initializer options
    */
-  UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerOptions &feat_init_options);
+  UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerOptions &feat_init_options, std::shared_ptr<ov_core::FeatureDatabase> db);
 
   /**
    * @brief Given tracked features, this will try to use them to update the state.
@@ -76,6 +77,9 @@ protected:
 
   /// Chi squared 95th percentile table (lookup would be size of residual)
   std::map<int, double> chi_squared_table;
+
+  /// Feature tracker database with all features in it
+  std::shared_ptr<ov_core::FeatureDatabase> _db;
 };
 
 } // namespace ov_msckf

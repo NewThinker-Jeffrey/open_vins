@@ -135,6 +135,15 @@ public:
    * @param res Measurement residual
    */
   static void measurement_compress_inplace(Eigen::MatrixXd &H_x, Eigen::VectorXd &res);
+
+
+  // we assume the input array 'timestamps' is already sorted.
+  static std::vector<double> cut_timestamps(const std::vector<double>& timestamps, double max_time);
+
+  static std::unordered_map<size_t, std::vector<double>>
+  cut_timestamps(const std::unordered_map<size_t, std::vector<double>>& timestamps, double max_time);
+
+  
 };
 
 } // namespace ov_msckf

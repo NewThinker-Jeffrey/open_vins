@@ -25,6 +25,7 @@
 
 #include "feat/Feature.h"
 #include "feat/FeatureInitializer.h"
+#include "feat/FeatureDatabase.h"
 #include "state/State.h"
 #include "state/StateHelper.h"
 #include "types/LandmarkRepresentation.h"
@@ -39,7 +40,7 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-UpdaterMSCKF::UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerOptions &feat_init_options) : _options(options) {
+UpdaterMSCKF::UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerOptions &feat_init_options, std::shared_ptr<ov_core::FeatureDatabase> db) : _options(options), _db(db) {
 
   // Save our raw pixel noise squared
   _options.sigma_pix_sq = std::pow(_options.sigma_pix, 2);
@@ -56,7 +57,6 @@ UpdaterMSCKF::UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerO
 }
 
 void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
-
   // Return if no features
   if (feature_vec.empty())
     return;
@@ -69,24 +69,37 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   std::vector<double> clonetimes;
   for (const auto &clone_imu : state->_clones_IMU) {
     clonetimes.emplace_back(clone_imu.first);
-  }
+  }  
+  double max_clonetime = *std::max_element(clonetimes.begin(), clonetimes.end());
+
+  // create cloned features containing no 'future' observations.
+  std::map<std::shared_ptr<Feature>, std::shared_ptr<Feature>> cloned_features;
 
   // 1. Clean all feature measurements and make sure they all have valid clone times
   auto it0 = feature_vec.begin();
   while (it0 != feature_vec.end()) {
-
-    // Clean the feature
-    (*it0)->clean_old_measurements(clonetimes);
+    {
+      std::unique_lock<std::mutex> lck(_db->get_mutex());
+      // Clean the feature
+      (*it0)->clean_old_measurements(clonetimes);
+      cloned_features[*it0] = std::make_shared<Feature>(*(*it0));
+    }
+    auto& cloned_feature = cloned_features[*it0];
+    cloned_feature->clean_future_measurements(max_clonetime);
 
     // Count how many measurements
     int ct_meas = 0;
-    for (const auto &pair : (*it0)->timestamps) {
-      ct_meas += (*it0)->timestamps[pair.first].size();
+    for (const auto &pair : cloned_feature->timestamps) {
+      // ct_meas += (*it0)->timestamps[pair.first].size();
+      ct_meas += cloned_feature->timestamps[pair.first].size();
     }
 
     // Remove if we don't have enough
     if (ct_meas < 2) {
-      (*it0)->to_delete = true;
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it0)->to_delete = true;
+      }
       it0 = feature_vec.erase(it0);
     } else {
       it0++;
@@ -117,24 +130,36 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   // 3. Try to triangulate all MSCKF or new SLAM features that have measurements
   auto it1 = feature_vec.begin();
   while (it1 != feature_vec.end()) {
-
     // Triangulate the feature and remove if it fails
     bool success_tri = true;
+    auto& cloned_feature = cloned_features[(*it1)];
     if (initializer_feat->config().triangulate_1d) {
-      success_tri = initializer_feat->single_triangulation_1d(*it1, clones_cam);
+      success_tri = initializer_feat->single_triangulation_1d(cloned_feature, clones_cam);
     } else {
-      success_tri = initializer_feat->single_triangulation(*it1, clones_cam);
+      success_tri = initializer_feat->single_triangulation(cloned_feature, clones_cam);
     }
 
     // Gauss-newton refine the feature
     bool success_refine = true;
     if (initializer_feat->config().refine_features) {
-      success_refine = initializer_feat->single_gaussnewton(*it1, clones_cam);
+      success_refine = initializer_feat->single_gaussnewton(cloned_feature, clones_cam);
+    }
+
+    {
+      // copy back the triangulaion result
+      std::unique_lock<std::mutex> lck(_db->get_mutex());
+      (*it1)->anchor_cam_id = cloned_feature->anchor_cam_id;
+      (*it1)->anchor_clone_timestamp = cloned_feature->anchor_clone_timestamp;
+      (*it1)->p_FinA = cloned_feature->p_FinA;
+      (*it1)->p_FinG = cloned_feature->p_FinG;
     }
 
     // Remove the feature if not a success
     if (!success_tri || !success_refine) {
-      (*it1)->to_delete = true;
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it1)->to_delete = true;
+      }
       it1 = feature_vec.erase(it1);
       continue;
     }
@@ -145,8 +170,11 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   // Calculate the max possible measurement size
   size_t max_meas_size = 0;
   for (size_t i = 0; i < feature_vec.size(); i++) {
-    for (const auto &pair : feature_vec.at(i)->timestamps) {
-      max_meas_size += 2 * feature_vec.at(i)->timestamps[pair.first].size();
+    // for (const auto &pair : feature_vec.at(i)->timestamps) {
+    //   max_meas_size += 2 * feature_vec.at(i)->timestamps[pair.first].size();
+    // }
+    for (const auto &pair : cloned_features[feature_vec.at(i)]->timestamps) {
+      max_meas_size += 2 * cloned_features[feature_vec.at(i)]->timestamps[pair.first].size();
     }
   }
 
@@ -168,13 +196,13 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   // 4. Compute linear system for each feature, nullspace project, and reject
   auto it2 = feature_vec.begin();
   while (it2 != feature_vec.end()) {
-
     // Convert our feature into our current format
     UpdaterHelper::UpdaterHelperFeature feat;
-    feat.featid = (*it2)->featid;
-    feat.uvs = (*it2)->uvs;
-    feat.uvs_norm = (*it2)->uvs_norm;
-    feat.timestamps = (*it2)->timestamps;
+    auto& cloned_feature = cloned_features[*it2];
+    feat.featid = cloned_feature->featid;
+    feat.uvs = cloned_feature->uvs;
+    feat.uvs_norm = cloned_feature->uvs_norm;
+    feat.timestamps = cloned_feature->timestamps;
 
     // If we are using single inverse depth, then it is equivalent to using the msckf inverse depth
     feat.feat_representation = state->_options.feat_rep_msckf;
@@ -184,13 +212,13 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
     // Save the position and its fej value
     if (LandmarkRepresentation::is_relative_representation(feat.feat_representation)) {
-      feat.anchor_cam_id = (*it2)->anchor_cam_id;
-      feat.anchor_clone_timestamp = (*it2)->anchor_clone_timestamp;
-      feat.p_FinA = (*it2)->p_FinA;
-      feat.p_FinA_fej = (*it2)->p_FinA;
+      feat.anchor_cam_id = cloned_feature->anchor_cam_id;
+      feat.anchor_clone_timestamp = cloned_feature->anchor_clone_timestamp;
+      feat.p_FinA = cloned_feature->p_FinA;
+      feat.p_FinA_fej = cloned_feature->p_FinA;
     } else {
-      feat.p_FinG = (*it2)->p_FinG;
-      feat.p_FinG_fej = (*it2)->p_FinG;
+      feat.p_FinG = cloned_feature->p_FinG;
+      feat.p_FinG_fej = cloned_feature->p_FinG;
     }
 
     // Our return values (feature jacobian, state jacobian, residual, and order of state jacobian)
@@ -223,7 +251,10 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
     // Check if we should delete or not
     if (chi2 > _options.chi2_multipler * chi2_check) {
-      (*it2)->to_delete = true;
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it2)->to_delete = true;
+      }
       it2 = feature_vec.erase(it2);
       // PRINT_DEBUG("featid = %d\n", feat.featid);
       // PRINT_DEBUG("chi2 = %f > %f\n", chi2, _options.chi2_multipler*chi2_check);
@@ -258,8 +289,11 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
   // We have appended all features to our Hx_big, res_big
   // Delete it so we do not reuse information
-  for (size_t f = 0; f < feature_vec.size(); f++) {
-    feature_vec[f]->to_delete = true;
+  {
+    std::unique_lock<std::mutex> lck(_db->get_mutex());
+    for (size_t f = 0; f < feature_vec.size(); f++) {
+      feature_vec[f]->to_delete = true;
+    }
   }
 
   // Return if we don't have anything and resize our matrices

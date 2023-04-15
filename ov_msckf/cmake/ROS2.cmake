@@ -61,7 +61,6 @@ list(APPEND LIBRARY_SOURCES
         src/state/Propagator.cpp
         src/core/VioManager.cpp
         src/core/VioManagerHelper.cpp
-        src/core/VioDataFlow.cpp
         src/update/UpdaterHelper.cpp
         src/update/UpdaterMSCKF.cpp
         src/update/UpdaterSLAM.cpp

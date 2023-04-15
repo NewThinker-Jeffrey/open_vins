@@ -91,6 +91,14 @@ public:
 
   ~CamRadtan() {}
 
+  std::shared_ptr<CamBase> clone() {
+    auto clone = std::make_shared<CamRadtan>(_width, _height);
+    clone->camera_values = camera_values;
+    clone->camera_k_OPENCV = camera_k_OPENCV;
+    clone->camera_d_OPENCV = camera_d_OPENCV;
+    return clone;
+  }
+
   /**
    * @brief Given a raw uv point, this will undistort it based on the camera matrices into normalized camera coords.
    * @param uv_dist Raw uv coordinate we wish to undistort
