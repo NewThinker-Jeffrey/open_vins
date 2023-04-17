@@ -95,6 +95,7 @@ public:
     clone->_variables.clear();
     for (auto& variable : _variables) {
       auto new_variable = variable->clone();
+      new_variable->set_local_id(variable->id());
       clone->_variables.push_back(new_variable);
       old_to_new[variable] = new_variable;
     }

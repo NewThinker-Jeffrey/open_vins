@@ -55,6 +55,10 @@ public:
 
   void setup_player(std::shared_ptr<ov_core::YamlParser> parser);
 
+  void wait_play_over();
+
+  void stop_algo_threads();
+
 protected:
   std::vector<ov_core::ImuData> imu_data_;
   std::vector<double> image_times_;

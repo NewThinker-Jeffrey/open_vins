@@ -143,11 +143,23 @@ void ROS2VisualizerForFolderBasedDataset::setup_player(std::shared_ptr<ov_core::
     _node->get_parameter<std::string>("dataset", dataset);
     load_dataset(dataset);
     data_play_thread_.reset(new std::thread([this](){
+      pthread_setname_np(pthread_self(), "ov_play");
       this->data_play();
     }));
   } else {
     PRINT_WARNING("dataset is not set!\n");
   }
+}
+
+void ROS2VisualizerForFolderBasedDataset::wait_play_over() {
+  if (data_play_thread_ && data_play_thread_->joinable()) {
+    data_play_thread_->join();
+    data_play_thread_.reset();
+  }
+}
+
+void ROS2VisualizerForFolderBasedDataset::stop_algo_threads() {
+  _app->stop_threads();
 }
 
 void ROS2VisualizerForFolderBasedDataset::load_dataset(const std::string& dataset_folder) {
@@ -205,7 +217,7 @@ void ROS2VisualizerForFolderBasedDataset::data_play() {
 
   // std::cout << "sensor_start_time " << sensor_start_time << std::endl;
 
-  while((next_sensor_time = get_next_sensor_time()) > 0) {
+  while(rclcpp::ok() && (next_sensor_time = get_next_sensor_time()) > 0) {
     double sensor_dt = next_sensor_time - sensor_start_time;
     auto next_play_time = play_start_time + std::chrono::milliseconds(int(sensor_dt / play_rate * 1000));
     // std::cout << "sensor dt = " << sensor_dt << ", play dt = " << (next_play_time - play_start_time).count() / 1e9 << std::endl;
@@ -218,8 +230,11 @@ void ROS2VisualizerForFolderBasedDataset::data_play() {
     if (image_idx < image_times_.size() && image_times_[image_idx] <= next_sensor_time) {
       if (image_idx % 2 == 0) {
         std::lock_guard<std::mutex> lck(camera_queue_mtx);
-        std::cout << "play image: " << image_idx << ", queue size " << camera_queue.size() << ", "
-                  << "sensor dt = " << sensor_dt << ", play dt = " 
+        std::cout << "play image: " << image_idx << ", queue_size "
+                  << "(camera_sync = " << _app->get_camera_sync_queue_size()
+                  << ", feature_tracking = " << _app->get_feature_tracking_queue_size()
+                  << ", state_update = " << _app->get_state_update_queue_size()
+                  << "), sensor dt = " << sensor_dt << ", play dt = " 
                   << (std::chrono::high_resolution_clock::now() - play_start_time).count() / 1e9 << std::endl;
       }
 
@@ -282,4 +297,5 @@ void ROS2VisualizerForFolderBasedDataset::data_play() {
       imu_idx ++;
     }
   }
+  std::cout << "**** play over! *****" << std::endl;
 }

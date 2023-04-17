@@ -27,6 +27,9 @@
 #include "ros/ROS2VisualizerForFolderBasedDataset.h"
 #include <rclcpp/rclcpp.hpp>
 
+#include <gflags/gflags.h>
+#include <glog/logging.h>
+
 using namespace ov_msckf;
 
 std::shared_ptr<VioManager> sys;
@@ -34,6 +37,13 @@ std::shared_ptr<ROS2VisualizerForFolderBasedDataset> viz;
 
 // Main function
 int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
+  //google::ParseCommandLineFlags(&argc, &argv, false);
+  google::InstallFailureSignalHandler();
+  FLAGS_alsologtostderr = true;
+  FLAGS_colorlogtostderr = true;
+  // FLAGS_run_register = false;
+
 
   // Ensure we have a path, if the user passes it then we should use it
   std::string config_path = "unset_path_to_config.yaml";
@@ -72,16 +82,29 @@ int main(int argc, char **argv) {
     std::exit(EXIT_FAILURE);
   }
 
-  // Spin off to ROS
-  PRINT_DEBUG("done...spinning to ros\n");
-  // rclcpp::spin(node);
-  rclcpp::executors::MultiThreadedExecutor executor;
-  executor.add_node(node);
-  executor.spin();
+  viz->wait_play_over();
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  viz->stop_algo_threads();
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  viz->stop_visualization_thread();
+
+  // // Spin off to ROS
+  // PRINT_DEBUG("done...spinning to ros\n");
+  // // rclcpp::spin(node);
+  // rclcpp::executors::MultiThreadedExecutor executor;
+  // executor.add_node(node);
+  // executor.spin();
 
   // Final visualization
   viz->visualize_final();
   rclcpp::shutdown();
+
+
+  std::cout << "Destroying VioManager ..." << std::endl;
+  sys.reset();
+  std::cout << "Destroying ROS2Visualizer ..." << std::endl;
+  viz.reset();
+  std::cout << "All done." << std::endl;
 
   // Done!
   return EXIT_SUCCESS;

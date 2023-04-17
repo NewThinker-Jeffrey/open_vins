@@ -122,7 +122,6 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
 
 bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double timestamp, Eigen::Matrix<double, 13, 1> &state_plus,
                                       Eigen::Matrix<double, 12, 12> &covariance) {
-
   // First we will store the current calibration / estimates of the state
   double state_time = state->_timestamp;
   Eigen::MatrixXd state_est = state->_imu->value();

@@ -66,40 +66,54 @@ class VioManager {
 public:
 
   struct Output {
+    /////// Status ///////
     // the timestamp of the image used for this output
-    double timestamp;
+    struct {
+      double timestamp = -1;
+      bool initialized = false;
+      double initialized_time = -1;
+    } status;
 
+    /////// The state ///////
     // A clone for our latest internal state.
     // std::shared_ptr<const State> state_clone;
     std::shared_ptr<State> state_clone;
 
-    // Good features that where used in the last update (used in visualization)
-    std::vector<Eigen::Vector3d> good_features_MSCKF;
+    /////// Variables used for visualization  ////////
+    struct {
+      // Good features that where used in the last update (used in visualization)
+      std::vector<Eigen::Vector3d> good_features_MSCKF;
 
-    /// Returns 3d SLAM features in the global frame
-    std::vector<Eigen::Vector3d> features_SLAM;
+      /// Returns 3d SLAM features in the global frame
+      std::vector<Eigen::Vector3d> features_SLAM;
 
-    /// Returns 3d ARUCO features in the global frame
-    std::vector<Eigen::Vector3d> features_ARUCO;
-    
-    /// Returns active tracked features in the current frame
-    std::unordered_map<size_t, Eigen::Vector3d> active_tracks_posinG;
-    std::unordered_map<size_t, Eigen::Vector3d> active_tracks_uvd;
+      /// Returns 3d ARUCO features in the global frame
+      std::vector<Eigen::Vector3d> features_ARUCO;
+      
+      /// Returns active tracked features in the current frame
+      std::unordered_map<size_t, Eigen::Vector3d> active_tracks_posinG;
+      std::unordered_map<size_t, Eigen::Vector3d> active_tracks_uvd;
 
-    /// Return the image used when projecting the active tracks
-    cv::Mat active_cam0_image;
+      /// Return the image used when projecting the active tracks
+      cv::Mat active_cam0_image;
+    } visualization;
   };
 
-  std::shared_ptr<Output> getLastOutput() {
+  std::shared_ptr<Output> getLastOutput(bool need_state=true, bool need_visualization=false) {
     std::unique_lock<std::mutex> locker(output_mutex_);
-    return std::make_shared<Output>(output);
-  }
-
-  double getLastOutputTime() {
-    std::unique_lock<std::mutex> locker(output_mutex_);
-    // assert(output.timestamp == output.state_clone->_timestamp);  // camera_clock vs imu_clock ?
-    // return output.timestamp;  // time in camera clock?
-    return output.state_clone->_timestamp;   // time in imu clock?
+    auto output = std::make_shared<Output>();
+    output->status = this->output.status;
+    if (need_state && this->output.state_clone) {
+      output->state_clone = this->output.state_clone->clone();
+      if (output->status.initialized) {
+        assert(output->status.timestamp == output->state_clone->_timestamp);  // time in camera_clock
+        // std::cout << "output->status.timestamp - output->state_clone->_timestamp = " << output->status.timestamp - output->state_clone->_timestamp << std::endl;  // camera_clock vs imu_clock ?
+      }
+    }
+    if (need_visualization) {
+      output->visualization = this->output.visualization;
+    }
+    return output;
   }
 
   /**
@@ -107,6 +121,10 @@ public:
    * @param params_ Parameters loaded from either ROS or CMDLINE
    */
   VioManager(VioManagerOptions &params_);
+
+  ~VioManager() { stop_threads(); }
+
+  void stop_threads();
 
   /**
    * @brief Feed function for inertial data
@@ -135,17 +153,8 @@ public:
    */
   void initialize_with_gt(Eigen::Matrix<double, 17, 1> imustate);
 
-  /// If we are initialized or not
-  bool initialized() { return is_initialized_vio; }
-
-  /// Timestamp that the system was initialized at
-  double initialized_time() { return startup_time; }
-
   /// Accessor for current system parameters
   VioManagerOptions get_params() { return params; }
-
-  /// Accessor to get the current state
-  std::shared_ptr<State> get_state() { return state; }
 
   /// Accessor to get the current propagator
   std::shared_ptr<Propagator> get_propagator() { return propagator; }
@@ -153,14 +162,40 @@ public:
   /// Get a nice visualization image of what tracks we have
   cv::Mat get_historical_viz_image(double timestamp);
 
+  // clear older tracking cache (used for visualization)
+  void clear_older_tracking_cache(double timestamp);
+
+  size_t get_camera_sync_queue_size() {
+    std::unique_lock<std::mutex> locker(camera_queue_mutex_);
+    return camera_queue_.size();
+  }
+
+  size_t get_feature_tracking_queue_size() {
+    std::unique_lock<std::mutex> locker(feature_tracking_task_queue_mutex_);
+    return feature_tracking_task_queue_.size();
+  }
+
+  size_t get_state_update_queue_size() {
+    std::unique_lock<std::mutex> locker(update_task_queue_mutex_);
+    return update_task_queue_.size();
+  }
+
+protected:
+  struct ImgProcessContext {
+    boost::posix_time::ptime rT1, rT2, rT3, rT4, rT5, rT6, rT7;
+    std::shared_ptr<ov_core::CameraData> message;
+  };  
+  using ImgProcessContextPtr = std::shared_ptr<ImgProcessContext>;
+  using ImgProcessContextQueue = std::deque<ImgProcessContextPtr>;
+
+  void do_feature_tracking(ImgProcessContextPtr c);
+  void do_update(ImgProcessContextPtr c);
+
   /// Returns 3d SLAM features in the global frame
   std::vector<Eigen::Vector3d> get_features_SLAM();
 
   /// Returns 3d ARUCO features in the global frame
   std::vector<Eigen::Vector3d> get_features_ARUCO();
-
-  /// Returns 3d features used in the last update in global frame
-  std::vector<Eigen::Vector3d> get_good_features_MSCKF() { return good_features_MSCKF; }
 
   /// Return the image used when projecting the active tracks
   void get_active_image(double &timestamp, cv::Mat &image) {
@@ -175,21 +210,6 @@ public:
     feat_posinG = active_tracks_posinG;
     feat_tracks_uvd = active_tracks_uvd;
   }
-
-  // clear older tracking cache (used for visualization)
-  void clear_older_tracking_cache(double timestamp);
-
-protected:
-  struct ImgProcessContext {
-    boost::posix_time::ptime rT1, rT2, rT3, rT4, rT5, rT6, rT7;
-    std::shared_ptr<ov_core::CameraData> message;
-  };  
-  using ImgProcessContextPtr = std::shared_ptr<ImgProcessContext>;
-  using ImgProcessContextQueue = std::deque<ImgProcessContextPtr>;
-
-  void do_feature_tracking(ImgProcessContextPtr c);
-  void do_update(ImgProcessContextPtr c);
-
 
   /**
    * @brief Given a new set of camera images, this will track them.
@@ -315,6 +335,9 @@ protected:
   std::shared_ptr<std::thread> update_thread_;
   double last_imu_time_ = -1;
   void update_thread_func();
+
+  std::atomic<bool> stop_request_;
+
 
   std::shared_ptr<std::thread> initialization_thread_;
 

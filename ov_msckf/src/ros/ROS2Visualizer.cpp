@@ -145,16 +145,27 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   }
 
   // Start thread for the visualizing
+  stop_viz_request_ = false;
   _vis_thread = std::make_shared<std::thread>([&] {
+    pthread_setname_np(pthread_self(), "ov_visualize");
+
     // use a high rate to ensure the _vis_output to update in time (which is also needed in visualize_odometry()).
     // rclcpp::Rate loop_rate(20);
     rclcpp::Rate loop_rate(40);
-    while (rclcpp::ok()) {
+    while (rclcpp::ok() && !stop_viz_request_) {
       visualize();
       loop_rate.sleep();
     }
   });
-  _vis_thread->detach();  // todo: do not detach, join it in the destructor instead
+}
+
+void ROS2Visualizer::stop_visualization_thread() {
+  stop_viz_request_ = true;
+  if (_vis_thread && _vis_thread->joinable()) {
+    _vis_thread->join();
+    _vis_thread.reset();
+  }
+  std::cout << "visualization_thread stoped." << std::endl;
 }
 
 void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> parser) {
@@ -225,12 +236,14 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
 void ROS2Visualizer::visualize() {
   // Return if we have already visualized
   // The check is fast.
-  if (last_visualization_timestamp == _app->getLastOutputTime() && _app->initialized())
+  auto simple_output = _app->getLastOutput(false, false);
+  if (simple_output->status.timestamp <= 0 || last_visualization_timestamp == simple_output->status.timestamp && simple_output->status.initialized)
     return;
   _app->clear_older_tracking_cache(last_visualization_timestamp);
 
-  _vis_output = _app->getLastOutput();
-  last_visualization_timestamp = _vis_output->state_clone->_timestamp;
+  _vis_output = _app->getLastOutput(true, true);
+  // last_visualization_timestamp = _vis_output->state_clone->_timestamp;
+  last_visualization_timestamp = _vis_output->status.timestamp;
 
   // Start timing
   // boost::posix_time::ptime rT0_1, rT0_2;
@@ -240,7 +253,7 @@ void ROS2Visualizer::visualize() {
   publish_images();
 
   // Return if we have not inited
-  if (!_app->initialized())
+  if (!_vis_output->status.initialized)
     return;
 
   // Save the start time of this dataset
@@ -275,8 +288,9 @@ void ROS2Visualizer::visualize() {
 void ROS2Visualizer::visualize_odometry(double timestamp) {
 
   // Return if we have not inited and a second has passes
-  if (!_app->initialized() || (timestamp - _app->initialized_time()) < 1)
+  if (!_vis_output || !_vis_output->status.initialized || (timestamp - _vis_output->status.initialized_time) < 1) {
     return;
+  }
 
   // Get fast propagate state at the desired timestamp
   std::shared_ptr<State> state = _vis_output->state_clone;  // shared_ptr itself is thread-safe.
@@ -500,6 +514,7 @@ void ROS2Visualizer::publish_state() {
   // The timestamp in the state will be the last camera time
   double t_ItoC = state->_calib_dt_CAMtoIMU->value()(0);
   double timestamp_inI = state->_timestamp + t_ItoC;
+  // std::cout << "t_ItoC = " << t_ItoC << ", state->_timestamp = " << state->_timestamp << ", timestamp_inI = " << timestamp_inI << std::endl;
 
   // Create pose of IMU (note we use the bag time)
   geometry_msgs::msg::PoseWithCovarianceStamped poseIinM;
@@ -547,13 +562,14 @@ void ROS2Visualizer::publish_state() {
 }
 
 void ROS2Visualizer::publish_images() {
-  if (_vis_output->state_clone == nullptr)
+  if (_vis_output->status.timestamp <= 0)
     return;
 
   // Return if we have already visualized
-  double cur_state_timestamp = _vis_output->state_clone->_timestamp;
+  // double cur_state_timestamp = _vis_output->state_clone->_timestamp;
+  double cur_state_timestamp = _vis_output->status.timestamp;
 
-  if (last_visualization_timestamp_image == cur_state_timestamp && _app->initialized())
+  if (last_visualization_timestamp_image == cur_state_timestamp && _vis_output->status.initialized)
     return;
   last_visualization_timestamp_image = cur_state_timestamp;
 
@@ -583,17 +599,17 @@ void ROS2Visualizer::publish_features() {
     return;
 
   // Get our good MSCKF features
-  std::vector<Eigen::Vector3d>& feats_msckf = _vis_output->good_features_MSCKF;
+  std::vector<Eigen::Vector3d>& feats_msckf = _vis_output->visualization.good_features_MSCKF;
   sensor_msgs::msg::PointCloud2 cloud = ROSVisualizerHelper::get_ros_pointcloud(_node, feats_msckf);
   pub_points_msckf->publish(cloud);
 
   // Get our good SLAM features
-  std::vector<Eigen::Vector3d>& feats_slam = _vis_output->features_SLAM;
+  std::vector<Eigen::Vector3d>& feats_slam = _vis_output->visualization.features_SLAM;
   sensor_msgs::msg::PointCloud2 cloud_SLAM = ROSVisualizerHelper::get_ros_pointcloud(_node, feats_slam);
   pub_points_slam->publish(cloud_SLAM);
 
   // Get our good ARUCO features
-  std::vector<Eigen::Vector3d>& feats_aruco = _vis_output->features_ARUCO;
+  std::vector<Eigen::Vector3d>& feats_aruco = _vis_output->visualization.features_ARUCO;
   sensor_msgs::msg::PointCloud2 cloud_ARUCO = ROSVisualizerHelper::get_ros_pointcloud(_node, feats_aruco);
   pub_points_aruco->publish(cloud_ARUCO);
 
@@ -736,7 +752,7 @@ void ROS2Visualizer::publish_groundtruth() {
 void ROS2Visualizer::publish_loopclosure_information() {
   // Get the current tracks in this frame
 
-  double active_tracks_time1 = _vis_output->timestamp;
+  double active_tracks_time1 = _vis_output->status.timestamp;
 
   // double active_tracks_time1 = -1;
   // double active_tracks_time2 = -1;
@@ -746,9 +762,9 @@ void ROS2Visualizer::publish_loopclosure_information() {
   // _app->get_active_tracks(active_tracks_time1, active_tracks_posinG, active_tracks_uvd);
   // _app->get_active_image(active_tracks_time2, active_cam0_image);
 
-  cv::Mat& active_cam0_image = _vis_output->active_cam0_image;
-  auto& active_tracks_posinG = _vis_output->active_tracks_posinG;
-  auto& active_tracks_uvd = _vis_output->active_tracks_uvd;
+  cv::Mat& active_cam0_image = _vis_output->visualization.active_cam0_image;
+  auto& active_tracks_posinG = _vis_output->visualization.active_tracks_posinG;
+  auto& active_tracks_uvd = _vis_output->visualization.active_tracks_uvd;
 
   if (active_tracks_time1 == -1)
     return;

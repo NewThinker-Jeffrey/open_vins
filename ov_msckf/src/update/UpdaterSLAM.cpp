@@ -65,8 +65,6 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
   if (feature_vec.empty())
     return;
 
-  PRINT_INFO("DEBUG POINT 4.1\n");
-
   // Start timing
   boost::posix_time::ptime rT0, rT1, rT2, rT3;
   rT0 = boost::posix_time::microsec_clock::local_time();
@@ -113,8 +111,6 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
   }
   rT1 = boost::posix_time::microsec_clock::local_time();
 
-  PRINT_INFO("DEBUG POINT 4.2\n");
-
   // 2. Create vector of cloned *CAMERA* poses at each of our clone timesteps
   std::unordered_map<size_t, std::unordered_map<double, FeatureInitializer::ClonePose>> clones_cam;
   for (const auto &clone_calib : state->_calib_IMUtoCAM) {
@@ -134,8 +130,6 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     // Append to our map
     clones_cam.insert({clone_calib.first, clones_cami});
   }
-
-  PRINT_INFO("DEBUG POINT 4.3\n");
 
 
   // 3. Try to triangulate all MSCKF or new SLAM features that have measurements
@@ -177,9 +171,6 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     it1++;
   }
   rT2 = boost::posix_time::microsec_clock::local_time();
-
-  PRINT_INFO("DEBUG POINT 4.4\n");
-
 
   // 4. Compute linear system for each feature, nullspace project, and reject
   auto it2 = feature_vec.begin();
@@ -284,8 +275,6 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     }
   }
   rT3 = boost::posix_time::microsec_clock::local_time();
-
-  PRINT_INFO("DEBUG POINT 4.5\n");
 
   // Debug print timing information
   if (!feature_vec.empty()) {

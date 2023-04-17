@@ -93,6 +93,10 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
 
   // Run the initialization in a second thread so it can go as slow as it desires
   thread_init_running = true;
+  if (initialization_thread_ && initialization_thread_->joinable()) {
+    initialization_thread_->join();
+    initialization_thread_.reset();
+  }
   initialization_thread_ = std::make_shared<std::thread>([&] {
     pthread_setname_np(pthread_self(), "ov_init");
 
@@ -183,8 +187,6 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
   // Otherwise detach this thread so it runs in the background!
   if (!params.use_multi_threading_subs) {
     initialization_thread_->join();
-  } else {
-    initialization_thread_->detach();
   }
   return false;
 }

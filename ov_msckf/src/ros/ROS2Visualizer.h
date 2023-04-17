@@ -120,6 +120,8 @@ public:
   void callback_stereo(const sensor_msgs::msg::Image::ConstSharedPtr msg0, const sensor_msgs::msg::Image::ConstSharedPtr msg1, int cam_id0,
                        int cam_id1);
 
+  void stop_visualization_thread();
+
 protected:
   /// Publish the current state
   void publish_state();
@@ -210,6 +212,8 @@ protected:
 
   std::shared_ptr<std::thread> _vis_thread;
   std::shared_ptr<VioManager::Output> _vis_output;
+  std::atomic<bool> stop_viz_request_;
+
 
   struct HeisenbergImgFile {
     int64_t ts;
