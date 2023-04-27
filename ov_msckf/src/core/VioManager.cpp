@@ -153,6 +153,9 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   // Feature initializer for active tracks
   active_tracks_initializer = std::make_shared<FeatureInitializer>(params.featinit_options);
 
+  // sync the output with our state
+  update_output(-1);
+
   if (params.async_img_process)  {
     feature_tracking_thread_.reset(new std::thread(std::bind(&VioManager::feature_tracking_thread_func, this)));
     update_thread_.reset(new std::thread(std::bind(&VioManager::update_thread_func, this)));
@@ -196,13 +199,21 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
 
   // The oldest time we need IMU with is the last clone
   // We shouldn't really need the whole window, but if we go backwards in time we will
-  double oldest_time = state->margtimestep();
-  if (oldest_time > state->_timestamp) {
-    oldest_time = -1;
+  // double oldest_time = state->margtimestep();  // not thread-safe
+
+  double oldest_time;
+  {
+    std::unique_lock<std::mutex> locker(output_mutex_);
+    // it's ok to get these timestamps from the last cloned state.
+    oldest_time = output.state_clone->margtimestep();
+    if (oldest_time > output.state_clone->_timestamp) {
+      oldest_time = -1;
+    }
+    if (!output.status.initialized) {
+      oldest_time = message.timestamp - params.init_options.init_window_time + output.state_clone->_calib_dt_CAMtoIMU->value()(0) - 0.10;
+    }
   }
-  if (!is_initialized_vio) {
-    oldest_time = message.timestamp - params.init_options.init_window_time + state->_calib_dt_CAMtoIMU->value()(0) - 0.10;
-  }
+
   propagator->feed_imu(message, oldest_time);
 
   // Push back to our initializer

@@ -287,6 +287,12 @@ void ROS2Visualizer::visualize() {
 
 void ROS2Visualizer::visualize_odometry(double timestamp) {
 
+  if (timestamp - last_visualization_timestamp_odom < 0.019) {
+    // don't visulize too frequently (50Hz at most)
+    return;
+  }
+  last_visualization_timestamp_odom = timestamp;
+
   // Return if we have not inited and a second has passes
   if (!_vis_output || !_vis_output->status.initialized || (timestamp - _vis_output->status.initialized_time) < 1) {
     return;
