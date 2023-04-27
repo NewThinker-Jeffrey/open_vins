@@ -72,6 +72,8 @@ public:
       double timestamp = -1;
       bool initialized = false;
       double initialized_time = -1;
+      bool drift = false;
+      double distance = 0.0;
     } status;
 
     /////// The state ///////
@@ -349,6 +351,13 @@ protected:
   // Last camera message timestamps we have received (mapped by cam id)
   std::map<int, double> camera_last_timestamp;
 
+  // drift check
+  int drift_alarm_count = 0;
+  double last_drift_check_time = -1;
+  double last_drift_check_distance = -1;
+  bool has_drift = false;
+
+  bool check_drift();
 };
 
 } // namespace ov_msckf

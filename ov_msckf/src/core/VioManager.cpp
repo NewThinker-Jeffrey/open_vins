@@ -91,6 +91,11 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
 
   // If we are recording statistics, then open our file
   if (params.record_timing_information) {
+    // override the record_timing_filepath if output_dir is set.
+    if (!params.output_dir.empty()) {
+      params.record_timing_filepath = params.output_dir + "/" + "ov_msckf_timing.txt";
+    }
+
     // If the file exists, then delete it
     if (boost::filesystem::exists(params.record_timing_filepath)) {
       boost::filesystem::remove(params.record_timing_filepath);
@@ -372,6 +377,7 @@ void VioManager::update_thread_func() {
     }
 
     do_update(c);
+    has_drift = check_drift();
     update_output(c->message->timestamp);
   }
 }
@@ -457,11 +463,87 @@ void VioManager::do_update(ImgProcessContextPtr c) {
   do_feature_propagate_update(c);
 }
 
+bool VioManager::check_drift() {
+  constexpr double acc_bias_thr = 3.0;  // m / s^2
+  constexpr double gyro_bias_thr = 1.0;  // rad / s
+  constexpr double velocity_thr = 2.0;  // m / s
+  constexpr double std_p_thr = 2.0;  // m  (larger std_p means we've lost confidence about the estimate)
+  constexpr double std_q_thr = 0.5;  // rad
+
+
+  if (!is_initialized_vio || !state || state->_timestamp <= 0) {
+    return false;  // we have not initialized.
+  }
+
+  if (last_drift_check_time >= state->_timestamp) {
+    return false;  // prevent duplicate checks.
+  }
+
+  double dt = state->_timestamp - last_drift_check_time;
+  double ds = 0.0;
+  if (last_drift_check_distance > 0 ) {
+    ds = distance - last_drift_check_distance;
+  }
+
+  last_drift_check_time = state->_timestamp;
+  last_drift_check_distance = distance;
+
+  Eigen::Vector3d acc_bias = state->_imu->bias_a();
+  Eigen::Vector3d gyro_bias = state->_imu->bias_g();
+  Eigen::Vector3d vel = state->_imu->vel();
+
+  double newest_clone_time = -1.0;
+  std::shared_ptr<ov_type::PoseJPL> newest_clone_pose;
+  for (auto it = state->_clones_IMU.begin(); it != state->_clones_IMU.end(); it ++) {
+    if (it->first > newest_clone_time) {
+      newest_clone_time = it->first;
+      newest_clone_pose = it->second;
+    }
+  }
+
+  double std_p = 0.0;
+  double std_q = 0.0;
+  if (newest_clone_pose) {
+    Eigen::MatrixXd cov =
+    StateHelper::get_marginal_covariance(state, {newest_clone_pose});
+    Eigen::MatrixXd q_cov = cov.block(0,0,3,3);
+    Eigen::MatrixXd p_cov = cov.block(3,3,3,3);
+    std_q = std::sqrt(q_cov.trace());
+    std_p = std::sqrt(p_cov.trace());
+  }
+  
+  bool drift_alarm = false;
+  if (vel.norm() > velocity_thr || ds / dt > velocity_thr ||
+      acc_bias.norm() > acc_bias_thr || gyro_bias.norm() > gyro_bias_thr ||
+      std_q > std_q_thr || std_p > std_p_thr) {
+    drift_alarm = true;
+  }
+
+  if (drift_alarm) {
+    drift_alarm_count ++;
+  } else {
+    drift_alarm_count = 0;
+  }
+
+  PRINT_INFO("DriftCheck: vel=%.4f,  ds/dt=%.4f, acc_bias=%.4f,  gyro_bias=%.4f, "
+             "std_q=%.4f, std_p=%.4f, drift_alarm=%d, drift_alarm_count=%d\n",
+                           vel.norm(), ds/dt,    acc_bias.norm(), gyro_bias.norm(),
+              std_q,      std_p,       drift_alarm,    drift_alarm_count);
+
+  if (drift_alarm_count > 10) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 void VioManager::update_output(double timestamp) {
   Output output;
   output.status.timestamp = timestamp;
   output.status.initialized = is_initialized_vio;
   output.status.initialized_time = startup_time;
+  output.status.distance = distance;
+  output.status.drift = has_drift;
   // output.state_clone = std::const_pointer_cast<const State>(state->clone());
   output.state_clone = std::const_pointer_cast<State>(state->clone());
   output.visualization.good_features_MSCKF = good_features_MSCKF;
@@ -537,6 +619,7 @@ void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
     PRINT_DEBUG("Run feature tracking and state update in the same thread\n");
     do_feature_tracking(c);
     do_update(c);
+    has_drift = check_drift();
     update_output(c->message->timestamp);
   }
 }

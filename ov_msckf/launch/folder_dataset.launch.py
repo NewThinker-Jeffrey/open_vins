@@ -49,6 +49,21 @@ launch_args = [
         description="how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)",
     ),
     DeclareLaunchArgument(
+        name="output_dir",
+        default_value="",
+        description="path to the output",
+    ),
+    DeclareLaunchArgument(
+        name="save_feature_images",
+        default_value="false",
+        description="record the feature images",
+    ),
+    DeclareLaunchArgument(
+        name="record_timing_information",
+        default_value="false",
+        description="record the record_timing_information",
+    ),
+    DeclareLaunchArgument(
         name="save_total_state",
         default_value="false",
         description="record the total state with calibration and features to a txt file",
@@ -57,6 +72,7 @@ launch_args = [
 
 def launch_setup(context):
     config_path = LaunchConfiguration("config_path").perform(context)
+    output_dir = LaunchConfiguration("output_dir").perform(context)
     dataset = LaunchConfiguration("dataset").perform(context)
     play_rate = LaunchConfiguration("play_rate").perform(context)
     print("dataset: {}".format(dataset))
@@ -95,9 +111,12 @@ def launch_setup(context):
             {"verbosity": LaunchConfiguration("verbosity")},
             {"use_stereo": LaunchConfiguration("use_stereo")},
             {"max_cameras": LaunchConfiguration("max_cameras")},
+            {"record_timing_information": LaunchConfiguration("record_timing_information")},
             {"save_total_state": LaunchConfiguration("save_total_state")},
+            {"save_feature_images": LaunchConfiguration("save_feature_images")},
             {"config_path": config_path},
             {"dataset": dataset},
+            {"output_dir": output_dir},
             {"play_rate": play_rate},
         ],
     )

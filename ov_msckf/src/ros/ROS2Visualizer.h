@@ -128,6 +128,7 @@ protected:
 
   /// Publish the active tracking image
   void publish_images();
+  void save_feature_image(double timestamp, const cv::Mat& feature_image);
 
   /// Publish current features
   void publish_features();
@@ -210,6 +211,11 @@ protected:
   // Files and if we should save total state
   bool save_total_state = false;
   std::ofstream of_state_est, of_state_std, of_state_gt;
+
+  bool save_feature_images = false;
+  std::string feature_image_save_dir = "";
+
+  std::string output_dir = "";
 
   std::shared_ptr<std::thread> _vis_thread;
   std::shared_ptr<VioManager::Output> _vis_output;

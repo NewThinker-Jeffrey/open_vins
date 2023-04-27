@@ -78,6 +78,9 @@ struct VioManagerOptions {
   /// Otherwise, a separate thread will be created for feature tracking and state update each.
   bool async_img_process = false;
 
+  /// our output. save nothing if not set.
+  std::string output_dir = "";
+
   /// Delay, in seconds, that we should wait from init before we start estimating SLAM features
   double dt_slam_delay = 2.0;
 
@@ -122,6 +125,7 @@ struct VioManagerOptions {
       parser->parse_config("record_timing_information", record_timing_information);
       parser->parse_config("record_timing_filepath", record_timing_filepath);
       parser->parse_config("async_img_process", async_img_process);
+      parser->parse_config("output_dir", output_dir);
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
@@ -132,6 +136,7 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - record timing?: %d\n", (int)record_timing_information);
     PRINT_DEBUG("  - record timing filepath: %s\n", record_timing_filepath.c_str());
     PRINT_DEBUG("  - async_img_process: %d\n", async_img_process);
+    PRINT_DEBUG("  - output_dir: %d\n", output_dir);
   }
 
   // NOISE / CHI2 ============================

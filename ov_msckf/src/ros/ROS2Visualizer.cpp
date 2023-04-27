@@ -97,6 +97,19 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
     PRINT_DEBUG("gt file path is: %s\n", path_to_gt.c_str());
   }
 
+  if (node->has_parameter("output_dir")) {
+    node->get_parameter<std::string>("output_dir", output_dir);
+  }
+
+  if (node->has_parameter("save_feature_images")) {
+    node->get_parameter<bool>("save_feature_images", save_feature_images);
+  }
+
+  if (save_feature_images && !output_dir.empty()) {
+    feature_image_save_dir = output_dir + "/" + "feature_images";
+    boost::filesystem::create_directories(boost::filesystem::path(feature_image_save_dir.c_str()));
+  }
+
   // Load if we should save the total state to file
   // If so, then open the file and create folders as needed
   if (node->has_parameter("save_total_state")) {
@@ -116,6 +129,13 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
     }
     if (node->has_parameter("filepath_gt")) {
       node->get_parameter<std::string>("filepath_gt", filepath_gt);
+    }
+
+    if (!output_dir.empty()) {
+      // override the file paths if output_dir is set
+      filepath_est = output_dir + "/" + "state_estimate.txt";
+      filepath_std = output_dir + "/" + "state_deviation.txt";
+      filepath_gt = output_dir + "/" + "state_groundtruth.txt";
     }
 
     // If it exists, then delete it
@@ -142,6 +162,13 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
       of_state_gt.open(filepath_gt.c_str());
       of_state_gt << "# timestamp(s) q p v bg ba cam_imu_dt num_cam cam0_k cam0_d cam0_rot cam0_trans .... etc" << std::endl;
     }
+  }
+
+  if (node->has_parameter("save_total_state")) {
+    node->get_parameter<bool>("save_total_state", save_total_state);
+  }
+  if (save_feature_images) {
+
   }
 
   // Start thread for the visualizing
@@ -567,6 +594,14 @@ void ROS2Visualizer::publish_state() {
   pub_pathimu->publish(arrIMU);
 }
 
+void ROS2Visualizer::save_feature_image(double timestamp, const cv::Mat& feature_image) {
+  if (save_feature_images && !feature_image_save_dir.empty()) {
+    int64_t ts = int64_t(timestamp * 1e9);
+    std::string img_file = feature_image_save_dir + "/" + std::to_string(ts) + ".jpg";
+    cv::imwrite(img_file, feature_image);
+  }
+}
+
 void ROS2Visualizer::publish_images() {
   if (_vis_output->status.timestamp <= 0)
     return;
@@ -587,6 +622,8 @@ void ROS2Visualizer::publish_images() {
   cv::Mat img_history = _app->get_historical_viz_image(cur_state_timestamp);
   if (img_history.empty())
     return;
+
+  save_feature_image(cur_state_timestamp, img_history);
 
   // Create our message
   std_msgs::msg::Header header;
