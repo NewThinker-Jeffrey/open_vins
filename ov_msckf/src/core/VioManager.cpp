@@ -125,7 +125,7 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   if (params.use_klt) {
     trackFEATS = std::shared_ptr<TrackBase>(new TrackKLT(state->_cam_intrinsics_cameras, init_max_features,
                                                          state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
-                                                         params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist));
+                                                         params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.klt_left_major_stereo));
   } else {
     trackFEATS = std::shared_ptr<TrackBase>(new TrackDescriptor(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
@@ -547,6 +547,7 @@ void VioManager::update_output(double timestamp) {
   // output.state_clone = std::const_pointer_cast<const State>(state->clone());
   output.state_clone = std::const_pointer_cast<State>(state->clone());
   output.visualization.good_features_MSCKF = good_features_MSCKF;
+  output.visualization.good_feature_ids_MSCKF = good_feature_ids_MSCKF;
   output.visualization.features_SLAM = get_features_SLAM();
   output.visualization.features_ARUCO = get_features_ARUCO();
   output.visualization.active_tracks_posinG = active_tracks_posinG;
@@ -880,11 +881,13 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     // Thus we should be able to visualize the other unique camera stream
     // MSCKF features as they will also be appended to the vector
     good_features_MSCKF.clear();
+    good_feature_ids_MSCKF.clear();
   }
 
   // Save all the MSCKF features used in the update
   for (auto const &feat : featsup_MSCKF) {
     good_features_MSCKF.push_back(feat->p_FinG);
+    good_feature_ids_MSCKF.push_back(feat->featid);
     feat->to_delete = true;
   }
 

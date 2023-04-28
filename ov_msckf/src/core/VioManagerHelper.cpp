@@ -390,7 +390,7 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
   PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds total\n" RESET, (retri_rT3 - retri_rT1).total_microseconds() * 1e-6);
 }
 
-cv::Mat VioManager::get_historical_viz_image(double timestamp) {
+cv::Mat VioManager::get_historical_viz_image(std::shared_ptr<Output> output) {
 
   // Return if not ready yet
   if (state == nullptr || trackFEATS == nullptr)
@@ -398,9 +398,11 @@ cv::Mat VioManager::get_historical_viz_image(double timestamp) {
 
   // Build an id-list of what features we should highlight (i.e. SLAM)
   std::vector<size_t> highlighted_ids;
-  for (const auto &feat : state->_features_SLAM) {
+  for (const auto &feat : output->state_clone->_features_SLAM) {
     highlighted_ids.push_back(feat.first);
   }
+  auto & good_feature_ids_MSCKF = output->visualization.good_feature_ids_MSCKF;
+  highlighted_ids.insert(highlighted_ids.end(), good_feature_ids_MSCKF.begin(), good_feature_ids_MSCKF.end());
 
   // Text we will overlay if needed
   std::string overlay = (did_zupt_update) ? "zvupt" : "";
@@ -408,9 +410,9 @@ cv::Mat VioManager::get_historical_viz_image(double timestamp) {
 
   // Get the current active tracks
   cv::Mat img_history;
-  trackFEATS->display_history(timestamp, img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
+  trackFEATS->display_history(output->status.timestamp, img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
   if (trackARUCO != nullptr) {
-    trackARUCO->display_history(timestamp, img_history, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay);
+    trackARUCO->display_history(output->status.timestamp, img_history, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay);
     // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay);
   }
 

@@ -44,6 +44,11 @@ launch_args = [
         description="if we have more than 1 camera, if we should try to track stereo constraints between pairs",
     ),
     DeclareLaunchArgument(
+        name="klt_left_major_stereo",
+        default_value="false",
+        description="whether to enable left_major_stereo. only valid for klt tracking.",
+    ),
+    DeclareLaunchArgument(
         name="max_cameras",
         default_value="1",
         description="how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)",
@@ -110,6 +115,7 @@ def launch_setup(context):
         parameters=[
             {"verbosity": LaunchConfiguration("verbosity")},
             {"use_stereo": LaunchConfiguration("use_stereo")},
+            {"klt_left_major_stereo": LaunchConfiguration("klt_left_major_stereo")},
             {"max_cameras": LaunchConfiguration("max_cameras")},
             {"record_timing_information": LaunchConfiguration("record_timing_information")},
             {"save_total_state": LaunchConfiguration("save_total_state")},

@@ -85,6 +85,7 @@ public:
     struct {
       // Good features that where used in the last update (used in visualization)
       std::vector<Eigen::Vector3d> good_features_MSCKF;
+      std::vector<size_t> good_feature_ids_MSCKF;
 
       /// Returns 3d SLAM features in the global frame
       std::vector<Eigen::Vector3d> features_SLAM;
@@ -162,7 +163,7 @@ public:
   std::shared_ptr<Propagator> get_propagator() { return propagator; }
 
   /// Get a nice visualization image of what tracks we have
-  cv::Mat get_historical_viz_image(double timestamp);
+  cv::Mat get_historical_viz_image(std::shared_ptr<Output> output);
 
   // clear older tracking cache (used for visualization)
   void clear_older_tracking_cache(double timestamp);
@@ -307,6 +308,7 @@ protected:
 
   // Good features that where used in the last update (used in visualization)
   std::vector<Eigen::Vector3d> good_features_MSCKF;
+  std::vector<size_t> good_feature_ids_MSCKF;
 
   /// Feature initializer used to triangulate all active tracks
   std::shared_ptr<ov_core::FeatureInitializer> active_tracks_initializer;
