@@ -127,7 +127,9 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
       // Also increase the number of features to the desired amount during estimation
       // NOTE: we will split the total number of features over all cameras uniformly
       trackFEATS->get_feature_database()->cleanup_measurements(state->_timestamp);
-      trackFEATS->set_num_features(std::floor((double)params.num_pts / (double)params.state_options.num_cameras));
+      //// NOTE(isaac): we don't split the number of features.
+      // trackFEATS->set_num_features(std::floor((double)params.num_pts / (double)params.state_options.num_cameras));
+      trackFEATS->set_num_features(params.num_pts);
       if (trackARUCO != nullptr) {
         trackARUCO->get_feature_database()->cleanup_measurements(state->_timestamp);
       }
@@ -410,9 +412,17 @@ cv::Mat VioManager::get_historical_viz_image(std::shared_ptr<Output> output) {
 
   // Get the current active tracks
   cv::Mat img_history;
-  trackFEATS->display_history(output->status.timestamp, img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
+  // double img_timestamp = output->status.timestamp;
+  double img_timestamp = output->status.prev_timestamp;  // we need the 'prev_timestamp' so that msckf points can be visulized  
+  if (img_timestamp <= 0) {
+    img_timestamp = output->status.timestamp;
+  }
+
+  // std::cout << "prev_timestamp: " << output->status.prev_timestamp << ", cur_timestamp: " << output->status.timestamp << ", img_timestamp" << img_timestamp << std::endl;
+
+  trackFEATS->display_history(img_timestamp, img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
   if (trackARUCO != nullptr) {
-    trackARUCO->display_history(output->status.timestamp, img_history, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay);
+    trackARUCO->display_history(img_timestamp, img_history, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay);
     // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay);
   }
 

@@ -538,7 +538,15 @@ bool VioManager::check_drift() {
 }
 
 void VioManager::update_output(double timestamp) {
+
   Output output;
+  if (timestamp > 0) {
+    std::unique_lock<std::mutex> locker(output_mutex_);
+    output.status.prev_timestamp = this->output.status.timestamp;
+  } else {
+    output.status.prev_timestamp = -1;
+  }
+
   output.status.timestamp = timestamp;
   output.status.initialized = is_initialized_vio;
   output.status.initialized_time = startup_time;
@@ -559,9 +567,12 @@ void VioManager::update_output(double timestamp) {
 
 void VioManager::clear_older_tracking_cache(double timestamp) {
   trackFEATS->clear_older_history(timestamp);
+  trackFEATS->get_feature_database()->cleanup_measurements_cache(timestamp - 2.0);  // 2s
+
   if (trackARUCO) {
     trackARUCO->clear_older_history(timestamp);
-  }
+    trackARUCO->get_feature_database()->cleanup_measurements_cache(timestamp - 2.0);  // 2s
+  }  
 }
 
 void VioManager::feed_measurement_camera(ov_core::CameraData &&message) {

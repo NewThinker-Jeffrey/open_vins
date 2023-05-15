@@ -266,7 +266,6 @@ void ROS2Visualizer::visualize() {
   auto simple_output = _app->getLastOutput(false, false);
   if (simple_output->status.timestamp <= 0 || last_visualization_timestamp == simple_output->status.timestamp && simple_output->status.initialized)
     return;
-  _app->clear_older_tracking_cache(last_visualization_timestamp);
 
   _vis_output = _app->getLastOutput(true, true);
   // last_visualization_timestamp = _vis_output->state_clone->_timestamp;
@@ -278,6 +277,9 @@ void ROS2Visualizer::visualize() {
 
   // publish current image
   publish_images();
+
+  _app->clear_older_tracking_cache(_vis_output->status.prev_timestamp);  // clear tracking cache at the prev timestamp after images are published
+
 
   // Return if we have not inited
   if (!_vis_output->status.initialized)
@@ -623,7 +625,8 @@ void ROS2Visualizer::publish_images() {
   if (img_history.empty())
     return;
 
-  save_feature_image(cur_state_timestamp, img_history);
+  // the timestamp of the visulized image is actually 'prev_timestamp'.
+  save_feature_image(_vis_output->status.prev_timestamp, img_history);
 
   // Create our message
   std_msgs::msg::Header header;

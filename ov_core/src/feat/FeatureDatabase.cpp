@@ -38,12 +38,16 @@ std::shared_ptr<Feature> FeatureDatabase::get_feature(size_t id, bool remove) {
   }
 }
 
-bool FeatureDatabase::get_feature_clone(size_t id, Feature &feat) {
+bool FeatureDatabase::get_feature_clone(size_t id, Feature &feat, bool from_cache) {
   std::lock_guard<std::mutex> lck(mtx);
-  if (features_idlookup.find(id) == features_idlookup.end())
+  std::unordered_map<size_t, std::shared_ptr<Feature>>* idlookup = &features_idlookup;
+  if (from_cache) {
+    idlookup = &features_cache_idlookup;
+  }
+  if (idlookup->find(id) == idlookup->end())
     return false;
   // TODO: should probably have a copy constructor function in feature class
-  std::shared_ptr<Feature> temp = features_idlookup.at(id);
+  std::shared_ptr<Feature> temp = idlookup->at(id);
   feat.featid = temp->featid;
   feat.to_delete = temp->to_delete;
   feat.uvs = temp->uvs;
@@ -67,21 +71,35 @@ void FeatureDatabase::update_feature(size_t id, double timestamp, size_t cam_id,
     feat->uvs[cam_id].push_back(Eigen::Vector2f(u, v));
     feat->uvs_norm[cam_id].push_back(Eigen::Vector2f(u_n, v_n));
     feat->timestamps[cam_id].push_back(timestamp);
-    return;
+  } else {
+    // Debug info
+    // PRINT_DEBUG("featdb - adding new feature %d",(int)id);
+
+    // Else we have not found the feature, so lets make it be a new one!
+    std::shared_ptr<Feature> feat = std::make_shared<Feature>();
+    feat->featid = id;
+    feat->uvs[cam_id].push_back(Eigen::Vector2f(u, v));
+    feat->uvs_norm[cam_id].push_back(Eigen::Vector2f(u_n, v_n));
+    feat->timestamps[cam_id].push_back(timestamp);
+
+    // Append this new feature into our database
+    features_idlookup[id] = feat;
   }
 
-  // Debug info
-  // PRINT_DEBUG("featdb - adding new feature %d",(int)id);
-
-  // Else we have not found the feature, so lets make it be a new one!
-  std::shared_ptr<Feature> feat = std::make_shared<Feature>();
-  feat->featid = id;
-  feat->uvs[cam_id].push_back(Eigen::Vector2f(u, v));
-  feat->uvs_norm[cam_id].push_back(Eigen::Vector2f(u_n, v_n));
-  feat->timestamps[cam_id].push_back(timestamp);
-
-  // Append this new feature into our database
-  features_idlookup[id] = feat;
+  // update the cache
+  if (features_cache_idlookup.find(id) != features_cache_idlookup.end()) {
+    std::shared_ptr<Feature> feat = features_cache_idlookup.at(id);
+    feat->uvs[cam_id].push_back(Eigen::Vector2f(u, v));
+    feat->uvs_norm[cam_id].push_back(Eigen::Vector2f(u_n, v_n));
+    feat->timestamps[cam_id].push_back(timestamp);
+  } else {
+    std::shared_ptr<Feature> feat = std::make_shared<Feature>();
+    feat->featid = id;
+    feat->uvs[cam_id].push_back(Eigen::Vector2f(u, v));
+    feat->uvs_norm[cam_id].push_back(Eigen::Vector2f(u_n, v_n));
+    feat->timestamps[cam_id].push_back(timestamp);
+    features_cache_idlookup[id] = feat;
+  }
 }
 
 std::vector<std::shared_ptr<Feature>> FeatureDatabase::features_not_containing_newer(double timestamp, bool remove, bool skip_deleted) {
@@ -242,6 +260,25 @@ void FeatureDatabase::cleanup_measurements(double timestamp) {
   }
 }
 
+void FeatureDatabase::cleanup_measurements_cache(double timestamp) {
+  std::lock_guard<std::mutex> lck(mtx);
+  for (auto it = features_cache_idlookup.begin(); it != features_cache_idlookup.end();) {
+    // Remove the older measurements
+    (*it).second->clean_older_measurements(timestamp);
+    // Count how many measurements
+    int ct_meas = 0;
+    for (const auto &pair : (*it).second->timestamps) {
+      ct_meas += (int)(pair.second.size());
+    }
+    // If delete flag is set, then delete it
+    if (ct_meas < 1) {
+      features_cache_idlookup.erase(it++);
+    } else {
+      it++;
+    }
+  }
+}
+
 void FeatureDatabase::cleanup_measurements_exact(double timestamp) {
   std::lock_guard<std::mutex> lck(mtx);
   std::vector<double> timestamps = {timestamp};
@@ -319,3 +356,21 @@ void FeatureDatabase::append_new_measurements(const std::shared_ptr<FeatureDatab
   }
   // PRINT_DEBUG("feat db = %d -> %d\n", sizebefore, (int)features_idlookup.size() << std::endl;
 }
+
+void FeatureDatabase::change_feat_id(size_t id_old, size_t id_new) {
+  // If found in db then replace
+  std::lock_guard<std::mutex> lck(mtx);
+  if (features_idlookup.find(id_old) != features_idlookup.end()) {
+    std::shared_ptr<Feature> feat = features_idlookup.at(id_old);
+    features_idlookup.erase(id_old);
+    feat->featid = id_new;
+    features_idlookup.insert({id_new, feat});
+  }
+  if (features_cache_idlookup.find(id_old) != features_cache_idlookup.end()) {
+    std::shared_ptr<Feature> feat = features_cache_idlookup.at(id_old);
+    features_cache_idlookup.erase(id_old);
+    feat->featid = id_new;
+    features_cache_idlookup.insert({id_new, feat});
+  }
+}
+

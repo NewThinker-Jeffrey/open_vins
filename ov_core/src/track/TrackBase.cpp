@@ -157,7 +157,8 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
     img_out = cv::Mat(max_height, (int)img_last_cache.size() * max_width, CV_8UC3, cv::Scalar(0, 0, 0));
 
   // Max tracks to show (otherwise it clutters up the screen)
-  size_t maxtracks = 50;
+  // size_t maxtracks = 50;
+  size_t maxtracks = 11;
 
   // Loop through each image, and draw
   int index_cam = 0;
@@ -180,10 +181,11 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
       }
       // Get the feature from the database
       Feature feat;
-      if (!database->get_feature_clone(ids_last_cache[pair.first].at(i), feat))
+      if (!database->get_feature_clone(ids_last_cache[pair.first].at(i), feat, true))
         continue;
       feat.clean_future_measurements(timestamp);
-      if (feat.uvs.empty() || feat.uvs[pair.first].empty() || feat.to_delete)
+      // if (feat.uvs.empty() || feat.uvs[pair.first].empty() || feat.to_delete)
+      if (feat.uvs.empty() || feat.uvs[pair.first].empty())
         continue;
       // Draw the history of this point (start at the last inserted one)
       for (size_t z = feat.uvs[pair.first].size() - 1; z > 0; z--) {
@@ -231,14 +233,10 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
 void TrackBase::change_feat_id(size_t id_old, size_t id_new) {
 
   // If found in db then replace
-  if (database->get_internal_data().find(id_old) != database->get_internal_data().end()) {
-    std::shared_ptr<Feature> feat = database->get_internal_data().at(id_old);
-    database->get_internal_data().erase(id_old);
-    feat->featid = id_new;
-    database->get_internal_data().insert({id_new, feat});
-  }
+  database->change_feat_id(id_old, id_new);
 
   // Update current track IDs
+  //// TODO(isaac): also update the history_vars.ids (for visualization)
   for (auto &cam_ids_pair : ids_last) {
     for (size_t i = 0; i < cam_ids_pair.second.size(); i++) {
       if (cam_ids_pair.second.at(i) == id_old) {

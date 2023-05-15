@@ -70,6 +70,7 @@ public:
     // the timestamp of the image used for this output
     struct {
       double timestamp = -1;
+      double prev_timestamp = -1;
       bool initialized = false;
       double initialized_time = -1;
       bool drift = false;
