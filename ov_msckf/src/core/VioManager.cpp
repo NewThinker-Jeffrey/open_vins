@@ -557,7 +557,9 @@ void VioManager::update_output(double timestamp) {
   output.visualization.good_features_MSCKF = good_features_MSCKF;
   output.visualization.good_feature_ids_MSCKF = good_feature_ids_MSCKF;
   output.visualization.features_SLAM = get_features_SLAM();
+  output.visualization.feature_ids_SLAM = get_feature_ids_SLAM();
   output.visualization.features_ARUCO = get_features_ARUCO();
+  output.visualization.feature_ids_ARUCO = get_feature_ids_ARUCO();
   output.visualization.active_tracks_posinG = active_tracks_posinG;
   output.visualization.active_tracks_uvd = active_tracks_uvd;
   output.visualization.active_cam0_image = active_image;

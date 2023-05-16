@@ -29,6 +29,7 @@ include_directories(
         ${EIGEN3_INCLUDE_DIR}
         ${Boost_INCLUDE_DIRS}
         ${CERES_INCLUDE_DIRS}
+        ${Pangolin_INCLUDE_DIRS}
 )
 
 # Set link libraries used by all binaries
@@ -36,6 +37,7 @@ list(APPEND thirdparty_libraries
         ${Boost_LIBRARIES}
         ${CERES_LIBRARIES}
         ${OpenCV_LIBRARIES}
+        ${Pangolin_LIBRARIES}
 )
 list(APPEND ament_libraries
         rclcpp
@@ -69,7 +71,7 @@ list(APPEND LIBRARY_SOURCES
         src/update/UpdaterSLAM.cpp
         src/update/UpdaterZeroVelocity.cpp
 )
-list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROS2VisualizerForFolderBasedDataset.cpp src/ros/ROSVisualizerHelper.cpp)
+list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROS2VisualizerForFolderBasedDataset.cpp src/ros/ROSVisualizerHelper.cpp src/ros/Viewer.cpp)
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_msckf_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
 ament_target_dependencies(ov_msckf_lib ${ament_libraries})

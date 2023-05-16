@@ -175,6 +175,12 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   stop_viz_request_ = false;
   _vis_thread = std::make_shared<std::thread>([&] {
     pthread_setname_np(pthread_self(), "ov_visualize");
+#if ! OPENVINS_FOR_TROS
+    gl_viewer = std::make_shared<Viewer>(app);
+    gl_viewer->init();
+#else
+
+#endif
 
     // use a high rate to ensure the _vis_output to update in time (which is also needed in visualize_odometry()).
     // rclcpp::Rate loop_rate(20);
@@ -277,6 +283,15 @@ void ROS2Visualizer::visualize() {
 
   // publish current image
   publish_images();
+
+#if ! OPENVINS_FOR_TROS
+  if (gl_viewer) {
+    gl_viewer->show(_vis_output);
+  }
+#else
+
+#endif
+
 
   _app->clear_older_tracking_cache(_vis_output->status.prev_timestamp);  // clear tracking cache at the prev timestamp after images are published
 

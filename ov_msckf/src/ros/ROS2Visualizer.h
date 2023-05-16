@@ -55,6 +55,13 @@
 #include <boost/filesystem.hpp>
 #include <cv_bridge/cv_bridge.h>
 
+#if ! OPENVINS_FOR_TROS
+#include "Viewer.h"
+#else
+
+#endif
+
+
 #include "core/VioManager.h"
 
 namespace ov_core {
@@ -232,6 +239,14 @@ protected:
   HeisenbergImgFileQueue load_heisenberg_img_queue(const std::string& img_folder);
   void load_heisenberg_img_queues(const std::string& dataset);
   void heisenberg_imu_hook_for_img_publishing(const sensor_msgs::msg::Imu::SharedPtr msg);
+
+
+#if ! OPENVINS_FOR_TROS
+  std::shared_ptr<Viewer> gl_viewer;
+#else
+
+#endif
+
 };
 
 } // namespace ov_msckf

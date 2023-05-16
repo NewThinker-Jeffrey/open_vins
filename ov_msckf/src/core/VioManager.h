@@ -90,9 +90,11 @@ public:
 
       /// Returns 3d SLAM features in the global frame
       std::vector<Eigen::Vector3d> features_SLAM;
+      std::vector<size_t> feature_ids_SLAM;
 
       /// Returns 3d ARUCO features in the global frame
       std::vector<Eigen::Vector3d> features_ARUCO;
+      std::vector<size_t> feature_ids_ARUCO;
       
       /// Returns active tracked features in the current frame
       std::unordered_map<size_t, Eigen::Vector3d> active_tracks_posinG;
@@ -197,9 +199,11 @@ protected:
 
   /// Returns 3d SLAM features in the global frame
   std::vector<Eigen::Vector3d> get_features_SLAM();
+  std::vector<size_t> get_feature_ids_SLAM();
 
   /// Returns 3d ARUCO features in the global frame
   std::vector<Eigen::Vector3d> get_features_ARUCO();
+  std::vector<size_t> get_feature_ids_ARUCO();
 
   /// Return the image used when projecting the active tracks
   void get_active_image(double &timestamp, cv::Mat &image) {

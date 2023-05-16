@@ -453,6 +453,17 @@ std::vector<Eigen::Vector3d> VioManager::get_features_SLAM() {
   return slam_feats;
 }
 
+std::vector<size_t> VioManager::get_feature_ids_SLAM() {
+  std::vector<size_t> feat_ids;
+  for (auto &f : state->_features_SLAM) {
+    if ((int)f.first <= 4 * state->_options.max_aruco_features)
+      continue;
+    feat_ids.push_back(f.second->_featid);
+  }
+  return feat_ids;
+}
+
+
 std::vector<Eigen::Vector3d> VioManager::get_features_ARUCO() {
   std::vector<Eigen::Vector3d> aruco_feats;
   for (auto &f : state->_features_SLAM) {
@@ -474,4 +485,14 @@ std::vector<Eigen::Vector3d> VioManager::get_features_ARUCO() {
     }
   }
   return aruco_feats;
+}
+
+std::vector<size_t> VioManager::get_feature_ids_ARUCO() {
+  std::vector<size_t> feat_ids;
+  for (auto &f : state->_features_SLAM) {
+    if ((int)f.first > 4 * state->_options.max_aruco_features)
+      continue;
+    feat_ids.push_back(f.second->_featid);
+  }
+  return feat_ids;
 }
