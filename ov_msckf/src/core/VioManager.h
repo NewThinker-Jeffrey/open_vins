@@ -32,7 +32,6 @@
 #include <string>
 
 #include "VioManagerOptions.h"
-#include "thread_pool/labeled_thread_pool.h"
 #include "state/State.h"
 
 namespace ov_core {
@@ -328,7 +327,6 @@ protected:
   std::map<size_t, Eigen::Vector3d> active_feat_linsys_b;
   std::map<size_t, int> active_feat_linsys_count;
 
-  // labeled_thread_pool::LabeledThreadPool thread_pool_;
   std::mutex camera_queue_mutex_;
   std::deque<ov_core::CameraData> camera_queue_;
 
@@ -342,8 +340,13 @@ protected:
   std::mutex update_task_queue_mutex_;
   std::condition_variable update_task_queue_cond_;
   std::shared_ptr<std::thread> update_thread_;
-  double last_imu_time_ = -1;
   void update_thread_func();
+
+
+  std::mutex imu_sync_mutex_;
+  std::condition_variable imu_sync_cond_;
+  double last_imu_time_ = -1;
+
 
   std::atomic<bool> stop_request_;
 

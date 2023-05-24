@@ -51,8 +51,9 @@ public:
    * @param knnratio matching ratio needed (smaller value forces top two descriptors during match to be more different)
    */
   explicit TrackDescriptor(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
-                           HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist, double knnratio)
-      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
+                           HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist, double knnratio,
+                           std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>())
+      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod, camera_extrinsics), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
         min_px_dist(minpxdist), knn_ratio(knnratio) {}
 
   /**

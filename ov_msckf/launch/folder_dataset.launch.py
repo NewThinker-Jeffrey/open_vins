@@ -45,8 +45,18 @@ launch_args = [
     ),
     DeclareLaunchArgument(
         name="klt_left_major_stereo",
-        default_value="false",
+        default_value="true",
         description="whether to enable left_major_stereo. only valid for klt tracking.",
+    ),
+    DeclareLaunchArgument(
+        name="klt_strict_stereo",
+        default_value="false",
+        description="whether to enable strict_stereo. only valid when klt_left_major_stereo=true.",
+    ),
+    DeclareLaunchArgument(
+        name="klt_force_fundamental",
+        default_value="true",
+        description="If true, use fundamental check instead of essential check",
     ),
     DeclareLaunchArgument(
         name="max_cameras",
@@ -116,6 +126,8 @@ def launch_setup(context):
             {"verbosity": LaunchConfiguration("verbosity")},
             {"use_stereo": LaunchConfiguration("use_stereo")},
             {"klt_left_major_stereo": LaunchConfiguration("klt_left_major_stereo")},
+            {"klt_strict_stereo": LaunchConfiguration("klt_strict_stereo")},
+            {"klt_force_fundamental": LaunchConfiguration("klt_force_fundamental")},
             {"max_cameras": LaunchConfiguration("max_cameras")},
             {"record_timing_information": LaunchConfiguration("record_timing_information")},
             {"save_total_state": LaunchConfiguration("save_total_state")},

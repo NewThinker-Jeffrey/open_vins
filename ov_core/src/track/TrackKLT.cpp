@@ -33,6 +33,8 @@ using namespace ov_core;
 
 void TrackKLT::feed_new_camera(const CameraData &message) {
 
+  std::cout << "DEBUG TrackKLT::feed_new_camera: t_d = " << t_d << ", gyro_bias = (" << gyro_bias.transpose() << ")" << std::endl;
+
   // Error check that we have all the data
   if (message.sensor_ids.empty() || message.sensor_ids.size() != message.images.size() || message.images.size() != message.masks.size()) {
     PRINT_ERROR(RED "[ERROR]: MESSAGE DATA SIZES DO NOT MATCH OR EMPTY!!!\n" RESET);
@@ -111,74 +113,86 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
   cv::Mat mask = message.masks.at(msg_id);
   rT2 = boost::posix_time::microsec_clock::local_time();
 
-  // If we didn't have any successful tracks last time, just extract this time
-  // This also handles, the tracking initalization on the first call to this extractor
-  if (pts_last[cam_id].empty()) {
-    // Detect new features
-    std::vector<cv::KeyPoint> good_left;
-    std::vector<size_t> good_ids_left;
-    perform_detection_monocular(imgpyr, mask, good_left, good_ids_left);
-    // Save the current image and pyramid
-    std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last[cam_id] = img;
-    img_pyramid_last[cam_id] = imgpyr;
-    img_mask_last[cam_id] = mask;
-    pts_last[cam_id] = good_left;
-    ids_last[cam_id] = good_ids_left;
-    internal_add_last_to_history(message.timestamp);
-    return;
-  }
-
-  // First we should make that the last images have enough features so we can do KLT
-  // This will "top-off" our number of tracks so always have a constant number
-  int pts_before_detect = (int)pts_last[cam_id].size();
-  auto pts_left_old = pts_last[cam_id];
-  auto ids_left_old = ids_last[cam_id];
-  perform_detection_monocular(img_pyramid_last[cam_id], img_mask_last[cam_id], pts_left_old, ids_left_old);
-  rT3 = boost::posix_time::microsec_clock::local_time();
-
-  // Our return success masks, and predicted new features
-  std::vector<uchar> mask_ll;
-  std::vector<cv::KeyPoint> pts_left_new = pts_left_old;
-
-  // Lets track temporally
-  perform_matching(img_pyramid_last[cam_id], imgpyr, pts_left_old, pts_left_new, cam_id, cam_id, mask_ll);
-  assert(pts_left_new.size() == ids_left_old.size());
-  rT4 = boost::posix_time::microsec_clock::local_time();
-
-  // If any of our mask is empty, that means we didn't have enough to do ransac, so just return
-  if (mask_ll.empty()) {
-    std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last[cam_id] = img;
-    img_pyramid_last[cam_id] = imgpyr;
-    img_mask_last[cam_id] = mask;
-    pts_last[cam_id].clear();
-    ids_last[cam_id].clear();
-    // internal_add_last_to_history(message.timestamp);
-    PRINT_ERROR(RED "[KLT-EXTRACTOR]: Failed to get enough points to do RANSAC, resetting.....\n" RESET);
-    return;
-  }
-
-  // Get our "good tracks"
+  int pts_before_detect = 0;
+  int pts_after_detect = 0;
   std::vector<cv::KeyPoint> good_left;
   std::vector<size_t> good_ids_left;
 
-  // Loop through all left points
-  for (size_t i = 0; i < pts_left_new.size(); i++) {
-    // Ensure we do not have any bad KLT tracks (i.e., points are negative)
-    if (pts_left_new.at(i).pt.x < 0 || pts_left_new.at(i).pt.y < 0 || (int)pts_left_new.at(i).pt.x >= img.cols ||
-        (int)pts_left_new.at(i).pt.y >= img.rows)
-      continue;
-    // Check if it is in the mask
-    // NOTE: mask has max value of 255 (white) if it should be
-    if ((int)message.masks.at(msg_id).at<uint8_t>((int)pts_left_new.at(i).pt.y, (int)pts_left_new.at(i).pt.x) > 127)
-      continue;
-    // If it is a good track, and also tracked from left to right
-    if (mask_ll[i]) {
-      good_left.push_back(pts_left_new[i]);
-      good_ids_left.push_back(ids_left_old[i]);
+  if (pts_last[cam_id].empty()) {
+    // If we didn't have any successful tracks last time, just extract this time
+    // This also handles, the tracking initalization on the first call to this extractor
+    rT3 = boost::posix_time::microsec_clock::local_time();
+    perform_detection_monocular(imgpyr, mask, good_left, good_ids_left);
+  } else {
+    // First we should make that the last images have enough features so we can do KLT
+    // This will "top-off" our number of tracks so always have a constant number
+    auto pts_left_old = pts_last[cam_id];
+    auto ids_left_old = ids_last[cam_id];
+
+    // Our return success masks, and predicted new features
+    std::vector<uchar> mask_ll;
+    // std::vector<cv::KeyPoint> pts_left_new = pts_left_old;
+    Eigen::Matrix3d R_old_in_new;
+    std::vector<cv::KeyPoint> pts_left_new;
+    predict_keypoints_temporally(
+        cam_id, message.timestamp,
+        pts_left_old, pts_left_new, R_old_in_new);
+
+    std::vector<cv::KeyPoint> pts_left_new_predict  =  pts_left_new;
+
+    // Lets track temporally
+    perform_matching(img_pyramid_last[cam_id], imgpyr, pts_left_old, pts_left_new, cam_id, cam_id, mask_ll, &R_old_in_new);
+    assert(pts_left_new.size() == ids_left_old.size());
+    rT3 = boost::posix_time::microsec_clock::local_time();
+    
+    std::cout << "DEBUG temporal predict(predict_err, prior_error): ";
+    for (size_t i=0; i<pts_left_new.size(); i++) {
+      cv::Point2f predict_err = pts_left_new[i].pt - pts_left_new_predict[i].pt;
+      cv::Point2f prior_err = pts_left_new[i].pt - pts_left_old[i].pt;
+      std::cout << "(" << sqrt(predict_err.dot(predict_err)) << ", " << sqrt(prior_err.dot(prior_err)) << ")   ";
     }
+    std::cout << std::endl;
+
+    // If any of our mask is empty, that means we didn't have enough to do ransac, so just return
+    if (mask_ll.empty()) {
+      std::lock_guard<std::mutex> lckv(mtx_last_vars);
+      img_last[cam_id] = img;
+      img_time_last[cam_id] = message.timestamp;
+      img_pyramid_last[cam_id] = imgpyr;
+      img_mask_last[cam_id] = mask;
+      pts_last[cam_id].clear();
+      ids_last[cam_id].clear();
+      // internal_add_last_to_history(message.timestamp);
+      PRINT_ERROR(RED "[KLT-EXTRACTOR]: Failed to get enough points to do RANSAC, resetting.....\n" RESET);
+      return;
+    }
+
+    // Get our "good tracks"
+    // Loop through all left points
+    for (size_t i = 0; i < pts_left_new.size(); i++) {
+      // Ensure we do not have any bad KLT tracks (i.e., points are negative)
+      if (pts_left_new.at(i).pt.x < 0 || pts_left_new.at(i).pt.y < 0 || (int)pts_left_new.at(i).pt.x >= img.cols ||
+          (int)pts_left_new.at(i).pt.y >= img.rows)
+        continue;
+      // Check if it is in the mask
+      // NOTE: mask has max value of 255 (white) if it should be
+      if ((int)message.masks.at(msg_id).at<uint8_t>((int)pts_left_new.at(i).pt.y, (int)pts_left_new.at(i).pt.x) > 127)
+        continue;
+      // If it is a good track, and also tracked from left to right
+      if (mask_ll[i]) {
+        good_left.push_back(pts_left_new[i]);
+        good_ids_left.push_back(ids_left_old[i]);
+      }
+    }
+
+    pts_before_detect = good_left.size();
+    perform_detection_monocular(imgpyr, mask, good_left, good_ids_left);
   }
+  pts_after_detect = good_left.size();
+  std::cout << "DEBUG: pts_before_detect = " << pts_before_detect << ",   pts_after_detect = " << pts_after_detect << std::endl;
+
+  rT4 = boost::posix_time::microsec_clock::local_time();
+
 
   // Update our feature database, with theses new observations
   for (size_t i = 0; i < good_left.size(); i++) {
@@ -189,6 +203,7 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
   // Move forward in time
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_time_last[cam_id] = message.timestamp;
     img_last[cam_id] = img;
     img_pyramid_last[cam_id] = imgpyr;
     img_mask_last[cam_id] = mask;
@@ -200,9 +215,9 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
 
   // Timing information
   PRINT_ALL("[TIME-KLT]: %.4f seconds for pyramid\n", (rT2 - rT1).total_microseconds() * 1e-6);
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for detection (%zu detected)\n", (rT3 - rT2).total_microseconds() * 1e-6,
-            (int)pts_last[cam_id].size() - pts_before_detect);
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for temporal klt\n", (rT4 - rT3).total_microseconds() * 1e-6);
+  PRINT_ALL("[TIME-KLT]: %.4f seconds for temporal klt\n", (rT3 - rT2).total_microseconds() * 1e-6);
+  PRINT_ALL("[TIME-KLT]: %.4f seconds for detection (%d detected)\n", (rT4 - rT3).total_microseconds() * 1e-6,
+            pts_after_detect - pts_before_detect);
   PRINT_ALL("[TIME-KLT]: %.4f seconds for feature DB update (%d features)\n", (rT5 - rT4).total_microseconds() * 1e-6,
             (int)good_left.size());
   PRINT_ALL("[TIME-KLT]: %.4f seconds for total\n", (rT5 - rT1).total_microseconds() * 1e-6);
@@ -235,6 +250,8 @@ void TrackKLT::feed_stereo(const CameraData &message, size_t msg_id_left, size_t
                              good_ids_left, good_ids_right);
     // Save the current image and pyramid
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_time_last[cam_id_left] = message.timestamp;
+    img_time_last[cam_id_right] = message.timestamp;
     img_last[cam_id_left] = img_left;
     img_last[cam_id_right] = img_right;
     img_pyramid_last[cam_id_left] = imgpyr_left;
@@ -294,6 +311,8 @@ void TrackKLT::feed_stereo(const CameraData &message, size_t msg_id_left, size_t
   // If any of our masks are empty, that means we didn't have enough to do ransac, so just return
   if (mask_ll.empty() && mask_rr.empty()) {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_time_last[cam_id_left] = message.timestamp;
+    img_time_last[cam_id_right] = message.timestamp;
     img_last[cam_id_left] = img_left;
     img_last[cam_id_right] = img_right;
     img_pyramid_last[cam_id_left] = imgpyr_left;
@@ -379,6 +398,8 @@ void TrackKLT::feed_stereo(const CameraData &message, size_t msg_id_left, size_t
   // Move forward in time
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_time_last[cam_id_left] = message.timestamp;
+    img_time_last[cam_id_right] = message.timestamp;
     img_last[cam_id_left] = img_left;
     img_last[cam_id_right] = img_right;
     img_pyramid_last[cam_id_left] = imgpyr_left;
@@ -421,96 +442,100 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
   cv::Mat mask_right = message.masks.at(msg_id_right);
   rT2 = boost::posix_time::microsec_clock::local_time();
 
-  // If we didn't have any successful tracks last time, just extract this time
-  // This also handles, the tracking initalization on the first call to this extractor
+  // Get our "good tracks"
+  int pts_before_detect = 0;
+  int pts_after_detect = 0;
+  std::vector<cv::KeyPoint> good_left;
+  std::vector<size_t> good_ids_left;
+  std::set<size_t> doubly_verified_stereo_ids;
+
   if (pts_last[cam_id_left].empty()) {
-    // Track into the new image
-    std::vector<cv::KeyPoint> good_left;
-    std::vector<size_t> good_ids_left;
+    // If we didn't have any successful tracks last time, just extract this time
+    // This also handles, the tracking initalization on the first call to this extractor.
+    rT3 = boost::posix_time::microsec_clock::local_time();
     perform_detection_monocular(imgpyr_left, mask_left, good_left, good_ids_left);
+  } else {
+    // First we should make that the last images have enough features so we can do KLT
+    // This will "top-off" our number of tracks so always have a constant number
+    auto pts_left_old = pts_last[cam_id_left];
+    auto ids_left_old = ids_last[cam_id_left];
 
-    // Save the current image and pyramid
-    std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last[cam_id_left] = img_left;
-    img_last[cam_id_right] = img_right;
-    img_pyramid_last[cam_id_left] = imgpyr_left;
-    img_pyramid_last[cam_id_right] = imgpyr_right;
-    img_mask_last[cam_id_left] = mask_left;
-    img_mask_last[cam_id_right] = mask_right;
-    pts_last[cam_id_left] = good_left;
-    pts_last[cam_id_right].clear();  // for simplicity we skip the first right image
-    ids_last[cam_id_left] = good_ids_left;
-    ids_last[cam_id_right].clear();  // for simplicity we skip the first right image
-    internal_add_last_to_history(message.timestamp);
-    return;
+
+    // Our return success masks, and predicted new features
+    std::vector<uchar> mask_ll;
+    // std::vector<cv::KeyPoint> pts_left_new = pts_left_old;
+    Eigen::Matrix3d R_old_in_new;
+    std::vector<cv::KeyPoint> pts_left_new;
+    predict_keypoints_temporally(
+        cam_id_left, message.timestamp,
+        pts_left_old, pts_left_new, R_old_in_new);
+
+    std::vector<cv::KeyPoint> pts_left_new_predict  =  pts_left_new;
+
+    perform_matching(img_pyramid_last[cam_id_left], imgpyr_left,
+                    pts_left_old, pts_left_new,
+                    cam_id_left, cam_id_left,
+                    mask_ll, &R_old_in_new);
+    assert(pts_left_new.size() == ids_left_old.size());
+
+    std::cout << "DEBUG temporal predict(predict_err, prior_error): ";
+    for (size_t i=0; i<pts_left_new.size(); i++) {
+      cv::Point2f predict_err = pts_left_new[i].pt - pts_left_new_predict[i].pt;
+      cv::Point2f prior_err = pts_left_new[i].pt - pts_left_old[i].pt;
+      std::cout << "(" << sqrt(predict_err.dot(predict_err)) << ", " << sqrt(prior_err.dot(prior_err)) << ")   ";
+    }
+    std::cout << std::endl;
+
+    // If any of our mask is empty, that means we didn't have enough to do ransac, so just return
+    if (mask_ll.empty()) {
+      std::lock_guard<std::mutex> lckv(mtx_last_vars);
+      img_time_last[cam_id_left] = message.timestamp;
+      img_time_last[cam_id_right] = message.timestamp;
+      img_last[cam_id_left] = img_left;
+      img_last[cam_id_right] = img_right;
+      img_pyramid_last[cam_id_left] = imgpyr_left;
+      img_pyramid_last[cam_id_right] = imgpyr_right;
+      img_mask_last[cam_id_left] = mask_left;
+      img_mask_last[cam_id_right] = mask_right;
+      pts_last[cam_id_left].clear();
+      pts_last[cam_id_right].clear();
+      ids_last[cam_id_left].clear();
+      ids_last[cam_id_right].clear();
+      doubly_verified_stereo_last[cam_id_left].clear();
+      doubly_verified_stereo_last[cam_id_right].clear();
+
+      // internal_add_last_to_history(message.timestamp);
+      PRINT_ERROR(RED "[KLT-EXTRACTOR]: Failed to get enough points to do RANSAC, resetting.....\n" RESET);
+      return;
+    }
+
+
+    // Loop through all left points
+    for (size_t i = 0; i < pts_left_new.size(); i++) {
+      // Ensure we do not have any bad KLT tracks (i.e., points are negative)
+      if (pts_left_new.at(i).pt.x < 0 || pts_left_new.at(i).pt.y < 0 || (int)pts_left_new.at(i).pt.x >= img_left.cols ||
+          (int)pts_left_new.at(i).pt.y >= img_left.rows)
+        continue;
+      // Check if it is in the mask
+      // NOTE: mask has max value of 255 (white) if it should be
+      if ((int)mask_left.at<uint8_t>((int)pts_left_new.at(i).pt.y, (int)pts_left_new.at(i).pt.x) > 127)
+        continue;
+      // If it is a good track
+      if (mask_ll[i]) {
+        good_left.push_back(pts_left_new[i]);
+        good_ids_left.push_back(ids_left_old[i]);
+      }
+    }
+
+    rT3 = boost::posix_time::microsec_clock::local_time();
+    pts_before_detect = good_left.size();
+    perform_detection_monocular(imgpyr_left, mask_left, good_left, good_ids_left);
   }
+  pts_after_detect = good_left.size();
 
-  // First we should make that the last images have enough features so we can do KLT
-  // This will "top-off" our number of tracks so always have a constant number
-  int pts_before_detect = (int)pts_last[cam_id_left].size();
-  auto pts_left_old = pts_last[cam_id_left];
-  auto ids_left_old = ids_last[cam_id_left];
-  // auto pts_right_old = pts_last[cam_id_right];
-  // auto ids_right_old = ids_last[cam_id_right];
-  // perform_detection_stereo2(img_pyramid_last[cam_id_left], img_pyramid_last[cam_id_right], img_mask_last[cam_id_left],
-  //                           img_mask_last[cam_id_right], cam_id_left, cam_id_right, pts_left_old, pts_right_old, ids_left_old,
-  //                           ids_right_old);
-  perform_detection_monocular(img_pyramid_last[cam_id_left], img_mask_last[cam_id_left], pts_left_old, ids_left_old);
-
-
-  rT3 = boost::posix_time::microsec_clock::local_time();
-
-  // Our return success masks, and predicted new features
-  std::vector<uchar> mask_ll;
-  std::vector<cv::KeyPoint> pts_left_new = pts_left_old;
-  perform_matching(img_pyramid_last[cam_id_left], imgpyr_left,
-                  pts_left_old, pts_left_new,
-                  cam_id_left, cam_id_left,
-                  mask_ll);
-  assert(pts_left_new.size() == ids_left_old.size());
 
   rT4 = boost::posix_time::microsec_clock::local_time();
 
-  // If any of our mask is empty, that means we didn't have enough to do ransac, so just return
-  if (mask_ll.empty()) {
-    std::lock_guard<std::mutex> lckv(mtx_last_vars);
-
-    img_last[cam_id_left] = img_left;
-    img_last[cam_id_right] = img_right;
-    img_pyramid_last[cam_id_left] = imgpyr_left;
-    img_pyramid_last[cam_id_right] = imgpyr_right;
-    img_mask_last[cam_id_left] = mask_left;
-    img_mask_last[cam_id_right] = mask_right;
-    pts_last[cam_id_left].clear();
-    pts_last[cam_id_right].clear();
-    ids_last[cam_id_left].clear();
-    ids_last[cam_id_right].clear();
-
-    // internal_add_last_to_history(message.timestamp);
-    PRINT_ERROR(RED "[KLT-EXTRACTOR]: Failed to get enough points to do RANSAC, resetting.....\n" RESET);
-    return;
-  }
-
-  // Get our "good tracks"
-  std::vector<cv::KeyPoint> good_left;
-  std::vector<size_t> good_ids_left;
-
-  // Loop through all left points
-  for (size_t i = 0; i < pts_left_new.size(); i++) {
-    // Ensure we do not have any bad KLT tracks (i.e., points are negative)
-    if (pts_left_new.at(i).pt.x < 0 || pts_left_new.at(i).pt.y < 0 || (int)pts_left_new.at(i).pt.x >= img_left.cols ||
-        (int)pts_left_new.at(i).pt.y >= img_left.rows)
-      continue;
-    // Check if it is in the mask
-    // NOTE: mask has max value of 255 (white) if it should be
-    if ((int)mask_left.at<uint8_t>((int)pts_left_new.at(i).pt.y, (int)pts_left_new.at(i).pt.x) > 127)
-      continue;
-    // If it is a good track
-    if (mask_ll[i]) {
-      good_left.push_back(pts_left_new[i]);
-      good_ids_left.push_back(ids_left_old[i]);
-    }
-  }
 
   //===================================================================================
   //===================================================================================
@@ -518,11 +543,27 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
   // left to right matching
 
   std::vector<uchar> mask_lr;
-  std::vector<cv::KeyPoint> pts_right_new = good_left;
-  perform_matching(imgpyr_left, imgpyr_right, good_left, pts_right_new, cam_id_left, cam_id_right, mask_lr);
-  assert(pts_right_new.size() == good_left.size());
+  // std::vector<cv::KeyPoint> pts_right_new = good_left;
+  std::vector<cv::KeyPoint> pts_right_new;
+  Eigen::Matrix3d R_left_in_right;
+  Eigen::Vector3d t_left_in_right;
+  predict_keypoints_stereo(
+      cam_id_left, cam_id_right, good_left, pts_right_new, R_left_in_right, t_left_in_right);
 
+  std::vector<cv::KeyPoint> pts_right_new_predict  =  pts_right_new;
+
+  perform_matching(imgpyr_left, imgpyr_right, good_left, pts_right_new, cam_id_left, cam_id_right, mask_lr, &R_left_in_right, &t_left_in_right);
+  assert(pts_right_new.size() == good_left.size());
   rT5 = boost::posix_time::microsec_clock::local_time();
+
+  std::cout << "DEBUG stereo predict(predict_err, prior_error): ";
+  for (size_t i=0; i<pts_right_new.size(); i++) {
+    cv::Point2f predict_err = pts_right_new[i].pt - pts_right_new_predict[i].pt;
+    cv::Point2f prior_err = pts_right_new[i].pt - good_left[i].pt;
+    std::cout << "(" << sqrt(predict_err.dot(predict_err)) << ", " << sqrt(prior_err.dot(prior_err)) << ")   ";
+  }
+  std::cout << std::endl;
+
 
   //===================================================================================
   //===================================================================================
@@ -548,21 +589,96 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
     }
   }
 
+  // right to right matching (only do essential check)
+  if (!pts_last[cam_id_right].empty()) {
+    std::vector<uchar> mask_rr;
+    auto pts_right_old = pts_last[cam_id_right];
+    auto ids_right_old = ids_last[cam_id_right];
+    std::vector<size_t> common_ids;
+    std::vector<size_t> selected_indices_old;
+    std::vector<size_t> selected_indices_new;
+    select_common_id(ids_right_old, good_ids_right, common_ids, selected_indices_old, selected_indices_new);
+    std::vector<cv::KeyPoint> selected_kpts_old = select_keypoints(selected_indices_old, pts_right_old);
+    std::vector<cv::KeyPoint> selected_kpts_new = select_keypoints(selected_indices_new, good_right);
+    Eigen::Matrix3d R_old_in_new_right = predict_rotation(cam_id_right, message.timestamp);
+    std::vector<uchar> selected_mask_rr;
+    double max_focallength = std::max(camera_calib.at(cam_id_right)->get_K()(0, 0), camera_calib.at(cam_id_right)->get_K()(1, 1));
+    const double success_probability = 0.99;
+    const int max_iter = ceil(log(1-success_probability) / log(1-0.7*0.7));  // = 7
+    // std::cout << "DEBUG ransac max_iter=" << max_iter << std::endl;
+    if (force_fundamental) {
+      fundamental_ransac(cam_id_right, cam_id_right, selected_kpts_old, selected_kpts_new, 2.0 / max_focallength, selected_mask_rr);
+    } else {
+      two_point_ransac(
+          R_old_in_new_right,
+          cam_id_right, cam_id_right,
+          selected_kpts_old, selected_kpts_new,
+          selected_mask_rr, 1.0 / max_focallength, 3.0 / max_focallength, max_iter);
+    }
+
+#if 0
+  // disable rr
+  doubly_verified_stereo_ids.insert(common_ids.begin(), common_ids.end());
+#else        
+    for (size_t i=0; i<selected_mask_rr.size(); i++) {
+      if (selected_mask_rr[i]) {
+        doubly_verified_stereo_ids.insert(common_ids[i]);
+      }
+    }
+#endif
+    std::cout << "DEBUG doubly_verified_stereo_ids/prev_left_total=" << doubly_verified_stereo_ids.size() << "/" << ids_last[cam_id_left].size() << std::endl;
+  }
+
+  rT6 = boost::posix_time::microsec_clock::local_time();
+
+  //===================================================================================
+  //===================================================================================
+
   // Update our feature database, with theses new observations
+  for (size_t i=0; i<pts_last[cam_id_left].size(); i++) {
+    if (strict_stereo && doubly_verified_stereo_ids.count(ids_last[cam_id_left].at(i))
+        && !doubly_verified_stereo_last[cam_id_left].count(ids_last[cam_id_left].at(i))) {
+      // some keypoints (e.g. newly extracted ones) in the last frame had not been marked as doubly_verified,
+      // but now we know they're good, so add them to database now (for the left-camera, only needed when strict_stereo=true).
+      cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(pts_last[cam_id_left].at(i).pt);
+      database->update_feature(ids_last[cam_id_left].at(i), img_time_last[cam_id_left], cam_id_left, 
+                               pts_last[cam_id_left].at(i).pt.x, pts_last[cam_id_left].at(i).pt.y, 
+                               npt_l.x, npt_l.y);
+    }
+  }
+
+  for (size_t i=0; i<pts_last[cam_id_right].size(); i++) {
+    if (doubly_verified_stereo_ids.count(ids_last[cam_id_right].at(i))
+        && !doubly_verified_stereo_last[cam_id_right].count(ids_last[cam_id_right].at(i))) {
+      // some keypoints (e.g. newly extracted ones) in the last frame had not been marked as doubly_verified,
+      // but now we know they're good, so add them to database now.
+      cv::Point2f npt_l = camera_calib.at(cam_id_right)->undistort_cv(pts_last[cam_id_right].at(i).pt);
+      database->update_feature(ids_last[cam_id_right].at(i), img_time_last[cam_id_right], cam_id_right, 
+                               pts_last[cam_id_right].at(i).pt.x, pts_last[cam_id_right].at(i).pt.y, 
+                               npt_l.x, npt_l.y);
+    }
+  }
+
   for (size_t i = 0; i < good_left.size(); i++) {
-    cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(good_left.at(i).pt);
-    database->update_feature(good_ids_left.at(i), message.timestamp, cam_id_left, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x,
-                             npt_l.y);
+    if (!strict_stereo || doubly_verified_stereo_ids.count(good_ids_left.at(i))) {
+      cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(good_left.at(i).pt);
+      database->update_feature(good_ids_left.at(i), message.timestamp, cam_id_left, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x,
+                              npt_l.y);
+    }
   }
   for (size_t i = 0; i < good_right.size(); i++) {
-    cv::Point2f npt_r = camera_calib.at(cam_id_right)->undistort_cv(good_right.at(i).pt);
-    database->update_feature(good_ids_right.at(i), message.timestamp, cam_id_right, good_right.at(i).pt.x, good_right.at(i).pt.y, npt_r.x,
-                             npt_r.y);
+    if (doubly_verified_stereo_ids.count(good_ids_right.at(i))) {
+      cv::Point2f npt_r = camera_calib.at(cam_id_right)->undistort_cv(good_right.at(i).pt);
+      database->update_feature(good_ids_right.at(i), message.timestamp, cam_id_right, good_right.at(i).pt.x, good_right.at(i).pt.y, npt_r.x,
+                              npt_r.y);
+    }
   }
 
   // Move forward in time
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_time_last[cam_id_left] = message.timestamp;
+    img_time_last[cam_id_right] = message.timestamp;
     img_last[cam_id_left] = img_left;
     img_last[cam_id_right] = img_right;
     img_pyramid_last[cam_id_left] = imgpyr_left;
@@ -573,19 +689,22 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
     pts_last[cam_id_right] = good_right;
     ids_last[cam_id_left] = good_ids_left;
     ids_last[cam_id_right] = good_ids_right;
+    doubly_verified_stereo_last[cam_id_left] = doubly_verified_stereo_ids;
+    doubly_verified_stereo_last[cam_id_right] = doubly_verified_stereo_ids;
     internal_add_last_to_history(message.timestamp);
   }
-  rT6 = boost::posix_time::microsec_clock::local_time();
+  rT7 = boost::posix_time::microsec_clock::local_time();
 
   //  // Timing information
   PRINT_ALL("[TIME-KLT]: %.4f seconds for pyramid\n", (rT2 - rT1).total_microseconds() * 1e-6);
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for detection (%d detected)\n", (rT3 - rT2).total_microseconds() * 1e-6,
-            (int)pts_last[cam_id_left].size() - pts_before_detect);
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for temporal klt\n", (rT4 - rT3).total_microseconds() * 1e-6);
+  PRINT_ALL("[TIME-KLT]: %.4f seconds for temporal klt (left)\n", (rT3 - rT2).total_microseconds() * 1e-6);
+  PRINT_ALL("[TIME-KLT]: %.4f seconds for detection (%d detected)\n", (rT4 - rT3).total_microseconds() * 1e-6,
+            pts_after_detect - pts_before_detect);
   PRINT_ALL("[TIME-KLT]: %.4f seconds for stereo klt\n", (rT5 - rT4).total_microseconds() * 1e-6);
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for feature DB update (%d features)\n", (rT6 - rT5).total_microseconds() * 1e-6,
+  PRINT_ALL("[TIME-KLT]: %.4f seconds for temporal ransac (right)\n", (rT6 - rT5).total_microseconds() * 1e-6);
+  PRINT_ALL("[TIME-KLT]: %.4f seconds for feature DB update (%d features)\n", (rT7 - rT6).total_microseconds() * 1e-6,
             (int)good_left.size());
-  PRINT_ALL("[TIME-KLT]: %.4f seconds for total\n", (rT6 - rT1).total_microseconds() * 1e-6);
+  PRINT_ALL("[TIME-KLT]: %.4f seconds for total\n", (rT7 - rT1).total_microseconds() * 1e-6);
 }
 
 
@@ -605,6 +724,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
   cv::Mat mask0_updated = mask0.clone();
   auto it0 = pts0.begin();
   auto it1 = ids0.begin();
+  std::cout << "DEBUG detection: before filtering: pts0.size()=" << pts0.size() << std::endl;
   while (it0 != pts0.end()) {
     // Get current left keypoint, check that it is in bounds
     cv::KeyPoint kpt = *it0;
@@ -614,6 +734,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x < edge || x >= img0pyr.at(0).cols - edge || y < edge || y >= img0pyr.at(0).rows - edge) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
+      std::cout << "DEBUG detection: PixelOutOfBound" << std::endl;
       continue;
     }
     // Calculate mask coordinates for close points
@@ -622,6 +743,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x_close < 0 || x_close >= size_close.width || y_close < 0 || y_close >= size_close.height) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
+      std::cout << "DEBUG detection: CloseGridOutOfBound" << std::endl;
       continue;
     }
     // Calculate what grid cell this feature is in
@@ -630,6 +752,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x_grid < 0 || x_grid >= size_grid.width || y_grid < 0 || y_grid >= size_grid.height) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
+      std::cout << "DEBUG detection: CellGridOutOfBound" << std::endl;
       continue;
     }
     // isaac: skip this check for old features. (we'd like to keep all the old features even they're near each other)
@@ -644,6 +767,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (mask0.at<uint8_t>(y, x) > 127) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
+      std::cout << "DEBUG detection: MaskedOut" << std::endl;
       continue;
     }
     // Else we are good, move forward to the next point
@@ -660,13 +784,16 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     it0++;
     it1++;
   }
+  std::cout << "DEBUG detection: after filtering: pts0.size()=" << pts0.size() << std::endl;
 
   // First compute how many more features we need to extract from this image
   // If we don't need any features, just return
   double min_feat_percent = 0.50;
   int num_featsneeded = num_features - (int)pts0.size();
-  if (num_featsneeded < std::min(20, (int)(min_feat_percent * num_features)))
+  if (num_featsneeded < std::min(20, (int)(min_feat_percent * num_features))) {
+    std::cout << "DEBUG detection: no need for new points, pts0.size()=" << pts0.size() << std::endl;
     return;
+  }
 
   // This is old extraction code that would extract from the whole image
   // This can be slow as this will recompute extractions for grid areas that we have max features already
@@ -723,6 +850,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     size_t temp = ++currid;
     ids0.push_back(temp);
   }
+  std::cout << "DEBUG detection: extracted new points, pts0.size()=" << pts0.size() << std::endl;
 }
 
 void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, const std::vector<cv::Mat> &img1pyr, const cv::Mat &mask0,
@@ -1031,8 +1159,8 @@ void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, con
 }
 
 void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::vector<cv::Mat> &img1pyr, std::vector<cv::KeyPoint> &kpts0,
-                                std::vector<cv::KeyPoint> &kpts1, size_t id0, size_t id1, std::vector<uchar> &mask_out) {
-
+                                std::vector<cv::KeyPoint> &kpts1, size_t id0, size_t id1, std::vector<uchar> &mask_out,
+                                const Eigen::Matrix3d* R_0_in_1, const Eigen::Vector3d* t_0_in_1) {
   // We must have equal vectors
   assert(kpts0.size() == kpts1.size());
 
@@ -1074,7 +1202,49 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   double max_focallength_img0 = std::max(camera_calib.at(id0)->get_K()(0, 0), camera_calib.at(id0)->get_K()(1, 1));
   double max_focallength_img1 = std::max(camera_calib.at(id1)->get_K()(0, 0), camera_calib.at(id1)->get_K()(1, 1));
   double max_focallength = std::max(max_focallength_img0, max_focallength_img1);
-  cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, 2.0 / max_focallength, 0.999, mask_rsc);
+
+  if (force_fundamental || !R_0_in_1) {
+    // cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, 2.0 / max_focallength, 0.999, mask_rsc);
+    fundamental_ransac(pts0_n, pts1_n, 2.0 / max_focallength, mask_rsc);
+    int cnt_inliers = 0;
+    for (auto v : mask_rsc) {
+      if (v) {
+        cnt_inliers ++;
+      }
+    }
+    std::cout << "findFundamentalMat inliers/total = " << cnt_inliers << "/" << pts0_n.size() << std::endl;
+  } else {
+    if (t_0_in_1) {
+      known_essential_check(*R_0_in_1, *t_0_in_1, pts0_n, pts1_n, mask_rsc, 3.0 / max_focallength);
+    } else {
+      const double success_probability = 0.99;
+      const int max_iter = ceil(log(1-success_probability) / log(1-0.7*0.7));  // = 7
+      // std::cout << "DEBUG ransac max_iter=" << max_iter << std::endl;
+      two_point_ransac(*R_0_in_1, pts0_n, pts1_n, mask_rsc, 1.0 / max_focallength, 3.0 / max_focallength, max_iter);
+    }
+
+    // std::vector<size_t> selected_indices;
+    // select_masked(mask_klt, selected_indices);
+    // std::vector<cv::Point2f> selected_pts0_n, selected_pts1_n;
+    // selected_pts0_n.reserve(selected_indices.size());
+    // selected_pts1_n.reserve(selected_indices.size());
+    // for (size_t idx : selected_indices) {
+    //   selected_pts0_n.push_back(pts0_n[idx]);
+    //   selected_pts1_n.push_back(pts1_n[idx]);
+    // }
+    // std::vector<uchar> selected_mask;
+
+    // if (t_0_in_1) {
+    //   known_essential_check(*R_0_in_1, *t_0_in_1, selected_pts0_n, selected_pts1_n, selected_mask, 3.0 / max_focallength);
+    // } else {
+    //   const double success_probability = 0.99;
+    //   const int max_iter = ceil(log(1-success_probability) / log(1-0.7*0.7));  // = 7
+    //   // std::cout << "DEBUG ransac max_iter=" << max_iter << std::endl;
+    //   two_point_ransac(*R_0_in_1, selected_pts0_n, selected_pts1_n, selected_mask, 1.0 / max_focallength, 3.0 / max_focallength, max_iter);
+    // }
+
+    // apply_selected_mask(selected_mask, selected_indices, mask_rsc);
+  }
 
   // Loop through and record only ones that are valid
   for (size_t i = 0; i < mask_klt.size(); i++) {

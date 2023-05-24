@@ -86,9 +86,15 @@ public:
    * @param histmethod what type of histogram pre-processing should be done (histogram eq?)
    */
   TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
-            HistogramMethod histmethod);
+            HistogramMethod histmethod,
+            std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>());
 
   virtual ~TrackBase() {}
+
+
+  void set_t_d(double t_d) {this->t_d = t_d;}
+
+  void set_gyro_bias(const Eigen::Vector3d& gyro_bias) {this->gyro_bias = gyro_bias;}
 
   /**
    * @brief Process a new image
@@ -156,6 +162,115 @@ public:
     internal_clear_older_history(timestamp);
   }
 
+  void feed_imu(const ov_core::ImuData &message, double oldest_time = -1) {
+    // Append it to our vector
+    std::lock_guard<std::mutex> lck(imu_data_mtx);
+    imu_data.emplace_back(message);
+
+    // Clean old measurements
+    // std::cout << "PROP: imu_data.size() " << imu_data.size() << std::endl;
+    clean_old_imu_measurements(oldest_time - 0.10);
+  }
+
+  void clean_old_imu_measurements(double oldest_time) {
+    if (oldest_time < 0)
+      return;
+    auto it0 = imu_data.begin();
+    while (it0 != imu_data.end()) {
+      if (it0->timestamp < oldest_time) {
+        it0 = imu_data.erase(it0);
+      } else {
+        it0++;
+      }
+    }
+  }
+
+protected:
+  Eigen::Matrix3d integrate_gryo(double old_time, double new_time);
+
+  Eigen::Matrix3d predict_rotation(size_t cam_id, double new_time);
+
+  void predict_keypoints(
+      size_t cam_id0, size_t cam_id1, const std::vector<cv::KeyPoint>& kpts0, 
+      const Eigen::Matrix3d& R_0_in_1, std::vector<cv::KeyPoint>& kpts1_predict);
+  
+  void predict_keypoints_temporally(
+      size_t cam_id, double new_time,
+      const std::vector<cv::KeyPoint>& kpts_old,
+      std::vector<cv::KeyPoint>& kpts_new_predict,
+      Eigen::Matrix3d& output_R_old_in_new);
+
+  void predict_keypoints_stereo(
+      size_t cam_id_left, size_t cam_id_right,
+      const std::vector<cv::KeyPoint>& kpts_left,
+      std::vector<cv::KeyPoint>& kpts_right_predict,
+      Eigen::Matrix3d& output_R_left_in_right,
+      Eigen::Vector3d& output_t_left_in_right);
+
+  void select_masked(const std::vector<uchar>& mask, std::vector<size_t>& selected_indices);
+
+  void apply_selected_mask(const std::vector<uchar>& selected_mask, const std::vector<size_t>& selected_indices, std::vector<uchar>& total_mask);
+
+  double get_coeffs_mat_for_essential_test(
+      const Eigen::Matrix3d& R_0_in_1,
+      const std::vector<cv::Point2f>& pts0_n,
+      const std::vector<cv::Point2f>& pts1_n,
+      Eigen::MatrixXd& coeffs_mat,
+      std::vector<double>& disparities);
+
+  Eigen::Vector3d solve_essential(const Eigen::MatrixXd& coeffs_mat, const std::vector<size_t>& used_rows);
+
+  std::vector<size_t> get_essential_inliers(const Eigen::MatrixXd& coeffs_mat, const Eigen::Vector3d& t, const double thr = 0.02);
+
+  double get_essential_err_rmse(const Eigen::MatrixXd& coeffs_mat, const Eigen::Vector3d& t, const std::vector<size_t>& used_rows);
+
+  void two_point_ransac(
+      const Eigen::Matrix3d& R_0_in_1,
+      const std::vector<cv::Point2f>& pts0_n,
+      const std::vector<cv::Point2f>& pts1_n,
+      std::vector<uchar> & inliers_mask,
+      const double disparity_thr = 1.0 * M_PI / 180.0 / 3.0,  // moving or stationary ?
+      const double essential_inlier_thr = 1.0 * M_PI / 180.0,
+      int max_iter = 30);
+
+  void two_point_ransac(
+      const Eigen::Matrix3d& R_0_in_1,
+      size_t cam_id0, size_t cam_id1,
+      const std::vector<cv::KeyPoint>& kpts0,
+      const std::vector<cv::KeyPoint>& kpts1,
+      std::vector<uchar> & inliers_mask,
+      const double disparity_thr = 1.0 * M_PI / 180.0 / 3.0,  // moving or stationary ?
+      const double essential_inlier_thr = 1.0 * M_PI / 180.0,
+      int max_iter = 30);
+
+  void known_essential_check(
+      const Eigen::Matrix3d& R_0_in_1,
+      const Eigen::Vector3d& t_0_in_1,
+      const std::vector<cv::Point2f>& pts0_n,
+      const std::vector<cv::Point2f>& pts1_n,
+      std::vector<uchar> & inliers_mask,
+      const double essential_inlier_thr = 1.0 * M_PI / 180.0);
+
+  void select_common_id(const std::vector<size_t>& ids0, const std::vector<size_t>& ids1,
+                        std::vector<size_t>& common_ids,
+                        std::vector<size_t>& selected_indices0,
+                        std::vector<size_t>& selected_indices1);
+
+  std::vector<cv::KeyPoint> select_keypoints(const std::vector<size_t>& selected_indices, const std::vector<cv::KeyPoint>& keypoints);
+
+  void fundamental_ransac(
+      const std::vector<cv::Point2f>& pts0_n,
+      const std::vector<cv::Point2f>& pts1_n,
+      const double fundamental_inlier_thr,
+      std::vector<uchar> & inliers_mask);
+
+  void fundamental_ransac(
+      size_t cam_id0, size_t cam_id1,
+      const std::vector<cv::KeyPoint>& kpts0,
+      const std::vector<cv::KeyPoint>& kpts1,
+      const double fundamental_inlier_thr,
+      std::vector<uchar> & inliers_mask);
+
 protected:
   /// Camera object which has all calibration in it
   std::unordered_map<size_t, std::shared_ptr<CamBase>> camera_calib;
@@ -181,6 +296,8 @@ protected:
   /// Mutex for editing the *_last variables
   std::mutex mtx_last_vars;
 
+  std::map<size_t, double> img_time_last;
+
   /// Last set of images (use map so all trackers render in the same order)
   std::map<size_t, cv::Mat> img_last;
 
@@ -192,6 +309,10 @@ protected:
 
   /// Set of IDs of each current feature in the database
   std::unordered_map<size_t, std::vector<size_t>> ids_last;
+
+  /// Last set of doubly_verified_stereo observations
+  std::map<size_t, std::set<size_t>> doubly_verified_stereo_last;
+
 
   struct HistoryVars {
     std::map<size_t, cv::Mat> img;
@@ -230,6 +351,17 @@ protected:
 
   // Timing variables (most children use these...)
   boost::posix_time::ptime rT1, rT2, rT3, rT4, rT5, rT6, rT7;
+
+
+  /// Our history of IMU messages (time, angular, linear)
+  std::vector<ImuData> imu_data;
+  std::mutex imu_data_mtx;
+
+  /// Map between camid and camera extrinsics (q_ItoC, p_IinC).
+  std::map<size_t, Eigen::Isometry3d> camera_extrinsics;
+
+  double t_d;
+  Eigen::Vector3d gyro_bias;
 };
 
 } // namespace ov_core

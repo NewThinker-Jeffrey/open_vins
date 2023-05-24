@@ -67,6 +67,12 @@ void FeatureDatabase::update_feature(size_t id, double timestamp, size_t cam_id,
   if (features_idlookup.find(id) != features_idlookup.end()) {
     // Get our feature
     std::shared_ptr<Feature> feat = features_idlookup.at(id);
+
+    // prevent duplicate or older observations
+    if (!feat->timestamps[cam_id].empty() && feat->timestamps[cam_id].back() >= timestamp) {
+      return;
+    }
+
     // Append this new information to it!
     feat->uvs[cam_id].push_back(Eigen::Vector2f(u, v));
     feat->uvs_norm[cam_id].push_back(Eigen::Vector2f(u_n, v_n));

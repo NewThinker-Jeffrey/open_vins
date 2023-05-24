@@ -125,7 +125,9 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   if (params.use_klt) {
     trackFEATS = std::shared_ptr<TrackBase>(new TrackKLT(state->_cam_intrinsics_cameras, init_max_features,
                                                          state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
-                                                         params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.klt_left_major_stereo));
+                                                         params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist,
+                                                         params.camera_extrinsics,
+                                                         params.klt_left_major_stereo, params.klt_strict_stereo, params.klt_force_fundamental));
   } else {
     trackFEATS = std::shared_ptr<TrackBase>(new TrackDescriptor(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
@@ -220,6 +222,8 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
   }
 
   propagator->feed_imu(message, oldest_time);
+  trackFEATS->feed_imu(message, oldest_time);
+  // trackARUCO->feed_imu(message, oldest_time);
 
   // Push back to our initializer
   if (!is_initialized_vio) {
@@ -233,9 +237,9 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
   }
 
   {
-    std::unique_lock<std::mutex> locker(update_task_queue_mutex_);
+    std::unique_lock<std::mutex> locker(imu_sync_mutex_);
     last_imu_time_ = message.timestamp;
-    update_task_queue_cond_.notify_one();
+    imu_sync_cond_.notify_all();
   }
 }
 
@@ -384,6 +388,20 @@ void VioManager::update_thread_func() {
 
 void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
   ov_core::CameraData &message = *(c->message);
+  std::shared_ptr<Output> output = getLastOutput();
+  double t_d = output->state_clone->_calib_dt_CAMtoIMU->value()(0);
+  Eigen::Vector3d gyro_bias = output->state_clone->_imu->bias_g();
+
+  double timestamp_imu_inC;
+  {
+    // We are able to process if we have at least one IMU measurement greater than the camera time
+    std::unique_lock<std::mutex> locker(imu_sync_mutex_);
+    imu_sync_cond_.wait(locker, [&](){
+      timestamp_imu_inC = last_imu_time_ - t_d;
+      return  message.timestamp < timestamp_imu_inC || stop_request_;
+    });
+  }
+
   c->rT1 = boost::posix_time::microsec_clock::local_time();
   // Assert we have valid measurement data and ids
   assert(!message.sensor_ids.empty());
@@ -404,6 +422,8 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
   }
 
   // Perform our feature tracking!
+  trackFEATS->set_t_d(t_d);
+  trackFEATS->set_gyro_bias(gyro_bias);
   trackFEATS->feed_new_camera(message);
 
   // If the aruco tracker is available, the also pass to it
@@ -421,8 +441,8 @@ void VioManager::do_update(ImgProcessContextPtr c) {
   double timestamp_imu_inC;
   {
     // We are able to process if we have at least one IMU measurement greater than the camera time
-    std::unique_lock<std::mutex> locker(update_task_queue_mutex_);
-    update_task_queue_cond_.wait(locker, [&](){
+    std::unique_lock<std::mutex> locker(imu_sync_mutex_);
+    imu_sync_cond_.wait(locker, [&](){
       timestamp_imu_inC = last_imu_time_ - state->_calib_dt_CAMtoIMU->value()(0);
       return  message.timestamp < timestamp_imu_inC || stop_request_;
     });

@@ -334,7 +334,11 @@ struct VioManagerOptions {
   /// If we should use KLT tracking, or descriptor matcher
   bool use_klt = true;
 
-  bool klt_left_major_stereo = false;
+  bool klt_left_major_stereo = true;
+
+  bool klt_strict_stereo = false;
+
+  bool klt_force_fundamental = true;
 
   /// If should extract aruco tags and estimate them
   bool use_aruco = true;
@@ -392,6 +396,8 @@ struct VioManagerOptions {
       parser->parse_config("use_stereo", use_stereo);
       parser->parse_config("use_klt", use_klt);
       parser->parse_config("klt_left_major_stereo", klt_left_major_stereo);
+      parser->parse_config("klt_strict_stereo", klt_strict_stereo);
+      parser->parse_config("klt_force_fundamental", klt_force_fundamental);
       parser->parse_config("use_aruco", use_aruco);
       parser->parse_config("downsize_aruco", downsize_aruco);
       parser->parse_config("downsample_cameras", downsample_cameras);
@@ -425,6 +431,8 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - use_stereo: %d\n", use_stereo);
     PRINT_DEBUG("  - use_klt: %d\n", use_klt);
     PRINT_DEBUG("  - klt_left_major_stereo: %d\n", klt_left_major_stereo);
+    PRINT_DEBUG("  - klt_strict_stereo: %d\n", klt_strict_stereo);
+    PRINT_DEBUG("  - klt_force_fundamental: %d\n", klt_force_fundamental);
     PRINT_DEBUG("  - use_aruco: %d\n", use_aruco);
     PRINT_DEBUG("  - downsize aruco: %d\n", downsize_aruco);
     PRINT_DEBUG("  - downsize cameras: %d\n", downsample_cameras);

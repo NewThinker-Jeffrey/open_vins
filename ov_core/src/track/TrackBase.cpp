@@ -24,12 +24,27 @@
 #include "cam/CamBase.h"
 #include "feat/Feature.h"
 #include "feat/FeatureDatabase.h"
+#include "utils/quat_ops.h"
+#include "utils/ransac_helper.h"
+#include <Eigen/Geometry>
+#include <opencv2/core/eigen.hpp>
+#include <algorithm>
 
 using namespace ov_core;
 
 TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
-                     HistogramMethod histmethod)
-    : camera_calib(cameras), database(new FeatureDatabase()), num_features(numfeats), use_stereo(stereo), histogram_method(histmethod) {
+                     HistogramMethod histmethod, std::map<size_t, Eigen::VectorXd> inp_camera_extrinsics)
+    : camera_calib(cameras), database(new FeatureDatabase()), num_features(numfeats), use_stereo(stereo), histogram_method(histmethod), t_d(0), gyro_bias(0,0,0) {
+
+  for (const auto & item : inp_camera_extrinsics) {
+    camera_extrinsics[item.first] = Eigen::Isometry3d::Identity();
+    camera_extrinsics[item.first].linear() = quat_2_Rot(item.second.block(0,0,4,1));
+    camera_extrinsics[item.first].translation() = item.second.block(4,0,3,1);
+    camera_extrinsics[item.first] = camera_extrinsics[item.first].inverse();  // todo(isaac): check the transformation.
+    std::cout << "extrinsics for camera " << item.first << ": " << std::endl;
+    std::cout << camera_extrinsics[item.first].matrix() << std::endl;
+  }
+
   // Our current feature ID should be larger then the number of aruco tags we have (each has 4 corners)
   currid = 4 * (size_t)numaruco + 1;
   // Create our mutex array based on the number of cameras we have
@@ -244,4 +259,425 @@ void TrackBase::change_feat_id(size_t id_old, size_t id_new) {
       }
     }
   }
+}
+
+Eigen::Matrix3d TrackBase::integrate_gryo(double old_time, double new_time) {
+  std::cout << "DEBUG integrate_gryo: old_time=" << old_time << ",   new_time=" 
+            << new_time << ",   new-old=" << new_time - old_time << ",  t_d=" << t_d << std::endl;
+  double old_imu_time = old_time + t_d;
+  double new_imu_time = new_time + t_d;
+  std::vector<ImuData> prop_data;
+  {
+    std::lock_guard<std::mutex> lck(imu_data_mtx);
+    prop_data = ImuData::select_imu_readings(imu_data, old_imu_time, new_imu_time);
+  }
+  if (prop_data.size() < 2) {
+    std::cout << "DEBUG integrate_gryo: no prop_data" << std::endl;
+    return Eigen::Matrix3d::Identity();
+  }
+
+  Eigen::Quaterniond q(1,0,0,0);
+  for (size_t i=0; i<prop_data.size()-1; i++) {
+    const auto & d0 = prop_data[i];
+    const auto & d1 = prop_data[i+1];
+    double dt = d1.timestamp - d0.timestamp;
+    Eigen::Vector3d w_ave = 0.5 * (d0.wm + d1.wm) - gyro_bias;
+    Eigen::Vector3d im = 0.5 * w_ave * dt;    
+    Eigen::Quaterniond dq(1, im.x(), im.y(), im.z());
+    q = q * dq;
+  }
+  q.normalize();
+  return q.toRotationMatrix();
+}
+
+Eigen::Matrix3d TrackBase::predict_rotation(size_t cam_id, double new_time) {
+  if (img_time_last.count(cam_id) == 0) {
+    std::cout << "DEBUG predict_rotation: no previous frame" << std::endl;
+    return Eigen::Matrix3d::Identity();
+  }
+
+  double old_time = img_time_last.at(cam_id);
+  Eigen::Matrix3d R_I1_in_I0 = integrate_gryo(old_time, new_time);
+  Eigen::Matrix3d R_C_in_I = camera_extrinsics[cam_id].linear();
+  Eigen::Matrix3d R_C1_in_C0 = R_C_in_I.transpose() * R_I1_in_I0 * R_C_in_I;
+  Eigen::Matrix3d R_C0_in_C1 = R_C1_in_C0.transpose();
+  return R_C0_in_C1;
+}
+
+void TrackBase::predict_keypoints(
+  size_t cam_id0, size_t cam_id1, const std::vector<cv::KeyPoint>& kpts0, 
+  const Eigen::Matrix3d& R_0_in_1, std::vector<cv::KeyPoint>& kpts1_predict) {
+  kpts1_predict = kpts0;
+  cv::Matx33f cv_R_0_in_1;
+  // std::cout << "DEBUG TrackBase::predict_keypoints:  R_0_in_1:" << std::endl;
+  // std::cout << R_0_in_1 << std::endl;
+  Eigen::Matrix3f R_0_in_1f = R_0_in_1.cast<float>();
+  cv::eigen2cv(R_0_in_1f, cv_R_0_in_1);
+  std::cout << "DEBUG TrackBase::predict_keypoints:  cv_R_0_in_1:" << std::endl;
+  std::cout << cv_R_0_in_1 << std::endl;
+  for (size_t i=0; i<kpts0.size(); i++) {
+    cv::Point2f npt_0 = camera_calib.at(cam_id0)->undistort_cv(kpts0.at(i).pt);
+    // std::cout << "DEBUG predict: *** " << std::endl;
+    // std::cout << "DEBUG predict: pt_0: " << kpts0.at(i).pt << std::endl;
+    // std::cout << "DEBUG predict: npt_0: " << npt_0 << std::endl;
+    cv::Point3f homogenous_npt_0(npt_0.x, npt_0.y, 1.0);
+    cv::Point3f pt3d_1 = cv_R_0_in_1 * homogenous_npt_0;
+    cv::Point2f npt_1(pt3d_1.x / pt3d_1.z, pt3d_1.y / pt3d_1.z);
+    kpts1_predict.at(i).pt = camera_calib.at(cam_id1)->distort_cv(npt_1);
+    // std::cout << "DEBUG predict: npt_1: " << npt_1 << std::endl;
+    // std::cout << "DEBUG predict: pt_1: " << kpts1_predict.at(i).pt << std::endl;
+  }
+}
+
+void TrackBase::predict_keypoints_temporally(
+    size_t cam_id, double new_time,
+    const std::vector<cv::KeyPoint>& kpts_old,
+    std::vector<cv::KeyPoint>& kpts_new_predict,
+    Eigen::Matrix3d& R_old_in_new) {
+  R_old_in_new = predict_rotation(cam_id, new_time);
+  predict_keypoints(cam_id, cam_id, kpts_old, R_old_in_new, kpts_new_predict);
+}
+
+void TrackBase::predict_keypoints_stereo(
+    size_t cam_id_left, size_t cam_id_right,
+    const std::vector<cv::KeyPoint>& kpts_left,
+    std::vector<cv::KeyPoint>& kpts_right_predict,
+    Eigen::Matrix3d& R_left_in_right,
+    Eigen::Vector3d& t_left_in_right) {
+  
+  Eigen::Isometry3d T_Cleft_in_I = camera_extrinsics[cam_id_left];
+  Eigen::Isometry3d T_Cright_in_I = camera_extrinsics[cam_id_right];
+  Eigen::Isometry3d T_left_in_right = T_Cright_in_I.inverse() * T_Cleft_in_I;
+  // R_left_in_right = R_Cright_in_I.transpose() * R_Cleft_in_I;
+  R_left_in_right = T_left_in_right.linear();
+  t_left_in_right = T_left_in_right.translation();
+
+  predict_keypoints(
+      cam_id_left, cam_id_right, kpts_left, R_left_in_right, kpts_right_predict);
+}
+
+void TrackBase::select_masked(const std::vector<uchar> & mask, std::vector<size_t>& selected_indices) {
+  selected_indices.reserve(mask.size());
+  for (size_t i=0; i<mask.size(); i++) {
+    if (mask[i]) {
+      selected_indices.push_back(i);
+    }
+  }
+}
+
+void apply_selected_mask(const std::vector<uchar> & selected_mask, const std::vector<size_t> selected_indices, std::vector<uchar> & total_mask) {
+  // reset total_mask
+  for (size_t i=0; i<total_mask.size(); i++) {
+    total_mask[i] = 0;
+  }
+  // apply selected_mask
+  for (size_t i=0; i<selected_mask.size(); i++) {
+    total_mask[selected_indices[i]] = selected_mask[i];
+  }
+}
+
+
+double TrackBase::get_coeffs_mat_for_essential_test(
+    const Eigen::Matrix3d& R_0_in_1,
+    const std::vector<cv::Point2f>& pts0_n,
+    const std::vector<cv::Point2f>& pts1_n,
+    Eigen::MatrixXd& out_coeffs_mat,
+    std::vector<double>& disparities) {
+  assert(pts0_n.size() == pts1_n.size());
+
+  // std::vector<double> disparities;
+  disparities.resize(pts0_n.size());
+  Eigen::MatrixXd coeffs_mat (pts0_n.size(), 3);
+  cv::Matx33f cv_R_0_in_1;
+  Eigen::Matrix3f R_0_in_1f = R_0_in_1.cast<float>();
+  cv::eigen2cv(R_0_in_1f, cv_R_0_in_1);
+  for (size_t i=0; i<pts0_n.size(); i++) {
+    cv::Point3f homo_pt0(pts0_n[i].x, pts0_n[i].y, 1);
+    cv::Point3f rot_pt0 = cv_R_0_in_1 * homo_pt0;
+    cv::Point2f rot_pt0n;
+    rot_pt0n.x = rot_pt0.x/rot_pt0.z;
+    rot_pt0n.y = rot_pt0.y/rot_pt0.z;
+    float x0 = rot_pt0n.x;
+    float y0 = rot_pt0n.y;
+    float x1 = pts1_n[i].x;
+    float y1 = pts1_n[i].y;
+    // (x0, y0, 1) X (x1, y1, 1) = (y0 - y1,  x1 - x0,  x0*y1 - x1*y0)
+    coeffs_mat(i, 0) = y0 - y1;
+    coeffs_mat(i, 1) = x1 - x0;
+    coeffs_mat(i, 2) = x0*y1 - x1*y0;
+    cv::Point2f diff = rot_pt0n - pts1_n[i];
+    disparities[i] = sqrt(diff.dot(diff));
+  }
+
+  // size_t representative_index = disparities.size() / 3;  // the first 1/3 point
+  size_t representative_index = disparities.size() / 2;  // the median
+  std::nth_element(disparities.begin(), disparities.begin() + representative_index, disparities.end());
+  double representative_disparity = disparities[representative_index];
+  std::cout << "get_coeffs_mat_for_essential_test.representative_disparity: " << representative_disparity << std::endl;
+  out_coeffs_mat = std::move(coeffs_mat);
+  return representative_disparity;
+}
+
+
+Eigen::Vector3d TrackBase::solve_essential(const Eigen::MatrixXd& coeffs_mat, const std::vector<size_t>& used_rows) {
+  Eigen::MatrixXd used_coeffs(used_rows.size(), 3);
+  for (size_t i=0; i<used_rows.size(); i++) {
+    used_coeffs.row(i) = coeffs_mat.row(used_rows[i]);
+  }
+  Eigen::VectorXd X = used_coeffs.col(0);
+  Eigen::VectorXd Y = used_coeffs.col(1);
+  Eigen::VectorXd Z = used_coeffs.col(2);
+  double X_norm = X.norm();
+  double Y_norm = Y.norm();
+  double Z_norm = Z.norm();
+  double min_norm = std::min(X_norm, std::min(Y_norm, Z_norm));
+
+  Eigen::MatrixXd A(used_rows.size(), 2);
+  Eigen::VectorXd b;
+  auto solveAb = [](const Eigen::MatrixXd& A, const Eigen::VectorXd& b) {
+    Eigen::VectorXd solution;
+    if (A.rows() == 2) {
+      solution = A.inverse() * b;
+    } else {
+      solution = (A.transpose() * A).inverse() * A.transpose() * b;
+    }
+    return solution;
+  };
+
+  if (min_norm == X_norm) {
+    A << used_coeffs.col(1), used_coeffs.col(2);
+    b = - used_coeffs.col(0);
+    auto r = solveAb(A,b);
+    return Eigen::Vector3d(1.0, r[0], r[1]);
+  } else if (min_norm == Y_norm) {
+    A << used_coeffs.col(0), used_coeffs.col(2);
+    b = - used_coeffs.col(1);
+    auto r = solveAb(A,b);
+    return Eigen::Vector3d(r[0], 1.0, r[1]);
+  } else { // if (min_norm == Z_norm)
+    A << used_coeffs.col(0), used_coeffs.col(1);
+    b = - used_coeffs.col(2);
+    auto r = solveAb(A,b);
+    return Eigen::Vector3d(r[0], r[1], 1.0);
+  }
+}
+
+std::vector<size_t> TrackBase::get_essential_inliers(const Eigen::MatrixXd& coeffs_mat, const Eigen::Vector3d& t, const double thr) {
+  Eigen::VectorXd err_vec = coeffs_mat * t;
+  std::vector<size_t> inliers;
+  // std::cout << "get_essential_inliers.err_vec: " << err_vec.transpose() << std::endl;
+  inliers.reserve(err_vec.rows());
+  for (size_t i=0; i<err_vec.rows(); i++) {
+    if (std::abs(err_vec[i]) <= thr) {
+      inliers.push_back(i);
+    }
+  }
+  return inliers;
+}
+
+double TrackBase::get_essential_err_rmse(const Eigen::MatrixXd& coeffs_mat, const Eigen::Vector3d& t, const std::vector<size_t>& used_rows) {
+  Eigen::MatrixXd used_coeffs(used_rows.size(), 3);
+  for (size_t i=0; i<used_rows.size(); i++) {
+    used_coeffs.row(i) = coeffs_mat.row(used_rows[i]);
+  }
+
+  Eigen::VectorXd err_vec = used_coeffs * t;  
+  double mse = 0.0;
+  for (size_t i=0; i<err_vec.rows(); i++) {
+    mse = err_vec[i] * err_vec[i];
+  }
+  mse /= err_vec.rows();
+  double rmse = sqrt(mse);
+  std::cout << "get_essential_err_rmse.rmse: " << rmse << std::endl;
+  return rmse;
+}
+
+void TrackBase::two_point_ransac(
+    const Eigen::Matrix3d& R_0_in_1,
+    const std::vector<cv::Point2f>& pts0_n,
+    const std::vector<cv::Point2f>& pts1_n,
+    std::vector<uchar> & inliers_mask,
+    const double disparity_thr,
+    const double essential_inlier_thr,
+    int max_iter) {
+
+  // const double essential_inlier_thr = 1.0 * M_PI / 180.0;
+  // const double disparity_thr = essential_inlier_thr / 3.0;  // moving or stationary
+
+  if (pts0_n.size() < 5) {
+    // too few keypoints. mark all as outliers.
+    inliers_mask.resize(pts0_n.size(), 0);
+    std::cout << "two_point_ransac[too few points]: inliers/total = " << 0 << "/" << pts0_n.size() << std::endl;
+    return;
+  }
+
+  Eigen::MatrixXd coeffs_mat;
+  std::vector<double> disparities;
+  double representative_disparity = get_coeffs_mat_for_essential_test(
+    R_0_in_1, pts0_n, pts1_n, coeffs_mat, disparities);
+
+  if (representative_disparity < disparity_thr) {
+    // the stationary case.
+    // So features with large disparities are outliers.
+    // (What if most of the features are far but only a minor part of them are near features? We'll mark all near features as outliers?)
+    inliers_mask.resize(pts0_n.size(), 1);
+    int cnt_inliers = 0;
+    Eigen::VectorXd disparities_vec(disparities.size());
+    for (size_t i=0; i<pts0_n.size(); i++) {
+      disparities_vec[i] = disparities[i];
+      if (disparities[i] > essential_inlier_thr) {
+        inliers_mask[i] = 0;
+      } else {
+        cnt_inliers ++;
+      }
+    }
+    std::cout << "two_point_ransac[stationary].err_vec(thr=" << essential_inlier_thr << "): " << disparities_vec.transpose() << std::endl;
+    std::cout << "two_point_ransac[stationary]: inliers/total = " << cnt_inliers << "/" << coeffs_mat.rows() << std::endl;
+    return;
+  }
+
+  // motion case. the model works.
+
+  std::vector<size_t> best_inliers;
+  Eigen::Vector3d best_t;
+  for (int iter = 0; iter < max_iter; iter ++) {
+    std::vector<size_t> used_rows = select_samples(coeffs_mat.rows(), 2);
+    Eigen::Vector3d t = solve_essential(coeffs_mat, used_rows);
+    std::cout << "two_point_ransac: t = " << t.transpose() << ", t.norm(): " << t.norm() << std::endl;
+    // if (t.norm() < 1e-6) {
+    //   continue;
+    // }
+    t.normalize();
+    std::vector<size_t> inliers = get_essential_inliers(coeffs_mat, t, essential_inlier_thr);
+    if (inliers.size() > best_inliers.size()) {
+      best_inliers = inliers;
+      best_t = t;
+    }
+  }
+  
+  inliers_mask = std::vector<uchar>(coeffs_mat.rows(), 0);
+  for (size_t inlier_idx : best_inliers) {
+    inliers_mask[inlier_idx] = 1;
+  }
+
+  Eigen::VectorXd err_vec = coeffs_mat * best_t;
+  std::cout << "two_point_ransac[normal].err_vec(thr=" << essential_inlier_thr << "): " << err_vec.transpose() << std::endl;
+  std::cout << "two_point_ransac[normal]: inliers/total = " << best_inliers.size() << "/" << coeffs_mat.rows() << std::endl;
+  return;
+}
+
+void TrackBase::known_essential_check(
+    const Eigen::Matrix3d& R_0_in_1,
+    const Eigen::Vector3d& t_0_in_1,
+    const std::vector<cv::Point2f>& pts0_n,
+    const std::vector<cv::Point2f>& pts1_n,
+    std::vector<uchar> & inliers_mask,
+    const double essential_inlier_thr) {
+  Eigen::Vector3d t = t_0_in_1;
+  t.normalize();
+  Eigen::MatrixXd coeffs_mat;
+  std::vector<double> disparities_dummy;
+  get_coeffs_mat_for_essential_test(R_0_in_1, pts0_n, pts1_n, coeffs_mat, disparities_dummy);
+  std::vector<size_t> inliers = get_essential_inliers(coeffs_mat, t, essential_inlier_thr);
+  std::cout << "known_essential_check: inliers/total = " << inliers.size() << "/" << coeffs_mat.rows() << std::endl;
+  inliers_mask = std::vector<uchar>(coeffs_mat.rows(), 0);
+  for (size_t inlier_idx : inliers) {
+    inliers_mask[inlier_idx] = 1;
+  }
+  return;  
+}
+
+void TrackBase::select_common_id(
+    const std::vector<size_t>& ids0, const std::vector<size_t>& ids1,
+    std::vector<size_t>& common_ids,
+    std::vector<size_t>& selected_indices0,
+    std::vector<size_t>& selected_indices1) {
+
+  std::map<size_t, size_t> id_to_idx0, id_to_idx1;
+  std::set<size_t> ids0_set, ids1_set;
+  for (size_t i=0; i<ids0.size(); i++) {
+    id_to_idx0[ids0[i]] = i;
+    ids0_set.insert(ids0[i]);
+  }
+  for (size_t i=0; i<ids1.size(); i++) {
+    id_to_idx1[ids1[i]] = i;
+    ids1_set.insert(ids1[i]);
+  }
+
+  common_ids.clear();
+  std::cout << "DEBUG select_common_id: before set_intersection.  ids0_set.size()=" 
+            << ids0_set.size() << ",  ids1_set.size()=" << ids1_set.size() << std::endl;
+  std::set_intersection(ids0_set.begin(), ids0_set.end(), ids1_set.begin(), ids1_set.end(), 
+                        std::inserter(common_ids, common_ids.end()));
+  std::cout << "DEBUG select_common_id: after set_intersection" << std::endl;
+
+  selected_indices0.clear();
+  selected_indices1.clear();
+  selected_indices0.reserve(common_ids.size());
+  selected_indices1.reserve(common_ids.size());
+  for (auto id : common_ids) {
+    selected_indices0.push_back(id_to_idx0[id]);
+    selected_indices1.push_back(id_to_idx1[id]);
+  }
+}
+
+std::vector<cv::KeyPoint> TrackBase::select_keypoints(
+    const std::vector<size_t>& selected_indices, const std::vector<cv::KeyPoint>& keypoints) {
+  std::vector<cv::KeyPoint> selected_keypoints(selected_indices.size());
+  for (size_t i=0; i<selected_indices.size(); i++) {
+    selected_keypoints[i] = keypoints[selected_indices[i]];
+  }
+  return selected_keypoints;
+}
+
+
+void TrackBase::two_point_ransac(
+    const Eigen::Matrix3d& R_0_in_1,
+    size_t cam_id0, size_t cam_id1,
+    const std::vector<cv::KeyPoint>& kpts0,
+    const std::vector<cv::KeyPoint>& kpts1,
+    std::vector<uchar> & inliers_mask,
+    const double disparity_thr,
+    const double essential_inlier_thr,
+    int max_iter) {
+
+  std::vector<cv::Point2f> pts0_n(kpts0.size());
+  std::vector<cv::Point2f> pts1_n(kpts1.size());
+
+  for (size_t i=0; i<kpts0.size(); i++) {
+    pts0_n[i] = camera_calib.at(cam_id0)->undistort_cv(kpts0.at(i).pt);
+  }
+
+  for (size_t i=0; i<kpts1.size(); i++) {
+    pts1_n[i] = camera_calib.at(cam_id1)->undistort_cv(kpts1.at(i).pt);
+  }
+
+  two_point_ransac(R_0_in_1, pts0_n, pts1_n, inliers_mask, disparity_thr, essential_inlier_thr, max_iter);
+}
+
+void TrackBase::fundamental_ransac(
+    const std::vector<cv::Point2f>& pts0_n,
+    const std::vector<cv::Point2f>& pts1_n,
+    const double fundamental_inlier_thr,
+    std::vector<uchar> & inliers_mask) {
+  cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, fundamental_inlier_thr, 0.999, inliers_mask);
+}
+
+void TrackBase::fundamental_ransac(
+      size_t cam_id0, size_t cam_id1,
+      const std::vector<cv::KeyPoint>& kpts0,
+      const std::vector<cv::KeyPoint>& kpts1,
+      const double fundamental_inlier_thr,
+      std::vector<uchar> & inliers_mask) {
+  std::vector<cv::Point2f> pts0_n(kpts0.size());
+  std::vector<cv::Point2f> pts1_n(kpts1.size());
+
+  for (size_t i=0; i<kpts0.size(); i++) {
+    pts0_n[i] = camera_calib.at(cam_id0)->undistort_cv(kpts0.at(i).pt);
+  }
+
+  for (size_t i=0; i<kpts1.size(); i++) {
+    pts1_n[i] = camera_calib.at(cam_id1)->undistort_cv(kpts1.at(i).pt);
+  }
+  fundamental_ransac(pts0_n, pts1_n, fundamental_inlier_thr, inliers_mask);
 }
