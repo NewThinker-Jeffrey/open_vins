@@ -631,10 +631,6 @@ void ROS2Visualizer::publish_images() {
     return;
   last_visualization_timestamp_image = cur_state_timestamp;
 
-  // Check if we have subscribers
-  if (it_pub_tracks.getNumSubscribers() == 0)
-    return;
-
   // Get our image of history tracks
   cv::Mat img_history = _app->get_historical_viz_image(_vis_output);
   if (img_history.empty())
@@ -642,6 +638,10 @@ void ROS2Visualizer::publish_images() {
 
   // the timestamp of the visulized image is actually 'prev_timestamp'.
   save_feature_image(_vis_output->status.prev_timestamp, img_history);
+
+  // Check if we have subscribers
+  if (it_pub_tracks.getNumSubscribers() == 0)
+    return;
 
   // Create our message
   std_msgs::msg::Header header;
