@@ -241,7 +241,17 @@ void FeatureDatabase::cleanup() {
     if ((*it).second->to_delete) {
       features_idlookup.erase(it++);
     } else {
-      it++;
+      // Count how many measurements
+      int ct_meas = 0;
+      for (const auto &pair : (*it).second->timestamps) {
+        ct_meas += (int)(pair.second.size());
+      }
+      // If no measurement found, then also delete it
+      if (ct_meas < 1) {
+        features_idlookup.erase(it++);
+      } else {
+        it++;
+      }
     }
   }
   // PRINT_DEBUG("feat db = %d -> %d\n", sizebefore, (int)features_idlookup.size() << std::endl;
