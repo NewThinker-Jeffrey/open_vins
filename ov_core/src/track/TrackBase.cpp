@@ -41,8 +41,12 @@ TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> camera
     camera_extrinsics[item.first].linear() = quat_2_Rot(item.second.block(0,0,4,1));
     camera_extrinsics[item.first].translation() = item.second.block(4,0,3,1);
     camera_extrinsics[item.first] = camera_extrinsics[item.first].inverse();  // todo(isaac): check the transformation.
-    std::cout << "extrinsics for camera " << item.first << ": " << std::endl;
-    std::cout << camera_extrinsics[item.first].matrix() << std::endl;
+    {
+      std::ostringstream oss;
+      oss << "TrackBase::TrackBase():  extrinsics for camera " << item.first << ": " << std::endl;
+      oss << camera_extrinsics[item.first].matrix() << std::endl;
+      PRINT_INFO("%s", oss.str().c_str());
+    }
   }
 
   // Our current feature ID should be larger then the number of aruco tags we have (each has 4 corners)
@@ -262,8 +266,7 @@ void TrackBase::change_feat_id(size_t id_old, size_t id_new) {
 }
 
 Eigen::Matrix3d TrackBase::integrate_gryo(double old_time, double new_time) {
-  std::cout << "DEBUG integrate_gryo: old_time=" << old_time << ",   new_time=" 
-            << new_time << ",   new-old=" << new_time - old_time << ",  t_d=" << t_d << std::endl;
+  PRINT_ALL("DEBUG integrate_gryo: old_time=%f,   new_time=%f,   new-old=%f,  t_d=%f\n", old_time, new_time, new_time - old_time, t_d);  
   double old_imu_time = old_time + t_d;
   double new_imu_time = new_time + t_d;
   std::vector<ImuData> prop_data;
@@ -272,7 +275,7 @@ Eigen::Matrix3d TrackBase::integrate_gryo(double old_time, double new_time) {
     prop_data = ImuData::select_imu_readings(imu_data, old_imu_time, new_imu_time);
   }
   if (prop_data.size() < 2) {
-    std::cout << "DEBUG integrate_gryo: no prop_data" << std::endl;
+    PRINT_WARNING(YELLOW "TrackBase::integrate_gryo(): no prop_data!\n" RESET);
     return Eigen::Matrix3d::Identity();
   }
 
@@ -292,7 +295,7 @@ Eigen::Matrix3d TrackBase::integrate_gryo(double old_time, double new_time) {
 
 Eigen::Matrix3d TrackBase::predict_rotation(size_t cam_id, double new_time) {
   if (img_time_last.count(cam_id) == 0) {
-    std::cout << "DEBUG predict_rotation: no previous frame" << std::endl;
+    PRINT_WARNING(YELLOW "TrackBase::predict_rotation(): no previous frame!\n" RESET);
     return Eigen::Matrix3d::Identity();
   }
 
@@ -309,23 +312,24 @@ void TrackBase::predict_keypoints(
   const Eigen::Matrix3d& R_0_in_1, std::vector<cv::KeyPoint>& kpts1_predict) {
   kpts1_predict = kpts0;
   cv::Matx33f cv_R_0_in_1;
-  // std::cout << "DEBUG TrackBase::predict_keypoints:  R_0_in_1:" << std::endl;
-  // std::cout << R_0_in_1 << std::endl;
   Eigen::Matrix3f R_0_in_1f = R_0_in_1.cast<float>();
   cv::eigen2cv(R_0_in_1f, cv_R_0_in_1);
-  std::cout << "DEBUG TrackBase::predict_keypoints:  cv_R_0_in_1:" << std::endl;
-  std::cout << cv_R_0_in_1 << std::endl;
+
+  {
+    std::ostringstream oss;
+    oss << "DEBUG TrackBase::predict_keypoints:  R_0_in_1:" << std::endl;
+    oss << R_0_in_1 << std::endl;
+    oss << "DEBUG TrackBase::predict_keypoints:  cv_R_0_in_1:" << std::endl;
+    oss << cv_R_0_in_1 << std::endl;
+    PRINT_ALL("%s", oss.str().c_str());
+  }
+
   for (size_t i=0; i<kpts0.size(); i++) {
     cv::Point2f npt_0 = camera_calib.at(cam_id0)->undistort_cv(kpts0.at(i).pt);
-    // std::cout << "DEBUG predict: *** " << std::endl;
-    // std::cout << "DEBUG predict: pt_0: " << kpts0.at(i).pt << std::endl;
-    // std::cout << "DEBUG predict: npt_0: " << npt_0 << std::endl;
     cv::Point3f homogenous_npt_0(npt_0.x, npt_0.y, 1.0);
     cv::Point3f pt3d_1 = cv_R_0_in_1 * homogenous_npt_0;
     cv::Point2f npt_1(pt3d_1.x / pt3d_1.z, pt3d_1.y / pt3d_1.z);
     kpts1_predict.at(i).pt = camera_calib.at(cam_id1)->distort_cv(npt_1);
-    // std::cout << "DEBUG predict: npt_1: " << npt_1 << std::endl;
-    // std::cout << "DEBUG predict: pt_1: " << kpts1_predict.at(i).pt << std::endl;
   }
 }
 
@@ -413,7 +417,7 @@ double TrackBase::get_coeffs_mat_for_essential_test(
   size_t representative_index = disparities.size() / 2;  // the median
   std::nth_element(disparities.begin(), disparities.begin() + representative_index, disparities.end());
   double representative_disparity = disparities[representative_index];
-  std::cout << "get_coeffs_mat_for_essential_test.representative_disparity: " << representative_disparity << std::endl;
+  PRINT_DEBUG("get_coeffs_mat_for_essential_test.representative_disparity: %f\n", representative_disparity);
   out_coeffs_mat = std::move(coeffs_mat);
   return representative_disparity;
 }
@@ -465,7 +469,6 @@ Eigen::Vector3d TrackBase::solve_essential(const Eigen::MatrixXd& coeffs_mat, co
 std::vector<size_t> TrackBase::get_essential_inliers(const Eigen::MatrixXd& coeffs_mat, const Eigen::Vector3d& t, const double thr) {
   Eigen::VectorXd err_vec = coeffs_mat * t;
   std::vector<size_t> inliers;
-  // std::cout << "get_essential_inliers.err_vec: " << err_vec.transpose() << std::endl;
   inliers.reserve(err_vec.rows());
   for (size_t i=0; i<err_vec.rows(); i++) {
     if (std::abs(err_vec[i]) <= thr) {
@@ -473,23 +476,6 @@ std::vector<size_t> TrackBase::get_essential_inliers(const Eigen::MatrixXd& coef
     }
   }
   return inliers;
-}
-
-double TrackBase::get_essential_err_rmse(const Eigen::MatrixXd& coeffs_mat, const Eigen::Vector3d& t, const std::vector<size_t>& used_rows) {
-  Eigen::MatrixXd used_coeffs(used_rows.size(), 3);
-  for (size_t i=0; i<used_rows.size(); i++) {
-    used_coeffs.row(i) = coeffs_mat.row(used_rows[i]);
-  }
-
-  Eigen::VectorXd err_vec = used_coeffs * t;  
-  double mse = 0.0;
-  for (size_t i=0; i<err_vec.rows(); i++) {
-    mse = err_vec[i] * err_vec[i];
-  }
-  mse /= err_vec.rows();
-  double rmse = sqrt(mse);
-  std::cout << "get_essential_err_rmse.rmse: " << rmse << std::endl;
-  return rmse;
 }
 
 void TrackBase::two_point_ransac(
@@ -507,7 +493,7 @@ void TrackBase::two_point_ransac(
   if (pts0_n.size() < 5) {
     // too few keypoints. mark all as outliers.
     inliers_mask.resize(pts0_n.size(), 0);
-    std::cout << "two_point_ransac[too few points]: inliers/total = " << 0 << "/" << pts0_n.size() << std::endl;
+    PRINT_WARNING(YELLOW "two_point_ransac[too few points]: inliers/total = 0/%d\n" RESET, pts0_n.size());
     return;
   }
 
@@ -531,8 +517,14 @@ void TrackBase::two_point_ransac(
         cnt_inliers ++;
       }
     }
-    std::cout << "two_point_ransac[stationary].err_vec(thr=" << essential_inlier_thr << "): " << disparities_vec.transpose() << std::endl;
-    std::cout << "two_point_ransac[stationary]: inliers/total = " << cnt_inliers << "/" << coeffs_mat.rows() << std::endl;
+
+    {
+      std::ostringstream oss;
+      oss << "two_point_ransac[stationary].err_vec(thr=" << essential_inlier_thr << "): " << disparities_vec.transpose() << std::endl;
+      PRINT_ALL("%s", oss.str().c_str());
+    }
+    PRINT_DEBUG("two_point_ransac[stationary]: inliers/total =  %d/%d\n", cnt_inliers, coeffs_mat.rows());
+
     return;
   }
 
@@ -543,7 +535,11 @@ void TrackBase::two_point_ransac(
   for (int iter = 0; iter < max_iter; iter ++) {
     std::vector<size_t> used_rows = select_samples(coeffs_mat.rows(), 2);
     Eigen::Vector3d t = solve_essential(coeffs_mat, used_rows);
-    std::cout << "two_point_ransac: t = " << t.transpose() << ", t.norm(): " << t.norm() << std::endl;
+    {
+      std::ostringstream oss;
+      oss << "two_point_ransac: t = " << t.transpose() << ", t.norm(): " << t.norm() << std::endl;
+      PRINT_ALL("%s", oss.str().c_str());
+    }
     // if (t.norm() < 1e-6) {
     //   continue;
     // }
@@ -561,8 +557,13 @@ void TrackBase::two_point_ransac(
   }
 
   Eigen::VectorXd err_vec = coeffs_mat * best_t;
-  std::cout << "two_point_ransac[normal].err_vec(thr=" << essential_inlier_thr << "): " << err_vec.transpose() << std::endl;
-  std::cout << "two_point_ransac[normal]: inliers/total = " << best_inliers.size() << "/" << coeffs_mat.rows() << std::endl;
+  {
+    std::ostringstream oss;
+    oss << "two_point_ransac[normal].err_vec(thr=" << essential_inlier_thr << "): " << err_vec.transpose() << std::endl;
+    PRINT_ALL("%s", oss.str().c_str());
+  }
+  PRINT_DEBUG("two_point_ransac[normal]: inliers/total =  %d/%d\n", best_inliers.size(), coeffs_mat.rows());
+
   return;
 }
 
@@ -579,7 +580,14 @@ void TrackBase::known_essential_check(
   std::vector<double> disparities_dummy;
   get_coeffs_mat_for_essential_test(R_0_in_1, pts0_n, pts1_n, coeffs_mat, disparities_dummy);
   std::vector<size_t> inliers = get_essential_inliers(coeffs_mat, t, essential_inlier_thr);
-  std::cout << "known_essential_check: inliers/total = " << inliers.size() << "/" << coeffs_mat.rows() << std::endl;
+
+  Eigen::VectorXd err_vec = coeffs_mat * t;
+  {
+    std::ostringstream oss;
+    oss << "known_essential_check.err_vec(thr=" << essential_inlier_thr << "): " << err_vec.transpose() << std::endl;
+    PRINT_ALL("%s", oss.str().c_str());
+  }
+  PRINT_DEBUG("known_essential_check: inliers/total =  %d/%d\n", inliers.size(), coeffs_mat.rows());
   inliers_mask = std::vector<uchar>(coeffs_mat.rows(), 0);
   for (size_t inlier_idx : inliers) {
     inliers_mask[inlier_idx] = 1;
@@ -605,11 +613,8 @@ void TrackBase::select_common_id(
   }
 
   common_ids.clear();
-  std::cout << "DEBUG select_common_id: before set_intersection.  ids0_set.size()=" 
-            << ids0_set.size() << ",  ids1_set.size()=" << ids1_set.size() << std::endl;
   std::set_intersection(ids0_set.begin(), ids0_set.end(), ids1_set.begin(), ids1_set.end(), 
                         std::inserter(common_ids, common_ids.end()));
-  std::cout << "DEBUG select_common_id: after set_intersection" << std::endl;
 
   selected_indices0.clear();
   selected_indices1.clear();
@@ -661,6 +666,14 @@ void TrackBase::fundamental_ransac(
     const double fundamental_inlier_thr,
     std::vector<uchar> & inliers_mask) {
   cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, fundamental_inlier_thr, 0.999, inliers_mask);
+
+  int cnt_inliers = 0;
+  for (auto v : inliers_mask) {
+    if (v) {
+      cnt_inliers ++;
+    }
+  }
+  PRINT_DEBUG("fundamental_ransac: inliers/total =  %d/%d\n", cnt_inliers, pts0_n.size());
 }
 
 void TrackBase::fundamental_ransac(

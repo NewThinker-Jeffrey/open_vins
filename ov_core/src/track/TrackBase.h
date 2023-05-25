@@ -222,8 +222,6 @@ protected:
 
   std::vector<size_t> get_essential_inliers(const Eigen::MatrixXd& coeffs_mat, const Eigen::Vector3d& t, const double thr = 0.02);
 
-  double get_essential_err_rmse(const Eigen::MatrixXd& coeffs_mat, const Eigen::Vector3d& t, const std::vector<size_t>& used_rows);
-
   void two_point_ransac(
       const Eigen::Matrix3d& R_0_in_1,
       const std::vector<cv::Point2f>& pts0_n,

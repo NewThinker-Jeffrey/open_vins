@@ -32,8 +32,11 @@
 using namespace ov_core;
 
 void TrackKLT::feed_new_camera(const CameraData &message) {
-
-  std::cout << "DEBUG TrackKLT::feed_new_camera: t_d = " << t_d << ", gyro_bias = (" << gyro_bias.transpose() << ")" << std::endl;
+  {
+    std::ostringstream oss;
+    oss << "DEBUG TrackKLT::feed_new_camera: t_d = " << t_d << ", gyro_bias = (" << gyro_bias.transpose() << ")" << std::endl;
+    PRINT_ALL("%s", oss.str().c_str());
+  }
 
   // Error check that we have all the data
   if (message.sensor_ids.empty() || message.sensor_ids.size() != message.images.size() || message.images.size() != message.masks.size()) {
@@ -145,14 +148,18 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     assert(pts_left_new.size() == ids_left_old.size());
     rT3 = boost::posix_time::microsec_clock::local_time();
     
-    std::cout << "DEBUG temporal predict(predict_err, prior_error): ";
-    for (size_t i=0; i<pts_left_new.size(); i++) {
-      cv::Point2f predict_err = pts_left_new[i].pt - pts_left_new_predict[i].pt;
-      cv::Point2f prior_err = pts_left_new[i].pt - pts_left_old[i].pt;
-      std::cout << "(" << sqrt(predict_err.dot(predict_err)) << ", " << sqrt(prior_err.dot(prior_err)) << ")   ";
+    {
+      std::ostringstream oss;
+      oss << "DEBUG temporal predict(predict_err, prior_error): ";
+      for (size_t i=0; i<pts_left_new.size(); i++) {
+        cv::Point2f predict_err = pts_left_new[i].pt - pts_left_new_predict[i].pt;
+        cv::Point2f prior_err = pts_left_new[i].pt - pts_left_old[i].pt;
+        oss << "(" << sqrt(predict_err.dot(predict_err)) << ", " << sqrt(prior_err.dot(prior_err)) << ")   ";
+      }
+      oss << std::endl;
+      PRINT_ALL("%s", oss.str().c_str());
     }
-    std::cout << std::endl;
-
+    
     // If any of our mask is empty, that means we didn't have enough to do ransac, so just return
     if (mask_ll.empty()) {
       std::lock_guard<std::mutex> lckv(mtx_last_vars);
@@ -189,7 +196,7 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     perform_detection_monocular(imgpyr, mask, good_left, good_ids_left);
   }
   pts_after_detect = good_left.size();
-  std::cout << "DEBUG: pts_before_detect = " << pts_before_detect << ",   pts_after_detect = " << pts_after_detect << std::endl;
+  PRINT_ALL("DEBUG: pts_before_detect = %d,   pts_after_detect = %d\n", pts_before_detect, pts_after_detect);
 
   rT4 = boost::posix_time::microsec_clock::local_time();
 
@@ -478,13 +485,18 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
                     mask_ll, &R_old_in_new);
     assert(pts_left_new.size() == ids_left_old.size());
 
-    std::cout << "DEBUG temporal predict(predict_err, prior_error): ";
-    for (size_t i=0; i<pts_left_new.size(); i++) {
-      cv::Point2f predict_err = pts_left_new[i].pt - pts_left_new_predict[i].pt;
-      cv::Point2f prior_err = pts_left_new[i].pt - pts_left_old[i].pt;
-      std::cout << "(" << sqrt(predict_err.dot(predict_err)) << ", " << sqrt(prior_err.dot(prior_err)) << ")   ";
+    {
+      std::ostringstream oss;
+      oss << "DEBUG temporal predict(predict_err, prior_error): ";
+      for (size_t i=0; i<pts_left_new.size(); i++) {
+        cv::Point2f predict_err = pts_left_new[i].pt - pts_left_new_predict[i].pt;
+        cv::Point2f prior_err = pts_left_new[i].pt - pts_left_old[i].pt;
+        oss << "(" << sqrt(predict_err.dot(predict_err)) << ", " << sqrt(prior_err.dot(prior_err)) << ")   ";
+      }
+      oss << std::endl;
+      PRINT_ALL("%s", oss.str().c_str());
     }
-    std::cout << std::endl;
+
 
     // If any of our mask is empty, that means we didn't have enough to do ransac, so just return
     if (mask_ll.empty()) {
@@ -556,13 +568,18 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
   assert(pts_right_new.size() == good_left.size());
   rT5 = boost::posix_time::microsec_clock::local_time();
 
-  std::cout << "DEBUG stereo predict(predict_err, prior_error): ";
-  for (size_t i=0; i<pts_right_new.size(); i++) {
-    cv::Point2f predict_err = pts_right_new[i].pt - pts_right_new_predict[i].pt;
-    cv::Point2f prior_err = pts_right_new[i].pt - good_left[i].pt;
-    std::cout << "(" << sqrt(predict_err.dot(predict_err)) << ", " << sqrt(prior_err.dot(prior_err)) << ")   ";
+  {
+    std::ostringstream oss;
+    oss << "DEBUG stereo predict(predict_err, prior_error): ";
+    for (size_t i=0; i<pts_right_new.size(); i++) {
+      cv::Point2f predict_err = pts_right_new[i].pt - pts_right_new_predict[i].pt;
+      cv::Point2f prior_err = pts_right_new[i].pt - good_left[i].pt;
+      oss << "(" << sqrt(predict_err.dot(predict_err)) << ", " << sqrt(prior_err.dot(prior_err)) << ")   ";
+    }
+    oss << std::endl;
+    PRINT_ALL("%s", oss.str().c_str());
   }
-  std::cout << std::endl;
+
 
 
   //===================================================================================
@@ -605,7 +622,6 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
     double max_focallength = std::max(camera_calib.at(cam_id_right)->get_K()(0, 0), camera_calib.at(cam_id_right)->get_K()(1, 1));
     const double success_probability = 0.99;
     const int max_iter = ceil(log(1-success_probability) / log(1-0.7*0.7));  // = 7
-    // std::cout << "DEBUG ransac max_iter=" << max_iter << std::endl;
     if (force_fundamental) {
       fundamental_ransac(cam_id_right, cam_id_right, selected_kpts_old, selected_kpts_new, 2.0 / max_focallength, selected_mask_rr);
     } else {
@@ -617,8 +633,8 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
     }
 
 #if 0
-  // disable rr
-  doubly_verified_stereo_ids.insert(common_ids.begin(), common_ids.end());
+    // disable rr
+    doubly_verified_stereo_ids.insert(common_ids.begin(), common_ids.end());
 #else        
     for (size_t i=0; i<selected_mask_rr.size(); i++) {
       if (selected_mask_rr[i]) {
@@ -626,7 +642,7 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
       }
     }
 #endif
-    std::cout << "DEBUG doubly_verified_stereo_ids/prev_left_total=" << doubly_verified_stereo_ids.size() << "/" << ids_last[cam_id_left].size() << std::endl;
+    PRINT_DEBUG("DEBUG doubly_verified_stereo_ids/prev_left_total=%d/%d\n", doubly_verified_stereo_ids.size(), ids_last[cam_id_left].size());
   }
 
   rT6 = boost::posix_time::microsec_clock::local_time();
@@ -724,7 +740,6 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
   cv::Mat mask0_updated = mask0.clone();
   auto it0 = pts0.begin();
   auto it1 = ids0.begin();
-  std::cout << "DEBUG detection: before filtering: pts0.size()=" << pts0.size() << std::endl;
   while (it0 != pts0.end()) {
     // Get current left keypoint, check that it is in bounds
     cv::KeyPoint kpt = *it0;
@@ -734,7 +749,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x < edge || x >= img0pyr.at(0).cols - edge || y < edge || y >= img0pyr.at(0).rows - edge) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
-      std::cout << "DEBUG detection: PixelOutOfBound" << std::endl;
+      PRINT_ALL("DEBUG detection: PixelOutOfBound\n");
       continue;
     }
     // Calculate mask coordinates for close points
@@ -743,7 +758,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x_close < 0 || x_close >= size_close.width || y_close < 0 || y_close >= size_close.height) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
-      std::cout << "DEBUG detection: CloseGridOutOfBound" << std::endl;
+      PRINT_ALL("DEBUG detection: CloseGridOutOfBound\n");
       continue;
     }
     // Calculate what grid cell this feature is in
@@ -752,7 +767,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x_grid < 0 || x_grid >= size_grid.width || y_grid < 0 || y_grid >= size_grid.height) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
-      std::cout << "DEBUG detection: CellGridOutOfBound" << std::endl;
+      PRINT_ALL("DEBUG detection: CellGridOutOfBound\n");
       continue;
     }
     // isaac: skip this check for old features. (we'd like to keep all the old features even they're near each other)
@@ -767,7 +782,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (mask0.at<uint8_t>(y, x) > 127) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
-      std::cout << "DEBUG detection: MaskedOut" << std::endl;
+      PRINT_ALL("DEBUG detection: MaskedOut\n");
       continue;
     }
     // Else we are good, move forward to the next point
@@ -784,14 +799,12 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     it0++;
     it1++;
   }
-  std::cout << "DEBUG detection: after filtering: pts0.size()=" << pts0.size() << std::endl;
 
   // First compute how many more features we need to extract from this image
   // If we don't need any features, just return
   double min_feat_percent = 0.50;
   int num_featsneeded = num_features - (int)pts0.size();
   if (num_featsneeded < std::min(20, (int)(min_feat_percent * num_features))) {
-    std::cout << "DEBUG detection: no need for new points, pts0.size()=" << pts0.size() << std::endl;
     return;
   }
 
@@ -850,7 +863,6 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     size_t temp = ++currid;
     ids0.push_back(temp);
   }
-  std::cout << "DEBUG detection: extracted new points, pts0.size()=" << pts0.size() << std::endl;
 }
 
 void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, const std::vector<cv::Mat> &img1pyr, const cv::Mat &mask0,
@@ -1206,20 +1218,12 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   if (force_fundamental || !R_0_in_1) {
     // cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, 2.0 / max_focallength, 0.999, mask_rsc);
     fundamental_ransac(pts0_n, pts1_n, 2.0 / max_focallength, mask_rsc);
-    int cnt_inliers = 0;
-    for (auto v : mask_rsc) {
-      if (v) {
-        cnt_inliers ++;
-      }
-    }
-    std::cout << "findFundamentalMat inliers/total = " << cnt_inliers << "/" << pts0_n.size() << std::endl;
   } else {
     if (t_0_in_1) {
       known_essential_check(*R_0_in_1, *t_0_in_1, pts0_n, pts1_n, mask_rsc, 3.0 / max_focallength);
     } else {
       const double success_probability = 0.99;
       const int max_iter = ceil(log(1-success_probability) / log(1-0.7*0.7));  // = 7
-      // std::cout << "DEBUG ransac max_iter=" << max_iter << std::endl;
       two_point_ransac(*R_0_in_1, pts0_n, pts1_n, mask_rsc, 1.0 / max_focallength, 3.0 / max_focallength, max_iter);
     }
 
@@ -1239,7 +1243,6 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
     // } else {
     //   const double success_probability = 0.99;
     //   const int max_iter = ceil(log(1-success_probability) / log(1-0.7*0.7));  // = 7
-    //   // std::cout << "DEBUG ransac max_iter=" << max_iter << std::endl;
     //   two_point_ransac(*R_0_in_1, selected_pts0_n, selected_pts1_n, selected_mask, 1.0 / max_focallength, 3.0 / max_focallength, max_iter);
     // }
 
