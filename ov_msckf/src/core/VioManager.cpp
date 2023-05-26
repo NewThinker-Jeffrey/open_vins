@@ -893,7 +893,9 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     // PRINT_DEBUG(YELLOW "DEBUG feats_slam: new feats_slam size %d, amount_to_add=%d, valid_amount=%d\n" RESET,
     //             feats_slam.size(), amount_to_add, valid_amount);
 
-    if (valid_amount < amount_to_add && params.enable_early_landmark) {
+    // int reserve_for_future_maxtrack = 0;
+    int reserve_for_future_maxtrack = std::min(5, state->_options.max_slam_features / 4);
+    if (valid_amount < amount_to_add - reserve_for_future_maxtrack && params.enable_early_landmark) {
       std::vector<std::shared_ptr<Feature>> quick_feats_slam = 
           trackFEATS->get_feature_database()->features_containing(message.timestamp, false, true);
       const double disparity_thr = std::min(
@@ -939,7 +941,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
           PRINT_DEBUG(YELLOW "%s" RESET, oss.str().c_str());
         }
       }
-      int amount_to_add2 = amount_to_add - valid_amount;
+      int amount_to_add2 = amount_to_add - reserve_for_future_maxtrack - valid_amount;
       int valid_amount2 = (amount_to_add2 > (int)quick_feats_slam.size()) ? (int)quick_feats_slam.size() : amount_to_add2;
       if (valid_amount2 > 0) {
         feats_slam.insert(feats_slam.end(), quick_feats_slam.end() - valid_amount2, quick_feats_slam.end());
