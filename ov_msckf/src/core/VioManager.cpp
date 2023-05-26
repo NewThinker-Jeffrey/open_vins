@@ -714,11 +714,13 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   // Now, lets get all features that should be used for an update that are lost in the newest frame
   // We explicitly request features that have not been deleted (used) in another update step
   std::vector<std::shared_ptr<Feature>> feats_lost, feats_marg, feats_slam;
-  feats_lost = trackFEATS->get_feature_database()->features_not_containing_newer(state->_timestamp, false, true);
+  double marg_timestamp = state->margtimestep();
+  double current_timestamp = state->_timestamp;
+  feats_lost = trackFEATS->get_feature_database()->features_not_containing_newer(current_timestamp, false, true);
 
   // Don't need to get the oldest features until we reach our max number of clones
   if ((int)state->_clones_IMU.size() > state->_options.max_clone_size || (int)state->_clones_IMU.size() > 5) {
-    feats_marg = trackFEATS->get_feature_database()->features_containing(state->margtimestep(), false, true);
+    feats_marg = trackFEATS->get_feature_database()->features_containing(marg_timestamp, false, true);
     if (trackARUCO != nullptr && message.timestamp - startup_time >= params.dt_slam_delay) {
       feats_slam = trackARUCO->get_feature_database()->features_containing(state->margtimestep(), false, true);
     }
@@ -776,7 +778,9 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     cloned_feature.clean_future_measurements(message.timestamp);
 
     for (const auto &cams : cloned_feature.timestamps) {
-      if ((int)cams.second.size() > state->_options.max_clone_size) {
+      if ((int)cams.second.size() > state->_options.max_clone_size &&
+          cams.second.front() <= marg_timestamp &&
+          cams.second.back() >= current_timestamp) {
         reached_max = true;
         break;
       }
@@ -1274,12 +1278,13 @@ double VioManager::compute_disparity(std::shared_ptr<Feature> feat, const std::s
     if (disparity > max_disparity) {
       max_disparity = disparity;
 
-      // for debug
-      best_old_uv_norm = old_uv_norm;
-      best_R_Cold_in_Ccur = R_Cold_in_Ccur;
-      best_old_uv = time_to_uvs[item.first];
-      best_old_bearing = old_bearing;
-      best_old_time = old_time;
+      if (params.vio_manager_high_frequency_log) {
+        best_old_uv_norm = old_uv_norm;
+        best_R_Cold_in_Ccur = R_Cold_in_Ccur;
+        best_old_uv = time_to_uvs[item.first];
+        best_old_bearing = old_bearing;
+        best_old_time = old_time;
+      }
     }
   }
 
