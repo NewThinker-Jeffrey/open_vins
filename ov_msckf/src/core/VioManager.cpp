@@ -341,7 +341,7 @@ void VioManager::feature_tracking_thread_func() {
       }
     }
 
-    if (queue_size > 5) {
+    if (queue_size > 2) {
       PRINT_WARNING(YELLOW "too many feature tracking tasks in the queue!! (queue size = %d)\n" RESET,
                     (queue_size));
     }
@@ -368,7 +368,7 @@ void VioManager::update_thread_func() {
       update_task_queue_cond_.wait(locker, [this](){
         return ! update_task_queue_.empty() || stop_request_;
       });
-      while (update_task_queue_.size() > 5) {
+      while (update_task_queue_.size() > 2) {
         update_task_queue_.pop_front();
         abandon ++;
       }
