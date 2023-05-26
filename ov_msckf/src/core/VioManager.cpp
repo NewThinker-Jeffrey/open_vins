@@ -790,7 +790,37 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     }
   }
 
+  // Loop through current SLAM features, we have tracks of them, grab them for this update!
+  // NOTE: if we have a slam feature that has lost tracking, then we should marginalize it out
+  // NOTE: we only enforce this if the current camera message is where the feature was seen from
+  // NOTE: if you do not use FEJ, these types of slam features *degrade* the estimator performance....
+  // NOTE: we will also marginalize SLAM features if they have failed their update a couple times in a row
+  for (std::pair<const size_t, std::shared_ptr<Landmark>> &landmark : state->_features_SLAM) {
+    if (trackARUCO != nullptr) {
+      std::shared_ptr<Feature> feat1 = trackARUCO->get_feature_database()->get_feature(landmark.second->_featid);
+      if (feat1 != nullptr)
+        feats_slam.push_back(feat1);
+    }
+    std::shared_ptr<Feature> feat2 = trackFEATS->get_feature_database()->get_feature(landmark.second->_featid);
+    if (feat2 != nullptr)
+      feats_slam.push_back(feat2);
+    assert(landmark.second->_unique_camera_id != -1);
+    bool current_unique_cam =
+        std::find(message.sensor_ids.begin(), message.sensor_ids.end(), landmark.second->_unique_camera_id) != message.sensor_ids.end();
+    if (feat2 == nullptr && current_unique_cam)
+      landmark.second->should_marg = true;
+    if (landmark.second->update_fail_count > 1)
+      landmark.second->should_marg = true;
+  }
 
+  // Lets marginalize out all old SLAM features here
+  // These are ones that where not successfully tracked into the current frame
+  // We do *NOT* marginalize out our aruco tags landmarks
+  StateHelper::marginalize_slam(state);
+
+
+  // add new slam features.
+  
   std::map<std::shared_ptr<Feature>, double> feat_to_disparity;
   std::set<double> cloned_times;
   std::set<std::shared_ptr<Feature>> feats_maxtracks_set;
@@ -919,34 +949,6 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
                     feats_slam.size(), amount_to_add, valid_amount, amount_to_add2, valid_amount2);
     }
   }
-
-  // Loop through current SLAM features, we have tracks of them, grab them for this update!
-  // NOTE: if we have a slam feature that has lost tracking, then we should marginalize it out
-  // NOTE: we only enforce this if the current camera message is where the feature was seen from
-  // NOTE: if you do not use FEJ, these types of slam features *degrade* the estimator performance....
-  // NOTE: we will also marginalize SLAM features if they have failed their update a couple times in a row
-  for (std::pair<const size_t, std::shared_ptr<Landmark>> &landmark : state->_features_SLAM) {
-    if (trackARUCO != nullptr) {
-      std::shared_ptr<Feature> feat1 = trackARUCO->get_feature_database()->get_feature(landmark.second->_featid);
-      if (feat1 != nullptr)
-        feats_slam.push_back(feat1);
-    }
-    std::shared_ptr<Feature> feat2 = trackFEATS->get_feature_database()->get_feature(landmark.second->_featid);
-    if (feat2 != nullptr)
-      feats_slam.push_back(feat2);
-    assert(landmark.second->_unique_camera_id != -1);
-    bool current_unique_cam =
-        std::find(message.sensor_ids.begin(), message.sensor_ids.end(), landmark.second->_unique_camera_id) != message.sensor_ids.end();
-    if (feat2 == nullptr && current_unique_cam)
-      landmark.second->should_marg = true;
-    if (landmark.second->update_fail_count > 1)
-      landmark.second->should_marg = true;
-  }
-
-  // Lets marginalize out all old SLAM features here
-  // These are ones that where not successfully tracked into the current frame
-  // We do *NOT* marginalize out our aruco tags landmarks
-  StateHelper::marginalize_slam(state);
 
   // Separate our SLAM features into new ones, and old ones
   std::vector<std::shared_ptr<Feature>> feats_slam_DELAYED, feats_slam_UPDATE;
