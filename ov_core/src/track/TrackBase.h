@@ -87,7 +87,8 @@ public:
    */
   TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
             HistogramMethod histmethod,
-            std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>());
+            std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>(),
+            bool high_frequency_log = false);
 
   virtual ~TrackBase() {}
 
@@ -360,6 +361,7 @@ protected:
 
   double t_d;
   Eigen::Vector3d gyro_bias;
+  bool enable_high_frequency_log;
 };
 
 } // namespace ov_core

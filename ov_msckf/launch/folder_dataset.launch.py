@@ -59,6 +59,26 @@ launch_args = [
         description="If true, use fundamental check instead of essential check",
     ),
     DeclareLaunchArgument(
+        name="feattrack_high_frequency_log",
+        default_value="false",
+        description="If true, enable high_frequency debug log for feature tracking",
+    ),    
+    DeclareLaunchArgument(
+        name="vio_manager_high_frequency_log",
+        default_value="false",
+        description="If true, enable high_frequency debug log for feature tracking",
+    ),    
+    DeclareLaunchArgument(
+        name="choose_new_landmark_by_disparity",
+        default_value="false",
+        description="sort max_track features by their disparities and choose ones with larger disparities as new landmarks",
+    ),    
+    DeclareLaunchArgument(
+        name="enable_early_landmark",
+        default_value="false",
+        description="enable_early_landmark (features those are not of max_track can also be chosen as landmarks if there're too few landmarks)",
+    ),    
+    DeclareLaunchArgument(
         name="max_cameras",
         default_value="1",
         description="how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)",
@@ -128,6 +148,10 @@ def launch_setup(context):
             {"klt_left_major_stereo": LaunchConfiguration("klt_left_major_stereo")},
             {"klt_strict_stereo": LaunchConfiguration("klt_strict_stereo")},
             {"klt_force_fundamental": LaunchConfiguration("klt_force_fundamental")},
+            {"feattrack_high_frequency_log": LaunchConfiguration("feattrack_high_frequency_log")},
+            {"vio_manager_high_frequency_log": LaunchConfiguration("vio_manager_high_frequency_log")},       
+            {"choose_new_landmark_by_disparity": LaunchConfiguration("choose_new_landmark_by_disparity")},       
+            {"enable_early_landmark": LaunchConfiguration("enable_early_landmark")},       
             {"max_cameras": LaunchConfiguration("max_cameras")},
             {"record_timing_information": LaunchConfiguration("record_timing_information")},
             {"save_total_state": LaunchConfiguration("save_total_state")},

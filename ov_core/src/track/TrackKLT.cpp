@@ -32,7 +32,7 @@
 using namespace ov_core;
 
 void TrackKLT::feed_new_camera(const CameraData &message) {
-  {
+  if (enable_high_frequency_log) {
     std::ostringstream oss;
     oss << "DEBUG TrackKLT::feed_new_camera: t_d = " << t_d << ", gyro_bias = (" << gyro_bias.transpose() << ")" << std::endl;
     PRINT_ALL("%s", oss.str().c_str());
@@ -148,7 +148,7 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     assert(pts_left_new.size() == ids_left_old.size());
     rT3 = boost::posix_time::microsec_clock::local_time();
     
-    {
+    if (enable_high_frequency_log) {
       std::ostringstream oss;
       oss << "DEBUG temporal predict(predict_err, prior_error): ";
       for (size_t i=0; i<pts_left_new.size(); i++) {
@@ -485,7 +485,7 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
                     mask_ll, &R_old_in_new);
     assert(pts_left_new.size() == ids_left_old.size());
 
-    {
+    if (enable_high_frequency_log) {
       std::ostringstream oss;
       oss << "DEBUG temporal predict(predict_err, prior_error): ";
       for (size_t i=0; i<pts_left_new.size(); i++) {
@@ -568,7 +568,7 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
   assert(pts_right_new.size() == good_left.size());
   rT5 = boost::posix_time::microsec_clock::local_time();
 
-  {
+  if (enable_high_frequency_log) {
     std::ostringstream oss;
     oss << "DEBUG stereo predict(predict_err, prior_error): ";
     for (size_t i=0; i<pts_right_new.size(); i++) {
@@ -749,7 +749,6 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x < edge || x >= img0pyr.at(0).cols - edge || y < edge || y >= img0pyr.at(0).rows - edge) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
-      PRINT_ALL("DEBUG detection: PixelOutOfBound\n");
       continue;
     }
     // Calculate mask coordinates for close points
@@ -758,7 +757,6 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x_close < 0 || x_close >= size_close.width || y_close < 0 || y_close >= size_close.height) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
-      PRINT_ALL("DEBUG detection: CloseGridOutOfBound\n");
       continue;
     }
     // Calculate what grid cell this feature is in
@@ -767,7 +765,6 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x_grid < 0 || x_grid >= size_grid.width || y_grid < 0 || y_grid >= size_grid.height) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
-      PRINT_ALL("DEBUG detection: CellGridOutOfBound\n");
       continue;
     }
     // isaac: skip this check for old features. (we'd like to keep all the old features even they're near each other)
@@ -782,7 +779,6 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (mask0.at<uint8_t>(y, x) > 127) {
       it0 = pts0.erase(it0);
       it1 = ids0.erase(it1);
-      PRINT_ALL("DEBUG detection: MaskedOut\n");
       continue;
     }
     // Else we are good, move forward to the next point

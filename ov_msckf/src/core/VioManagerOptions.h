@@ -87,6 +87,12 @@ struct VioManagerOptions {
   /// If we should try to use zero velocity update
   bool try_zupt = false;
 
+  bool vio_manager_high_frequency_log = false;
+
+  bool choose_new_landmark_by_disparity = false;  // better, but more computation
+
+  bool enable_early_landmark = false;
+
   /// Max velocity we will consider to try to do a zupt (i.e. if above this, don't do zupt)
   double zupt_max_velocity = 1.0;
 
@@ -118,6 +124,9 @@ struct VioManagerOptions {
     if (parser != nullptr) {
       parser->parse_config("dt_slam_delay", dt_slam_delay);
       parser->parse_config("try_zupt", try_zupt);
+      parser->parse_config("vio_manager_high_frequency_log", vio_manager_high_frequency_log);
+      parser->parse_config("choose_new_landmark_by_disparity", choose_new_landmark_by_disparity);
+      parser->parse_config("enable_early_landmark", enable_early_landmark);
       parser->parse_config("zupt_max_velocity", zupt_max_velocity);
       parser->parse_config("zupt_noise_multiplier", zupt_noise_multiplier);
       parser->parse_config("zupt_max_disparity", zupt_max_disparity);
@@ -129,6 +138,9 @@ struct VioManagerOptions {
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
+    PRINT_DEBUG("  - vio_manager_high_frequency_log: %d\n", vio_manager_high_frequency_log);
+    PRINT_DEBUG("  - choose_new_landmark_by_disparity: %d\n", choose_new_landmark_by_disparity);
+    PRINT_DEBUG("  - enable_early_landmark: %d\n", enable_early_landmark);
     PRINT_DEBUG("  - zupt_max_velocity: %.2f\n", zupt_max_velocity);
     PRINT_DEBUG("  - zupt_noise_multiplier: %.2f\n", zupt_noise_multiplier);
     PRINT_DEBUG("  - zupt_max_disparity: %.4f\n", zupt_max_disparity);
@@ -340,6 +352,8 @@ struct VioManagerOptions {
 
   bool klt_force_fundamental = true;
 
+  bool feattrack_high_frequency_log = false;
+
   /// If should extract aruco tags and estimate them
   bool use_aruco = true;
 
@@ -398,6 +412,7 @@ struct VioManagerOptions {
       parser->parse_config("klt_left_major_stereo", klt_left_major_stereo);
       parser->parse_config("klt_strict_stereo", klt_strict_stereo);
       parser->parse_config("klt_force_fundamental", klt_force_fundamental);
+      parser->parse_config("feattrack_high_frequency_log", feattrack_high_frequency_log);      
       parser->parse_config("use_aruco", use_aruco);
       parser->parse_config("downsize_aruco", downsize_aruco);
       parser->parse_config("downsample_cameras", downsample_cameras);
@@ -433,6 +448,7 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - klt_left_major_stereo: %d\n", klt_left_major_stereo);
     PRINT_DEBUG("  - klt_strict_stereo: %d\n", klt_strict_stereo);
     PRINT_DEBUG("  - klt_force_fundamental: %d\n", klt_force_fundamental);
+    PRINT_DEBUG("  - feattrack_high_frequency_log: %d\n", feattrack_high_frequency_log);
     PRINT_DEBUG("  - use_aruco: %d\n", use_aruco);
     PRINT_DEBUG("  - downsize aruco: %d\n", downsize_aruco);
     PRINT_DEBUG("  - downsize cameras: %d\n", downsample_cameras);

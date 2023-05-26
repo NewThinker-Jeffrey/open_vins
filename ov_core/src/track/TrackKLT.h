@@ -54,8 +54,9 @@ public:
   explicit TrackKLT(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
                     HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist,
                     std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>(),
-                    bool leftmajor_stereo=true, bool strictstereo=false, bool use_fundamental_check=false)
-      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod, camera_extrinsics), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
+                    bool leftmajor_stereo=true, bool strictstereo=false, bool use_fundamental_check=false,
+                    bool high_frequency_log = false)
+      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod, camera_extrinsics, high_frequency_log), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
         min_px_dist(minpxdist), left_major_stereo(leftmajor_stereo), strict_stereo(strictstereo), force_fundamental(use_fundamental_check) {}
 
   /**

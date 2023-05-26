@@ -33,8 +33,11 @@
 using namespace ov_core;
 
 TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
-                     HistogramMethod histmethod, std::map<size_t, Eigen::VectorXd> inp_camera_extrinsics)
-    : camera_calib(cameras), database(new FeatureDatabase()), num_features(numfeats), use_stereo(stereo), histogram_method(histmethod), t_d(0), gyro_bias(0,0,0) {
+                     HistogramMethod histmethod, std::map<size_t, Eigen::VectorXd> inp_camera_extrinsics,
+                     bool high_frequency_log)
+    : camera_calib(cameras), database(new FeatureDatabase()), num_features(numfeats), 
+      use_stereo(stereo), histogram_method(histmethod), 
+      t_d(0), gyro_bias(0,0,0), enable_high_frequency_log(high_frequency_log) {
 
   for (const auto & item : inp_camera_extrinsics) {
     camera_extrinsics[item.first] = Eigen::Isometry3d::Identity();
@@ -266,7 +269,9 @@ void TrackBase::change_feat_id(size_t id_old, size_t id_new) {
 }
 
 Eigen::Matrix3d TrackBase::integrate_gryo(double old_time, double new_time) {
-  PRINT_ALL("DEBUG integrate_gryo: old_time=%f,   new_time=%f,   new-old=%f,  t_d=%f\n", old_time, new_time, new_time - old_time, t_d);  
+  if (enable_high_frequency_log) {
+    PRINT_ALL("DEBUG integrate_gryo: old_time=%f,   new_time=%f,   new-old=%f,  t_d=%f\n", old_time, new_time, new_time - old_time, t_d);  
+  }
   double old_imu_time = old_time + t_d;
   double new_imu_time = new_time + t_d;
   std::vector<ImuData> prop_data;
@@ -315,7 +320,7 @@ void TrackBase::predict_keypoints(
   Eigen::Matrix3f R_0_in_1f = R_0_in_1.cast<float>();
   cv::eigen2cv(R_0_in_1f, cv_R_0_in_1);
 
-  {
+  if (enable_high_frequency_log) {
     std::ostringstream oss;
     oss << "DEBUG TrackBase::predict_keypoints:  R_0_in_1:" << std::endl;
     oss << R_0_in_1 << std::endl;
@@ -518,7 +523,7 @@ void TrackBase::two_point_ransac(
       }
     }
 
-    {
+    if (enable_high_frequency_log) {
       std::ostringstream oss;
       oss << "two_point_ransac[stationary].err_vec(thr=" << essential_inlier_thr << "): " << disparities_vec.transpose() << std::endl;
       PRINT_ALL("%s", oss.str().c_str());
@@ -535,7 +540,7 @@ void TrackBase::two_point_ransac(
   for (int iter = 0; iter < max_iter; iter ++) {
     std::vector<size_t> used_rows = select_samples(coeffs_mat.rows(), 2);
     Eigen::Vector3d t = solve_essential(coeffs_mat, used_rows);
-    {
+    if (enable_high_frequency_log) {
       std::ostringstream oss;
       oss << "two_point_ransac: t = " << t.transpose() << ", t.norm(): " << t.norm() << std::endl;
       PRINT_ALL("%s", oss.str().c_str());
@@ -557,7 +562,7 @@ void TrackBase::two_point_ransac(
   }
 
   Eigen::VectorXd err_vec = coeffs_mat * best_t;
-  {
+  if (enable_high_frequency_log) {
     std::ostringstream oss;
     oss << "two_point_ransac[normal].err_vec(thr=" << essential_inlier_thr << "): " << err_vec.transpose() << std::endl;
     PRINT_ALL("%s", oss.str().c_str());
@@ -582,7 +587,7 @@ void TrackBase::known_essential_check(
   std::vector<size_t> inliers = get_essential_inliers(coeffs_mat, t, essential_inlier_thr);
 
   Eigen::VectorXd err_vec = coeffs_mat * t;
-  {
+  if (enable_high_frequency_log) {
     std::ostringstream oss;
     oss << "known_essential_check.err_vec(thr=" << essential_inlier_thr << "): " << err_vec.transpose() << std::endl;
     PRINT_ALL("%s", oss.str().c_str());

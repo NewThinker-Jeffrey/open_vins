@@ -368,6 +368,13 @@ protected:
   bool has_drift = false;
 
   bool check_drift();
+
+  // for disparity computation.
+  std::map<double, Eigen::Matrix3d>  gyro_integrated_rotations_window;
+  Eigen::Matrix3d cur_gyro_integrated_rotation;
+  double cur_gyro_integrated_time;
+  void update_gyro_integrated_rotations(double time, const Eigen::Matrix3d& new_rotation);
+  double compute_disparity(std::shared_ptr<ov_core::Feature> feat, const std::set<double>& cloned_times, size_t cam_id, double time);
 };
 
 } // namespace ov_msckf

@@ -52,8 +52,9 @@ public:
    */
   explicit TrackDescriptor(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
                            HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist, double knnratio,
-                           std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>())
-      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod, camera_extrinsics), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
+                           std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>(),
+                           bool high_frequency_log = false)
+      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod, camera_extrinsics, high_frequency_log), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
         min_px_dist(minpxdist), knn_ratio(knnratio) {}
 
   /**

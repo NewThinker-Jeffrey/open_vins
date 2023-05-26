@@ -24,12 +24,13 @@
 #include "state/State.h"
 #include "state/StateHelper.h"
 #include "utils/quat_ops.h"
+#include <Eigen/Geometry>
 
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timestamp) {
+void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timestamp, Eigen::Matrix3d* output_rotation) {
 
   // If the difference between the current update time and state is zero
   // We should crash, as this means we would have two clones at the same time!!!!
@@ -65,6 +66,26 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
   {
     std::lock_guard<std::mutex> lck(imu_data_mtx);
     prop_data = Propagator::select_imu_readings(imu_data, time0, time1);
+  }
+
+  if (output_rotation) {
+    if (prop_data.size() < 2) {
+      PRINT_WARNING(YELLOW "TrackBase::integrate_gryo(): no prop_data!\n" RESET);
+      *output_rotation = Eigen::Matrix3d::Identity();
+    }
+
+    Eigen::Quaterniond q(1,0,0,0);
+    for (size_t i=0; i<prop_data.size()-1; i++) {
+      const auto & d0 = prop_data[i];
+      const auto & d1 = prop_data[i+1];
+      double dt = d1.timestamp - d0.timestamp;
+      Eigen::Vector3d w_ave = 0.5 * (d0.wm + d1.wm) - state->_imu->bias_g();
+      Eigen::Vector3d im = 0.5 * w_ave * dt;    
+      Eigen::Quaterniond dq(1, im.x(), im.y(), im.z());
+      q = q * dq;
+    }
+    q.normalize();
+    *output_rotation = q.toRotationMatrix();
   }
 
   // We are going to sum up all the state transition matrices, so we can do a single large multiplication at the end
