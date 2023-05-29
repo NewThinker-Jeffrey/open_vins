@@ -715,6 +715,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   // We explicitly request features that have not been deleted (used) in another update step
   std::vector<std::shared_ptr<Feature>> feats_lost, feats_marg, feats_slam;
   double marg_timestamp = state->margtimestep();
+  clear_old_gyro_integrated_rotations(marg_timestamp - 1.0);
   double current_timestamp = state->_timestamp;
   feats_lost = trackFEATS->get_feature_database()->features_not_containing_newer(current_timestamp, false, true);
 
@@ -825,24 +826,49 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
 
   // add new slam features.
   
-  std::map<std::shared_ptr<Feature>, double> feat_to_disparity;
-  std::set<double> cloned_times;
+  // prepare variables for calculating disparities
+  std::map<std::shared_ptr<Feature>, double> feat_to_disparity_square;
+  std::vector<double> cloned_times;
+  std::vector<Eigen::Matrix3d> R_Cold_in_Ccurs;
   std::set<std::shared_ptr<Feature>> feats_maxtracks_set;
   const auto ref_K = params.camera_intrinsics.at(message.sensor_ids[0])->get_K();
   const double ref_focallength = std::max(ref_K(0, 0), ref_K(1, 1));
-  for (const auto &clone_imu : state->_clones_IMU) {
-    cloned_times.insert(clone_imu.first);
+
+  Eigen::Matrix3d cur_imu_rotation = gyro_integrated_rotations_window.at(message.timestamp);
+  Eigen::Matrix3d R_C_in_I = Eigen::Matrix3d::Identity();
+  const auto & extrinsic = params.camera_extrinsics.at(message.sensor_ids[0]);
+  R_C_in_I = ov_core::quat_2_Rot(extrinsic.block(0,0,4,1)).transpose();
+  if (params.vio_manager_high_frequency_log) {
+    std::ostringstream oss;
+    oss << R_C_in_I << std::endl;
+    PRINT_ALL(YELLOW "%s" RESET, oss.str().c_str());
   }
+
+  for (const auto &clone_imu : state->_clones_IMU) {
+    cloned_times.push_back(clone_imu.first);
+    if (clone_imu.first == message.timestamp) {
+      R_Cold_in_Ccurs.push_back(Eigen::Matrix3d::Identity());
+      continue;
+    }
+    const Eigen::Matrix3d& old_imu_rotation = gyro_integrated_rotations_window.at(clone_imu.first);
+    Eigen::Matrix3d R_Iold_in_Icur = cur_imu_rotation.transpose() * old_imu_rotation;
+    Eigen::Matrix3d R_Cold_in_Ccur = R_C_in_I.transpose() * R_Iold_in_Icur * R_C_in_I;
+    R_Cold_in_Ccurs.push_back(R_Cold_in_Ccur);
+  }
+
+  assert(cloned_times.size() == R_Cold_in_Ccurs.size());
+  assert(cloned_times.back() == message.timestamp);
+
   for (auto feat : feats_maxtracks) {
     feats_maxtracks_set.insert(feat);
   }
   auto compare_feat_disparity = [&](std::shared_ptr<Feature> a, std::shared_ptr<Feature> b) -> bool {
-    return feat_to_disparity.at(a) < feat_to_disparity.at(b);
+    return feat_to_disparity_square.at(a) < feat_to_disparity_square.at(b);
   };
-  
+
   if (params.choose_new_landmark_by_disparity) {
     for (auto feat : feats_maxtracks) {
-      feat_to_disparity[feat] = compute_disparity(feat, cloned_times, message.sensor_ids[0], message.timestamp);
+      feat_to_disparity_square[feat] = compute_disparity_square(feat, cloned_times, R_Cold_in_Ccurs, message.sensor_ids[0]);
     }
     if (!feats_maxtracks.empty()) {
       std::sort(feats_maxtracks.begin(), feats_maxtracks.end(), compare_feat_disparity);
@@ -850,17 +876,17 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     // todo(isaac): set a threshold for the disparities?
     if (params.vio_manager_high_frequency_log) {
       std::ostringstream oss;
-      oss << "DEBUG feats_slam: compute_disparity for feats_maxtracks (total " <<  feats_maxtracks.size() << "):  ";
+      oss << "DEBUG feats_slam: for feats_maxtracks (total " <<  feats_maxtracks.size() << "):  ";
       if (!feats_maxtracks.empty()) {
         for (auto feat : feats_maxtracks) {
-          oss << feat_to_disparity.at(feat) * ref_focallength << "  ";
+          oss << sqrt(feat_to_disparity_square.at(feat)) * ref_focallength << "  ";
         }
       }
       oss << std::endl;
       PRINT_DEBUG(YELLOW "%s" RESET, oss.str().c_str());
     }
   }
-  
+
   // Count how many aruco tags we have in our state
   int curr_aruco_tags = 0;
   auto it0 = state->_features_SLAM.begin();
@@ -885,13 +911,15 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
       if (params.choose_new_landmark_by_disparity) {
         PRINT_DEBUG(YELLOW "DEBUG feats_slam: add feats_maxtracks (%d) with disparities from %f to %f\n" RESET,
                       valid_amount,
-                      feat_to_disparity.at(*(feats_maxtracks.end() - valid_amount)) * ref_focallength,
-                      feat_to_disparity.at(feats_maxtracks.back()) * ref_focallength);
+                      sqrt(feat_to_disparity_square.at(*(feats_maxtracks.end() - valid_amount))) * ref_focallength,
+                      sqrt(feat_to_disparity_square.at(feats_maxtracks.back())) * ref_focallength);
       }
       feats_maxtracks.erase(feats_maxtracks.end() - valid_amount, feats_maxtracks.end());      
     }
     // PRINT_DEBUG(YELLOW "DEBUG feats_slam: new feats_slam size %d, amount_to_add=%d, valid_amount=%d\n" RESET,
     //             feats_slam.size(), amount_to_add, valid_amount);
+
+
 
     // int reserve_for_future_maxtrack = 0;
     int reserve_for_future_maxtrack = std::min(5, state->_options.max_slam_features / 4);
@@ -902,8 +930,9 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
         1.0 / 180.0 * M_PI,   // 1 degree
         10.0 / ref_focallength  // 10 pixels
       );
-      std::cout << "DEBUG feats_slam:  initial quick_feats_slam.size() = " << quick_feats_slam.size() 
-                << ",  state->_timestamp - message.timestamp = " << state->_timestamp - message.timestamp << std::endl;
+      const double disparity_square_thr = disparity_thr * disparity_thr;
+      // std::cout << "DEBUG feats_slam:  initial quick_feats_slam.size() = " << quick_feats_slam.size() 
+      //           << ",  state->_timestamp - message.timestamp = " << state->_timestamp - message.timestamp << std::endl;
       if (!quick_feats_slam.empty()) {
         auto it = quick_feats_slam.begin();
 
@@ -914,27 +943,30 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
           //   it = quick_feats_slam.erase(it);
           //   continue;
           // }
-          if (feats_maxtracks_set.count(feat)) {
+          auto it2 = feats_maxtracks_set.find(feat);
+          if (it2 != feats_maxtracks_set.end()) {
             // feature already in feats_maxtracks
+            it = quick_feats_slam.erase(it);
+            feats_maxtracks_set.erase(it2);
+            continue;
+          }
+          double disparity_square = compute_disparity_square(feat, cloned_times, R_Cold_in_Ccurs, message.sensor_ids[0]);
+          if (disparity_square < disparity_square_thr) {
             it = quick_feats_slam.erase(it);
             continue;
           }
-          double disparity = compute_disparity(feat, cloned_times, message.sensor_ids[0], message.timestamp);
-          if (disparity < disparity_thr) {
-            it = quick_feats_slam.erase(it);
-            continue;            
-          }
-          feat_to_disparity[feat] = disparity;
+          feat_to_disparity_square[feat] = disparity_square;
           it ++;
         }
+
         std::sort(quick_feats_slam.begin(), quick_feats_slam.end(), compare_feat_disparity);
 
         if (params.vio_manager_high_frequency_log) {
           std::ostringstream oss;
-          oss << "DEBUG feats_slam: compute_disparity for quick_feats_slam (total " <<  quick_feats_slam.size() << "):  ";
+          oss << "DEBUG feats_slam: for quick_feats_slam (total " <<  quick_feats_slam.size() << "):  ";
           if (!quick_feats_slam.empty()) {
             for (auto feat : quick_feats_slam) {
-              oss << feat_to_disparity.at(feat) * ref_focallength << "  ";
+              oss << sqrt(feat_to_disparity_square.at(feat)) * ref_focallength << "  ";
             }
           }
           oss << std::endl;
@@ -947,8 +979,8 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
         feats_slam.insert(feats_slam.end(), quick_feats_slam.end() - valid_amount2, quick_feats_slam.end());
         PRINT_DEBUG(YELLOW "DEBUG feats_slam: add quick_feats_slam (%d) with disparities from %f to %f (disparity_thr = %f)\n" RESET,
                     valid_amount2,
-                    feat_to_disparity.at(*(quick_feats_slam.end() - valid_amount2)) * ref_focallength,
-                    feat_to_disparity.at(quick_feats_slam.back()) * ref_focallength,
+                    sqrt(feat_to_disparity_square.at(*(quick_feats_slam.end() - valid_amount2))) * ref_focallength,
+                    sqrt(feat_to_disparity_square.at(quick_feats_slam.back())) * ref_focallength,
                     disparity_thr * ref_focallength);
       }
       PRINT_DEBUG(YELLOW "DEBUG feats_slam: new feats_slam size %d, amount_to_add=%d, valid_amount=%d, amount_to_add2=%d, valid_amount2=%d\n" RESET,
@@ -1160,27 +1192,25 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   }
 }
 
+void VioManager::clear_old_gyro_integrated_rotations(double time) {
+  const double window_time = 1.5;  // seconds
+  auto it = gyro_integrated_rotations_window.begin();
+  while (it != gyro_integrated_rotations_window.end() && it->first < time) {
+    it = gyro_integrated_rotations_window.erase(it);
+  }
+}
+
 void VioManager::update_gyro_integrated_rotations(double time, const Eigen::Matrix3d& new_rotation) {
   if (time <= cur_gyro_integrated_time) {
     return;
   }
-
-  const double window_time = 1.5;  // seconds
-  auto it = gyro_integrated_rotations_window.begin();
-  while (it != gyro_integrated_rotations_window.end() && it->first + window_time < time) {
-    it = gyro_integrated_rotations_window.erase(it);
-  }
-
   cur_gyro_integrated_rotation = cur_gyro_integrated_rotation * new_rotation;
   gyro_integrated_rotations_window[time] = cur_gyro_integrated_rotation;
 }
 
-double VioManager::compute_disparity(std::shared_ptr<Feature> feat, const std::set<double>& cloned_times, size_t cam_id, double time) {
-  assert(cloned_times.count(time));
-
-  if (!gyro_integrated_rotations_window.count(time)) {
-    return 0.0;
-  }
+double VioManager::compute_disparity_square(
+    std::shared_ptr<ov_core::Feature> feat, const std::vector<double>& cloned_times,
+    const std::vector<Eigen::Matrix3d>& R_Cold_in_Ccurs, size_t cam_id) {
 
   if (!params.camera_extrinsics.count(cam_id)) {
     return 0.0;
@@ -1201,106 +1231,89 @@ double VioManager::compute_disparity(std::shared_ptr<Feature> feat, const std::s
 
     feat_times = feat->timestamps.at(cam_id);
     feat_uvs_norm = feat->uvs_norm.at(cam_id);
-    feat_uvs = feat->uvs.at(cam_id);
-  }
-
-  std::map<double, Eigen::VectorXf> time_to_uvs_norm;
-  std::map<double, Eigen::VectorXf> time_to_uvs;
-  size_t n = feat_times.size();
-  for (size_t i=0; i<n; i++) {
-    double feat_time = feat_times[i];
-    if (feat_time > time) {
-      break;
+    if (params.vio_manager_high_frequency_log) {
+      feat_uvs = feat->uvs.at(cam_id);
     }
-    if (!cloned_times.count(feat_time) || !gyro_integrated_rotations_window.count(feat_time)) {
-      continue;
+  }
+  assert(!feat_times.empty());
+
+  std::vector<int> indices(cloned_times.size());
+  int j = 0;
+  for (size_t i=0; i<cloned_times.size(); i++) {
+    const auto& clone_time = cloned_times[i];
+    while (j < feat_times.size() && feat_times[j] < clone_time) {
+      j ++;
     }
-    time_to_uvs_norm[feat_time] = feat_uvs_norm[i];
-    time_to_uvs[feat_time] = feat_uvs[i];
-  }
-
-  // only compute disparities for features with 3 or more observations.
-  if (time_to_uvs_norm.size() < 3) {
-    return 0.0;
-  }
-
-  if (params.vio_manager_high_frequency_log) {
-    std::ostringstream oss;
-    oss << "DEBUG feats_slam:  compute_disparity, cur_time = " << int64_t(time * 1000)
-        << "[ms],  observation_times[ms] =  ";
-    for (const auto& item : time_to_uvs_norm) {
-      oss << int64_t((item.first - time) * 1000) << "  ";
+    assert(j < feat_times.size());  // "j >= feat_times.size()" shouldn't happen.
+    if (feat_times[j] > clone_time) {
+      indices[i] = -1;
+    } else {
+      // assert(feat_times[j] == clone_time);
+      indices[i] = j;
     }
-    oss << std::endl;
-    PRINT_ALL(YELLOW "%s" RESET, oss.str().c_str());
   }
 
-  assert(time_to_uvs_norm.count(time));
-  // if (!time_to_uvs_norm.count(time)) {
-  //   return 0.0;
-  // }
+  assert(indices.back() >= 0);
+  assert(feat_times[indices.back()] == cloned_times.back());
 
-
-  Eigen::Matrix3d R_C_in_I = Eigen::Matrix3d::Identity();
-  const auto & extrinsic = params.camera_extrinsics.at(cam_id);
-  R_C_in_I = ov_core::quat_2_Rot(extrinsic.block(0,0,4,1)).transpose();
-  if (params.vio_manager_high_frequency_log) {
-    std::ostringstream oss;
-    oss << "DEBUG feats_slam:  VioManager::compute_disparity.R_C_in_I = " << std::endl;
-    oss << R_C_in_I << std::endl;
-    PRINT_ALL(YELLOW "%s" RESET, oss.str().c_str());
-  }
-
-  Eigen::Matrix3d cur_imu_rotation = gyro_integrated_rotations_window.at(time);
-  Eigen::Vector2f cur_uv_norm = time_to_uvs_norm.at(time);
-  Eigen::Vector3d cur_bearing(cur_uv_norm.x(), cur_uv_norm.y(), 1.0);
-  cur_bearing.normalize();
-  double max_disparity = 0.0;
+  double cur_time = feat_times[indices.back()];
+  Eigen::Vector2f cur_uv_norm = feat_uvs_norm[indices.back()];
+  Eigen::Vector3d cur_homo(cur_uv_norm.x(), cur_uv_norm.y(), 1.0);
+  double cur_homo_square = cur_homo.dot(cur_homo);
+  double max_disparity_square = 0.0;
 
   // for debug
-  Eigen::Vector2f cur_uv = time_to_uvs.at(time);
+  Eigen::Vector2f cur_uv;  // = feat_uvs[indices.back()];
   Eigen::Vector2f best_old_uv;
   Eigen::Vector2f best_old_uv_norm;
-  Eigen::Vector3d best_old_bearing;
+  Eigen::Vector2f best_predict_uv_norm;
   Eigen::Matrix3d best_R_Cold_in_Ccur;
   double best_old_time;
 
-  for (const auto & item : time_to_uvs_norm) {
-    double old_time = item.first;
-    if (old_time == time) {
+  for (size_t i=0; i<cloned_times.size() - 1; i++) {
+    // otherwise, feat_times[j] == clone_time
+    int j = indices[i];
+    if (j < 0) {
       continue;
     }
-    const Eigen::Vector2f& old_uv_norm = item.second;
-    const Eigen::Matrix3d& old_imu_rotation = gyro_integrated_rotations_window.at(old_time);
-    Eigen::Matrix3d R_Iold_in_Icur = cur_imu_rotation.transpose() * old_imu_rotation;
-    Eigen::Matrix3d R_Cold_in_Ccur = R_C_in_I.transpose() * R_Iold_in_Icur * R_C_in_I;
-    Eigen::Vector3d old_bearing(old_uv_norm.x(), old_uv_norm.y(), 1.0);
-    old_bearing.normalize();
-    double disparity = (cur_bearing - R_Cold_in_Ccur * old_bearing).norm();
-    if (disparity > max_disparity) {
-      max_disparity = disparity;
+    assert(cloned_times[i] == feat_times[j]);
+    const Eigen::Vector2f& old_uv_norm = feat_uvs_norm[j];
+    const Eigen::Matrix3d& R_Cold_in_Ccur = R_Cold_in_Ccurs[i];
+    Eigen::Vector3d old_homo(old_uv_norm.x(), old_uv_norm.y(), 1.0);
+    Eigen::Vector3d predict_homo = R_Cold_in_Ccur * old_homo;
 
+#if 0  // bad performance.
+    Eigen::Vector2f predict_uv_norm(predict_homo.x() / predict_homo.z(), predict_homo.y() / predict_homo.z());
+    Eigen::Vector2f uv_norm_diff = cur_uv_norm - predict_uv_norm;
+    double disparity_square = uv_norm_diff.dot(uv_norm_diff);
+#else
+    double predict_homo_square = predict_homo.dot(predict_homo);
+    double dot = predict_homo.dot(cur_homo);
+    double disparity_square = 1 - (dot * dot) / (predict_homo_square * cur_homo_square);
+#endif
+
+    if (disparity_square > max_disparity_square) {
+      max_disparity_square = disparity_square;
       if (params.vio_manager_high_frequency_log) {
         best_old_uv_norm = old_uv_norm;
         best_R_Cold_in_Ccur = R_Cold_in_Ccur;
-        best_old_uv = time_to_uvs[item.first];
-        best_old_bearing = old_bearing;
-        best_old_time = old_time;
+        best_old_uv = feat_uvs[j];
+        best_predict_uv_norm = Eigen::Vector2f(predict_homo.x() / predict_homo.z(), predict_homo.y() / predict_homo.z());
+        best_old_time = feat_times[j];
       }
     }
   }
 
   if (params.vio_manager_high_frequency_log) {
     std::ostringstream oss;
-    Eigen::Vector3d predict_bearing = best_R_Cold_in_Ccur * best_old_bearing;
-    Eigen::Vector2f predict_uv_norm(predict_bearing.x()/predict_bearing.z(), predict_bearing.y()/predict_bearing.z());
-    Eigen::Vector2f predict_uv = params.camera_intrinsics.at(cam_id)->distort_f(Eigen::Vector2f(predict_uv_norm.x(), predict_uv_norm.y()));
+    cur_uv = feat_uvs[indices.back()];
+    Eigen::Vector2f predict_uv = params.camera_intrinsics.at(cam_id)->distort_f(Eigen::Vector2f(best_predict_uv_norm.x(), best_predict_uv_norm.y()));
     double raw_uv_norm_diff = (best_old_uv_norm - cur_uv_norm).norm();
     double raw_uv_diff = (best_old_uv - cur_uv).norm();
-    double predict_uv_norm_diff = (predict_uv_norm - cur_uv_norm).norm();
+    double predict_uv_norm_diff = (best_predict_uv_norm - cur_uv_norm).norm();
     double predict_uv_diff = (predict_uv - cur_uv).norm();
-    oss << "DEBUG feats_slam:  compute_disparity, max_disparity = " << max_disparity 
-        << ",  old_time = " << int64_t((best_old_time - time) * 1000) << "[ms]"
+    oss << "DEBUG compute_disparity_square: , max_disparity = " << sqrt(max_disparity_square)
+        << ",  old_time = " << int64_t((best_old_time - cur_time) * 1000) << "[ms]"
         << ",  raw_uv_diff = " << raw_uv_diff
         << ",  predict_uv_diff = " << predict_uv_diff
         << ",  raw_uv_norm_diff = " << raw_uv_norm_diff
@@ -1311,6 +1324,5 @@ double VioManager::compute_disparity(std::shared_ptr<Feature> feat, const std::s
     PRINT_ALL(YELLOW "%s" RESET, oss.str().c_str());
   }
 
-
-  return max_disparity;
+  return max_disparity_square;
 }

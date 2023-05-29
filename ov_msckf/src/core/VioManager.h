@@ -374,7 +374,10 @@ protected:
   Eigen::Matrix3d cur_gyro_integrated_rotation;
   double cur_gyro_integrated_time;
   void update_gyro_integrated_rotations(double time, const Eigen::Matrix3d& new_rotation);
-  double compute_disparity(std::shared_ptr<ov_core::Feature> feat, const std::set<double>& cloned_times, size_t cam_id, double time);
+  void clear_old_gyro_integrated_rotations(double time);
+  double compute_disparity_square(
+      std::shared_ptr<ov_core::Feature> feat, const std::vector<double>& cloned_times,
+      const std::vector<Eigen::Matrix3d>& R_Cold_in_Ccurs, size_t cam_id);
 };
 
 } // namespace ov_msckf
