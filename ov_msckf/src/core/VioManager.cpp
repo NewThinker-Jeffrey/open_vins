@@ -922,7 +922,9 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
 
 
     // int reserve_for_future_maxtrack = 0;
+    // int most_quick_feats_slam_per_frame = state->_options.max_slam_features;
     int reserve_for_future_maxtrack = std::min(5, state->_options.max_slam_features / 4);
+    int most_quick_feats_slam_per_frame = state->_options.max_slam_features;  // std::min(15, state->_options.max_slam_features / 4);
     if (valid_amount < amount_to_add - reserve_for_future_maxtrack && params.enable_early_landmark) {
       std::vector<std::shared_ptr<Feature>> quick_feats_slam = 
           trackFEATS->get_feature_database()->features_containing(message.timestamp, false, true);
@@ -974,6 +976,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
         }
       }
       int amount_to_add2 = amount_to_add - reserve_for_future_maxtrack - valid_amount;
+      amount_to_add2 = amount_to_add2 > most_quick_feats_slam_per_frame ? most_quick_feats_slam_per_frame : amount_to_add2;
       int valid_amount2 = (amount_to_add2 > (int)quick_feats_slam.size()) ? (int)quick_feats_slam.size() : amount_to_add2;
       if (valid_amount2 > 0) {
         feats_slam.insert(feats_slam.end(), quick_feats_slam.end() - valid_amount2, quick_feats_slam.end());
@@ -1030,13 +1033,19 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   // NOTE: this should only really be used if you want to track a lot of features, or have limited computational resources
   if ((int)featsup_MSCKF.size() > state->_options.max_msckf_in_update)
     featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end() - state->_options.max_msckf_in_update);
+  size_t msckf_features_used = featsup_MSCKF.size();
+  size_t msckf_features_outliers = 0;
   updaterMSCKF->update(state, featsup_MSCKF);
+  msckf_features_outliers = msckf_features_used - featsup_MSCKF.size();
+  msckf_features_used = featsup_MSCKF.size();
   c->rT4 = boost::posix_time::microsec_clock::local_time();
 
   // Perform SLAM delay init and update
   // NOTE: that we provide the option here to do a *sequential* update
   // NOTE: this will be a lot faster but won't be as accurate.
   std::vector<std::shared_ptr<Feature>> feats_slam_UPDATE_TEMP;
+  size_t slam_features_used = feats_slam_UPDATE.size();
+  size_t slam_features_outliers = 0;
   while (!feats_slam_UPDATE.empty()) {
     // Get sub vector of the features we will update with
     std::vector<std::shared_ptr<Feature>> featsup_TEMP;
@@ -1049,9 +1058,15 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     feats_slam_UPDATE_TEMP.insert(feats_slam_UPDATE_TEMP.end(), featsup_TEMP.begin(), featsup_TEMP.end());
   }
   feats_slam_UPDATE = feats_slam_UPDATE_TEMP;
+  slam_features_outliers = slam_features_used - feats_slam_UPDATE.size();
+  slam_features_used = feats_slam_UPDATE.size();
   c->rT5 = boost::posix_time::microsec_clock::local_time();
 
+  size_t delayed_features_used = feats_slam_DELAYED.size();
+  size_t delayed_features_outliers = 0;
   updaterSLAM->delayed_init(state, feats_slam_DELAYED);
+  delayed_features_outliers = delayed_features_used - feats_slam_DELAYED.size();
+  delayed_features_used = feats_slam_DELAYED.size();
   c->rT6 = boost::posix_time::microsec_clock::local_time();
 
   //===================================================================================
@@ -1120,6 +1135,11 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   double time_total = (c->rT7 - c->rT1).total_microseconds() * 1e-6;
 
   // Timing information
+  PRINT_INFO(BLUE "[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f)\n" RESET,
+                    msckf_features_used, msckf_features_outliers, time_msckf,
+                    slam_features_used, slam_features_outliers, time_slam_update,
+                    delayed_features_used, delayed_features_outliers, time_slam_delay);
+
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for tracking\n" RESET, time_track);
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for switch thread\n" RESET, time_switch_thread);
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for propagation\n" RESET, time_prop);
