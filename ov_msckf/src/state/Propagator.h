@@ -122,22 +122,6 @@ public:
                             Eigen::Matrix<double, 12, 12> &covariance);
 
   /**
-   * @brief Helper function that given current imu data, will select imu readings between the two times.
-   *
-   * This will create measurements that we will integrate with, and an extra measurement at the end.
-   * We use the @ref interpolate_data() function to "cut" the imu readings at the begining and end of the integration.
-   * The timestamps passed should already take into account the time offset values.
-   *
-   * @param imu_data IMU data we will select measurements from
-   * @param time0 Start timestamp
-   * @param time1 End timestamp
-   * @param warn If we should warn if we don't have enough IMU to propagate with (e.g. fast prop will get warnings otherwise)
-   * @return Vector of measurements (if we could compute them)
-   */
-  static std::vector<ov_core::ImuData> select_imu_readings(const std::vector<ov_core::ImuData> &imu_data, double time0, double time1,
-                                                           bool warn = true);
-
-  /**
    * @brief Nice helper function that will linearly interpolate between two imu messages.
    *
    * This should be used instead of just "cutting" imu messages that bound the camera times
