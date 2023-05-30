@@ -693,9 +693,12 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   // If we have not reached max clones, we should just return...
   // This isn't super ideal, but it keeps the logic after this easier...
   // We can start processing things when we have at least 5 clones since we can start triangulating things...
-  if ((int)state->_clones_IMU.size() < std::min(state->_options.max_clone_size, 5)) {
+
+  // int min_clones = 5;
+  int min_clones = 3;
+  if ((int)state->_clones_IMU.size() < std::min(state->_options.max_clone_size, min_clones)) {
     PRINT_DEBUG("waiting for enough clone states (%d of %d)....\n", (int)state->_clones_IMU.size(),
-                std::min(state->_options.max_clone_size, 5));
+                std::min(state->_options.max_clone_size, min_clones));
     return;
   }
 
@@ -720,7 +723,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   feats_lost = trackFEATS->get_feature_database()->features_not_containing_newer(current_timestamp, false, true);
 
   // Don't need to get the oldest features until we reach our max number of clones
-  if ((int)state->_clones_IMU.size() > state->_options.max_clone_size || (int)state->_clones_IMU.size() > 5) {
+  if ((int)state->_clones_IMU.size() > state->_options.max_clone_size || (int)state->_clones_IMU.size() > min_clones) {
     feats_marg = trackFEATS->get_feature_database()->features_containing(marg_timestamp, false, true);
     if (trackARUCO != nullptr && message.timestamp - startup_time >= params.dt_slam_delay) {
       feats_slam = trackARUCO->get_feature_database()->features_containing(state->margtimestep(), false, true);
@@ -1135,10 +1138,15 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   double time_total = (c->rT7 - c->rT1).total_microseconds() * 1e-6;
 
   // Timing information
-  PRINT_INFO(BLUE "[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f)\n" RESET,
+  PRINT_INFO(BLUE "[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f), total(%d + %d, %.4f), timestampe: %.6f\n" RESET,
                     msckf_features_used, msckf_features_outliers, time_msckf,
                     slam_features_used, slam_features_outliers, time_slam_update,
-                    delayed_features_used, delayed_features_outliers, time_slam_delay);
+                    delayed_features_used, delayed_features_outliers, time_slam_delay,
+                    msckf_features_used + slam_features_used + delayed_features_used,
+                    msckf_features_outliers + slam_features_outliers + delayed_features_outliers,
+                    time_msckf + time_slam_update + time_slam_delay,
+                    message.timestamp
+                    );
 
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for tracking\n" RESET, time_track);
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for switch thread\n" RESET, time_switch_thread);
