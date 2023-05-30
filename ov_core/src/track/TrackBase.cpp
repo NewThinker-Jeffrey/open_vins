@@ -34,10 +34,10 @@ using namespace ov_core;
 
 TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
                      HistogramMethod histmethod, std::map<size_t, Eigen::VectorXd> inp_camera_extrinsics,
-                     bool high_frequency_log)
+                     bool keypoint_predict, bool high_frequency_log)
     : camera_calib(cameras), database(new FeatureDatabase()), num_features(numfeats), 
       use_stereo(stereo), histogram_method(histmethod), 
-      t_d(0), gyro_bias(0,0,0), enable_high_frequency_log(high_frequency_log) {
+      t_d(0), gyro_bias(0,0,0), enable_high_frequency_log(high_frequency_log), enable_keypoint_predict(keypoint_predict) {
 
   for (const auto & item : inp_camera_extrinsics) {
     camera_extrinsics[item.first] = Eigen::Isometry3d::Identity();
@@ -330,6 +330,13 @@ void TrackBase::predict_keypoints(
   size_t cam_id0, size_t cam_id1, const std::vector<cv::KeyPoint>& kpts0, 
   const Eigen::Matrix3d& R_0_in_1, std::vector<cv::KeyPoint>& kpts1_predict) {
   kpts1_predict = kpts0;
+  if (!enable_keypoint_predict) {
+    if (enable_high_frequency_log) {
+      PRINT_ALL("DEBUG TrackBase::predict_keypoints: Skip predict keypoints since it's disabled!\n");
+    }
+    return;
+  }  
+
   cv::Matx33f cv_R_0_in_1;
   Eigen::Matrix3f R_0_in_1f = R_0_in_1.cast<float>();
   cv::eigen2cv(R_0_in_1f, cv_R_0_in_1);

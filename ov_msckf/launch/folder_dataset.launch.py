@@ -64,6 +64,11 @@ launch_args = [
         description="If true, enable high_frequency debug log for feature tracking",
     ),    
     DeclareLaunchArgument(
+        name="feattrack_predict_keypoints",
+        default_value="true",
+        description="If true, enable keypoint prediction (based on imu) for feature tracking",
+    ),    
+    DeclareLaunchArgument(
         name="vio_manager_high_frequency_log",
         default_value="false",
         description="If true, enable high_frequency debug log for feature tracking",
@@ -149,6 +154,7 @@ def launch_setup(context):
             {"klt_strict_stereo": LaunchConfiguration("klt_strict_stereo")},
             {"klt_force_fundamental": LaunchConfiguration("klt_force_fundamental")},
             {"feattrack_high_frequency_log": LaunchConfiguration("feattrack_high_frequency_log")},
+            {"feattrack_predict_keypoints": LaunchConfiguration("feattrack_predict_keypoints")},
             {"vio_manager_high_frequency_log": LaunchConfiguration("vio_manager_high_frequency_log")},       
             {"choose_new_landmark_by_disparity": LaunchConfiguration("choose_new_landmark_by_disparity")},       
             {"enable_early_landmark": LaunchConfiguration("enable_early_landmark")},       

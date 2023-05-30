@@ -133,11 +133,14 @@ VioManager::VioManager(VioManagerOptions &params_) :
                                                          params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist,
                                                          params.camera_extrinsics,
                                                          params.klt_left_major_stereo, params.klt_strict_stereo, params.klt_force_fundamental,
+                                                         params.feattrack_predict_keypoints,
                                                          params.feattrack_high_frequency_log));
   } else {
     trackFEATS = std::shared_ptr<TrackBase>(new TrackDescriptor(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
-        params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio, params.camera_extrinsics, params.feattrack_high_frequency_log));
+        params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio, params.camera_extrinsics,
+        params.feattrack_predict_keypoints,
+        params.feattrack_high_frequency_log));
   }
 
   // Initialize our aruco tag extractor

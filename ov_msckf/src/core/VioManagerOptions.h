@@ -354,6 +354,8 @@ struct VioManagerOptions {
 
   bool feattrack_high_frequency_log = false;
 
+  bool feattrack_predict_keypoints = true;
+
   /// If should extract aruco tags and estimate them
   bool use_aruco = true;
 
@@ -413,6 +415,7 @@ struct VioManagerOptions {
       parser->parse_config("klt_strict_stereo", klt_strict_stereo);
       parser->parse_config("klt_force_fundamental", klt_force_fundamental);
       parser->parse_config("feattrack_high_frequency_log", feattrack_high_frequency_log);      
+      parser->parse_config("feattrack_predict_keypoints", feattrack_predict_keypoints);      
       parser->parse_config("use_aruco", use_aruco);
       parser->parse_config("downsize_aruco", downsize_aruco);
       parser->parse_config("downsample_cameras", downsample_cameras);
@@ -449,6 +452,7 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - klt_strict_stereo: %d\n", klt_strict_stereo);
     PRINT_DEBUG("  - klt_force_fundamental: %d\n", klt_force_fundamental);
     PRINT_DEBUG("  - feattrack_high_frequency_log: %d\n", feattrack_high_frequency_log);
+    PRINT_DEBUG("  - feattrack_predict_keypoints: %d\n", feattrack_predict_keypoints);
     PRINT_DEBUG("  - use_aruco: %d\n", use_aruco);
     PRINT_DEBUG("  - downsize aruco: %d\n", downsize_aruco);
     PRINT_DEBUG("  - downsize cameras: %d\n", downsample_cameras);
