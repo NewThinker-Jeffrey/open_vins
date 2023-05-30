@@ -34,6 +34,7 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
+const double viewpoint_height = 10.0;
 
 Viewer::Viewer(std::shared_ptr<VioManager> app) : _app(app) {
 
@@ -60,7 +61,7 @@ void Viewer::init() {
   // Define Camera Render Object (for view / scene browsing)
   pangolin::OpenGlMatrix proj = pangolin::ProjectionMatrix(640,480,320,320,320,240,0.1,1000);
   // pangolin::OpenGlRenderState s_cam(proj, pangolin::ModelViewLookAt(1,0.5,-2,0,0,0, pangolin::AxisY) );
-  s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0,0, 5,0,0,0, pangolin::AxisY));
+  s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY));
 
   // Add named OpenGL viewport to window and provide 3D Handler
   pangolin::View& d_cam1 = pangolin::Display("cam1")
@@ -101,25 +102,26 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
     Twi.m[4*i+3] = imu_pose_mat(3,i);
   }
 
-  s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0),new_pos(1),5, new_pos(0), new_pos(1), 0, pangolin::AxisY));
+  s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
   // s_cam->Follow(Twi);
 
   pangolin::Display("cam1").Activate(*s_cam);
   // pangolin::glDrawColouredCube();
 
   // draw grid
-  int x_begin = new_pos(0) - 10;
-  int y_begin = new_pos(1) - 10;
+  int x_begin = new_pos(0) - 2 * viewpoint_height;
+  int y_begin = new_pos(1) - 2 * viewpoint_height;
+  int n_lines = 4 * viewpoint_height;
   glLineWidth(1.0);
   glColor4f(1.0f, 1.0f, 1.0f, 0.15f);
   glBegin(GL_LINES);
-  for (int i=0; i<20; i++) {
+  for (int i=0; i<n_lines; i++) {
     // draw the ith vertical line
     glVertex3f(x_begin + i, y_begin, 0);
-    glVertex3f(x_begin + i, y_begin + 20, 0);
+    glVertex3f(x_begin + i, y_begin + n_lines, 0);
     // draw the ith horizontal line
     glVertex3f(x_begin, y_begin + i, 0);
-    glVertex3f(x_begin + 20, y_begin + i, 0);
+    glVertex3f(x_begin + n_lines, y_begin + i, 0);
   }
   glEnd();
 
