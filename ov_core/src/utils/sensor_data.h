@@ -57,6 +57,9 @@ struct ImuData {
    */
   static ImuData interpolate_data(const ImuData &imu_1, const ImuData &imu_2, double timestamp);
 
+
+  static std::vector<ImuData> fill_imu_data_gaps(const std::vector<ImuData>& in_data, double max_gap = 0.011);
+
   /**
    * @brief Helper function that given current imu data, will select imu readings between the two times.
    *

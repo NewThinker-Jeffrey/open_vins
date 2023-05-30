@@ -284,6 +284,20 @@ Eigen::Matrix3d TrackBase::integrate_gryo(double old_time, double new_time) {
     return Eigen::Matrix3d::Identity();
   }
 
+  // check time gap
+  double max_time_gap = 0.021;
+  for (size_t i=0; i<prop_data.size()-1; i++) {
+    const auto & d0 = prop_data[i];
+    const auto & d1 = prop_data[i+1];
+    double dt = d1.timestamp - d0.timestamp;
+    if (dt > max_time_gap) {
+      PRINT_WARNING(YELLOW "TrackBase::integrate_gryo(): large imu gap (%.3f)!\n" RESET, dt);
+      return Eigen::Matrix3d::Identity();
+    }
+  }
+
+  prop_data = ImuData::fill_imu_data_gaps(prop_data, 0.0051);
+
   Eigen::Quaterniond q(1,0,0,0);
   for (size_t i=0; i<prop_data.size()-1; i++) {
     const auto & d0 = prop_data[i];

@@ -37,6 +37,38 @@ ImuData ImuData::interpolate_data(const ImuData &imu_1, const ImuData &imu_2, do
   return data;
 }
 
+std::vector<ImuData> ImuData::fill_imu_data_gaps(const std::vector<ImuData>& in_data, double max_gap) {
+  std::vector<ImuData> out_data;
+  if (in_data.empty()) {
+    return out_data;
+  }
+
+  // If "in_data" is of size 1, then so will be the out_data.
+
+  for (size_t i = 0; i < in_data.size() - 1; i++) {
+    out_data.push_back(in_data[i]);
+    double t0 = in_data[i].timestamp;
+    double t1 = in_data[i+1].timestamp;
+    double gap = t1 - t0;
+    if (gap > max_gap) {
+      if (gap > 0.1) {
+        PRINT_WARNING(YELLOW "ImuData::fill_imu_data_gaps(): LARGE_IMU_GAP!! We're filling a large imu gap (%.3f) from %.3f to %.3f!!!\n" RESET, gap, t0, t1);
+      }
+
+      int to_fill = gap / max_gap;
+      double interval = gap / (to_fill + 1);
+      for (int k = 0; k < to_fill; k++) {
+        double t = t0 + (k + 1) * interval;
+        assert(t < t1 - 0.5 * interval);
+        out_data.push_back(interpolate_data(in_data[i], in_data[i+1], t));
+      }
+    }
+  }
+
+  out_data.push_back(in_data.back());
+  return out_data;
+}
+
 std::vector<ImuData> ImuData::select_imu_readings(const std::vector<ImuData> &imu_data, double time0, double time1,
                                                   bool warn) {
 

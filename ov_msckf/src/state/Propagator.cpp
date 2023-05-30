@@ -68,24 +68,26 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
     prop_data = ov_core::ImuData::select_imu_readings(imu_data, time0, time1);
   }
 
+  prop_data = ImuData::fill_imu_data_gaps(prop_data);
+
   if (output_rotation) {
     if (prop_data.size() < 2) {
-      PRINT_WARNING(YELLOW "TrackBase::integrate_gryo(): no prop_data!\n" RESET);
+      PRINT_WARNING(YELLOW "propagate_and_clone::output_rotation: no prop_data!\n" RESET);
       *output_rotation = Eigen::Matrix3d::Identity();
+    } else {
+      Eigen::Quaterniond q(1,0,0,0);
+      for (size_t i=0; i<prop_data.size()-1; i++) {
+        const auto & d0 = prop_data[i];
+        const auto & d1 = prop_data[i+1];
+        double dt = d1.timestamp - d0.timestamp;
+        Eigen::Vector3d w_ave = 0.5 * (d0.wm + d1.wm) - state->_imu->bias_g();
+        Eigen::Vector3d im = 0.5 * w_ave * dt;    
+        Eigen::Quaterniond dq(1, im.x(), im.y(), im.z());
+        q = q * dq;
+      }
+      q.normalize();
+      *output_rotation = q.toRotationMatrix();
     }
-
-    Eigen::Quaterniond q(1,0,0,0);
-    for (size_t i=0; i<prop_data.size()-1; i++) {
-      const auto & d0 = prop_data[i];
-      const auto & d1 = prop_data[i+1];
-      double dt = d1.timestamp - d0.timestamp;
-      Eigen::Vector3d w_ave = 0.5 * (d0.wm + d1.wm) - state->_imu->bias_g();
-      Eigen::Vector3d im = 0.5 * w_ave * dt;    
-      Eigen::Quaterniond dq(1, im.x(), im.y(), im.z());
-      q = q * dq;
-    }
-    q.normalize();
-    *output_rotation = q.toRotationMatrix();
   }
 
   // We are going to sum up all the state transition matrices, so we can do a single large multiplication at the end
@@ -159,6 +161,8 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
   }
   if (prop_data.size() < 2)
     return false;
+
+  prop_data = ImuData::fill_imu_data_gaps(prop_data);
 
   // Biases
   Eigen::Vector3d bias_g = state_est.block(10, 0, 3, 1);
