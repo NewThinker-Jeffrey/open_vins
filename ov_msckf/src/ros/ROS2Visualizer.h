@@ -92,7 +92,14 @@ public:
    * @param app Core estimator manager
    * @param sim Simulator if we are simulating
    */
-  ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_ptr<VioManager> app, std::shared_ptr<Simulator> sim = nullptr);
+  ROS2Visualizer(
+    std::shared_ptr<rclcpp::Node> node, 
+    std::shared_ptr<VioManager> app, 
+    std::shared_ptr<Simulator> sim = nullptr,
+    std::shared_ptr<Viewer> gl_viewer = nullptr,
+    const std::string& output_dir = "",
+    bool save_feature_images = false,
+    bool save_total_state = true);
 
   /**
    * @brief Will setup ROS subscribers and callbacks

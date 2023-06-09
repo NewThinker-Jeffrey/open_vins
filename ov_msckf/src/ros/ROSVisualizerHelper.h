@@ -23,6 +23,7 @@
 #define OV_MSCKF_ROSVISUALIZER_HELPER_H
 
 #include <Eigen/Eigen>
+#include "no_ros/VisualizerHelper.h"
 
 #if ROS_AVAILABLE == 1
 #include <sensor_msgs/PointCloud.h>
@@ -50,7 +51,7 @@ class Simulator;
 /**
  * @brief Helper class that handles some common versions into and out of ROS formats
  */
-class ROSVisualizerHelper {
+class ROSVisualizerHelper : public VisualizerHelper {
 
 public:
 #if ROS_AVAILABLE == 1
@@ -118,17 +119,6 @@ public:
   }
 
 #endif
-
-  /**
-   * @brief Save current estimate state and groundtruth including calibration
-   * @param state Pointer to the state
-   * @param sim Pointer to the simulator (or null)
-   * @param of_state_est Output file for state estimate
-   * @param of_state_std Output file for covariance
-   * @param of_state_gt Output file for groundtruth (if we have it from sim)
-   */
-  static void sim_save_total_state_to_file(std::shared_ptr<State> state, std::shared_ptr<Simulator> sim, std::ofstream &of_state_est,
-                                           std::ofstream &of_state_std, std::ofstream &of_state_gt);
 
 private:
   // Cannot create this class

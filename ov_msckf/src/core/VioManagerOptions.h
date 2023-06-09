@@ -76,7 +76,7 @@ struct VioManagerOptions {
 
   /// If false, feature tracking and state update will run in the same thread sequentially.
   /// Otherwise, a separate thread will be created for feature tracking and state update each.
-  bool async_img_process = false;
+  bool async_img_process = true;
 
   /// our output. save nothing if not set.
   std::string output_dir = "";

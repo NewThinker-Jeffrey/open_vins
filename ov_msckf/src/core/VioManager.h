@@ -29,6 +29,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <condition_variable>
 #include <string>
 
 #include "VioManagerOptions.h"

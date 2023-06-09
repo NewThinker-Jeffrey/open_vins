@@ -29,6 +29,7 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/opencv.hpp>
 
+extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(heisenberg_algo::VIO*);
 
 using namespace ov_core;
 using namespace ov_type;
@@ -36,7 +37,7 @@ using namespace ov_msckf;
 
 const double viewpoint_height = 10.0;
 
-Viewer::Viewer(std::shared_ptr<VioManager> app) : _app(app) {
+Viewer::Viewer(std::shared_ptr<heisenberg_algo::VIO> app) : _app(app) {
 
 }
 
@@ -77,8 +78,8 @@ void Viewer::init() {
 void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-
-  cv::Mat img_history = _app->get_historical_viz_image(output);
+  auto internal_app = getVioManagerFromVioInterface(_app.get());
+  cv::Mat img_history = internal_app->get_historical_viz_image(output);
   cv::Mat flipped_img_history;
   cv::cvtColor(img_history, flipped_img_history, cv::COLOR_BGR2RGB);
   cv::flip(flipped_img_history, flipped_img_history, 0);

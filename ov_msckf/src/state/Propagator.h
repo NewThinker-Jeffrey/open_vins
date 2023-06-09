@@ -119,7 +119,7 @@ public:
    * @return True if we were able to propagate the state to the current timestep
    */
   bool fast_state_propagate(std::shared_ptr<State> state, double timestamp, Eigen::Matrix<double, 13, 1> &state_plus,
-                            Eigen::Matrix<double, 12, 12> &covariance);
+                            Eigen::Matrix<double, 12, 12> &covariance, double* output_timestamp = nullptr);
 
   /**
    * @brief Nice helper function that will linearly interpolate between two imu messages.

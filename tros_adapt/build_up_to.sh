@@ -18,5 +18,6 @@ colcon build \
     --cmake-args \
     --no-warn-unused-cli \
     -DOPENVINS_FOR_TROS=ON \
+    -DENABLE_PANGOLIN=OFF \
     -Dimage_transport_DIR="$workspace_dir/install/share/image_transport/cmake"  \
     -DCMAKE_TOOLCHAIN_FILE="/root/workspace/cc_ws/hps_ws/robot_dev_config/aarch64_toolchainfile.cmake" --packages-up-to $@

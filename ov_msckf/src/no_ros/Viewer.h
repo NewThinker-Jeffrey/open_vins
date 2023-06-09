@@ -26,20 +26,21 @@
 
 #include <pangolin/pangolin.h>
 #include "core/VioManager.h"
+#include "interface/HeisenbergVIO.h"
 #include <mutex>
 
 namespace ov_msckf {
 
 class Viewer {
 public:
-  Viewer(std::shared_ptr<VioManager> app);
+  Viewer(std::shared_ptr<heisenberg_algo::VIO> app);
   void init();
   void show(std::shared_ptr<VioManager::Output> task);
 
 private:
 
   /// Core application of the filter system
-  std::shared_ptr<VioManager> _app;
+  std::shared_ptr<heisenberg_algo::VIO> _app;
 
   std::shared_ptr<pangolin::OpenGlRenderState> s_cam;
   std::deque <Eigen::Vector3f> _traj;

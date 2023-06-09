@@ -19,17 +19,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef OV_MSCKF_ROS2VisualizerForFolderBasedDataset_H
-#define OV_MSCKF_ROS2VisualizerForFolderBasedDataset_H
+#ifndef OV_MSCKF_VisualizerForFolderBasedDataset_H
+#define OV_MSCKF_VisualizerForFolderBasedDataset_H
 
-#include "ROS2Visualizer.h"
-#include "utils/sensor_data.h"
+#include <fstream>
+#include <string>
+#include <memory>
+#include <thread>
 
 #include "interface/FolderBasedDataset.h"
 #include "interface/HeisenbergVIO.h"
+#include "core/VioManager.h"
 
 namespace ov_msckf {
 
+class Simulator;
 class Viewer;
 
 /**
@@ -42,7 +46,7 @@ class Viewer;
  * - Our different features (SLAM, MSCKF, ARUCO)
  * - Groundtruth trajectory if we have it
  */
-class ROS2VisualizerForFolderBasedDataset : public ROS2Visualizer {
+class VisualizerForFolderBasedDataset {
 
 public:
   /**
@@ -51,15 +55,14 @@ public:
    * @param app Core estimator manager
    * @param sim Simulator if we are simulating
    */
-  ROS2VisualizerForFolderBasedDataset(
-    std::shared_ptr<rclcpp::Node> node,
+  VisualizerForFolderBasedDataset(
     std::shared_ptr<heisenberg_algo::VIO> app,
     std::shared_ptr<Viewer> gl_viewer = nullptr,
     const std::string& output_dir = "",
     bool save_feature_images = false,
     bool save_total_state = true);
 
-  ~ROS2VisualizerForFolderBasedDataset();
+  ~VisualizerForFolderBasedDataset();
 
   void setup_player(const std::string& dataset,
                     double play_rate = 1.0);
@@ -68,11 +71,32 @@ public:
 
   void wait_play_over();
 
+  void stop_visualization_thread();
+
 protected:
+  void visualize();
+
+  void visualize_odometry(double timestamp);
+
+
+protected:
+  std::string output_dir = "";
+  bool save_feature_images = false;
+  std::string feature_image_save_dir = "";
+  bool save_total_state = false;
+  std::ofstream of_state_est, of_state_std, of_state_gt;
+
+  std::shared_ptr<std::thread> vis_thread_;
+  std::shared_ptr<VioManager::Output> vis_output_;
+  std::atomic<bool> stop_viz_request_;
+
+  double last_visualization_timestamp = 0;
+
   std::shared_ptr<heisenberg_algo::FolderBasedDataset> dataset_;
   std::shared_ptr<heisenberg_algo::VIO> sys_;
+  std::shared_ptr<Viewer> gl_viewer_;
 };
 
 } // namespace ov_msckf
 
-#endif // OV_MSCKF_ROS2VisualizerForFolderBasedDataset_H
+#endif // OV_MSCKF_VisualizerForFolderBasedDataset_H

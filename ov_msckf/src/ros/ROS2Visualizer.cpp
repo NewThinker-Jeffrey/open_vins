@@ -35,8 +35,18 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_ptr<VioManager> app, std::shared_ptr<Simulator> sim)
-    : _node(node), _app(app), _sim(sim), thread_update_running(false) {
+ROS2Visualizer::ROS2Visualizer(
+    std::shared_ptr<rclcpp::Node> node,
+    std::shared_ptr<VioManager> app,
+    std::shared_ptr<Simulator> sim,
+    std::shared_ptr<Viewer> tmp_gl_viewer,
+    const std::string& tmp_output_dir,
+    bool tmp_save_feature_images,
+    bool tmp_save_total_state)
+    : _node(node), _app(app), _sim(sim), thread_update_running(false),
+      gl_viewer(tmp_gl_viewer),
+      output_dir(tmp_output_dir), save_feature_images(tmp_save_feature_images),
+      save_total_state(tmp_save_total_state) {
 
   // Setup our transform broadcaster
   mTfBr = std::make_shared<tf2_ros::TransformBroadcaster>(node);
@@ -97,14 +107,6 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
     PRINT_DEBUG("gt file path is: %s\n", path_to_gt.c_str());
   }
 
-  if (node->has_parameter("output_dir")) {
-    node->get_parameter<std::string>("output_dir", output_dir);
-  }
-
-  if (node->has_parameter("save_feature_images")) {
-    node->get_parameter<bool>("save_feature_images", save_feature_images);
-  }
-
   if (save_feature_images && !output_dir.empty()) {
     feature_image_save_dir = output_dir + "/" + "feature_images";
     boost::filesystem::create_directories(boost::filesystem::path(feature_image_save_dir.c_str()));
@@ -112,24 +114,21 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
 
   // Load if we should save the total state to file
   // If so, then open the file and create folders as needed
-  if (node->has_parameter("save_total_state")) {
-    node->get_parameter<bool>("save_total_state", save_total_state);
-  }
   if (save_total_state) {
 
     // files we will open
     std::string filepath_est = "state_estimate.txt";
     std::string filepath_std = "state_deviation.txt";
     std::string filepath_gt = "state_groundtruth.txt";
-    if (node->has_parameter("filepath_est")) {
-      node->get_parameter<std::string>("filepath_est", filepath_est);
-    }
-    if (node->has_parameter("filepath_std")) {
-      node->get_parameter<std::string>("filepath_std", filepath_std);
-    }
-    if (node->has_parameter("filepath_gt")) {
-      node->get_parameter<std::string>("filepath_gt", filepath_gt);
-    }
+    // if (node->has_parameter("filepath_est")) {
+    //   node->get_parameter<std::string>("filepath_est", filepath_est);
+    // }
+    // if (node->has_parameter("filepath_std")) {
+    //   node->get_parameter<std::string>("filepath_std", filepath_std);
+    // }
+    // if (node->has_parameter("filepath_gt")) {
+    //   node->get_parameter<std::string>("filepath_gt", filepath_gt);
+    // }
 
     if (!output_dir.empty()) {
       // override the file paths if output_dir is set
@@ -137,38 +136,10 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
       filepath_std = output_dir + "/" + "state_deviation.txt";
       filepath_gt = output_dir + "/" + "state_groundtruth.txt";
     }
-
-    // If it exists, then delete it
-    if (boost::filesystem::exists(filepath_est))
-      boost::filesystem::remove(filepath_est);
-    if (boost::filesystem::exists(filepath_std))
-      boost::filesystem::remove(filepath_std);
-
-    // Create folder path to this location if not exists
-    boost::filesystem::create_directories(boost::filesystem::path(filepath_est.c_str()).parent_path());
-    boost::filesystem::create_directories(boost::filesystem::path(filepath_std.c_str()).parent_path());
-
-    // Open the files
-    of_state_est.open(filepath_est.c_str());
-    of_state_std.open(filepath_std.c_str());
-    of_state_est << "# timestamp(s) q p v bg ba cam_imu_dt num_cam cam0_k cam0_d cam0_rot cam0_trans .... etc" << std::endl;
-    of_state_std << "# timestamp(s) q p v bg ba cam_imu_dt num_cam cam0_k cam0_d cam0_rot cam0_trans .... etc" << std::endl;
-
-    // Groundtruth if we are simulating
-    if (_sim != nullptr) {
-      if (boost::filesystem::exists(filepath_gt))
-        boost::filesystem::remove(filepath_gt);
-      boost::filesystem::create_directories(boost::filesystem::path(filepath_gt.c_str()).parent_path());
-      of_state_gt.open(filepath_gt.c_str());
-      of_state_gt << "# timestamp(s) q p v bg ba cam_imu_dt num_cam cam0_k cam0_d cam0_rot cam0_trans .... etc" << std::endl;
-    }
-  }
-
-  if (node->has_parameter("save_total_state")) {
-    node->get_parameter<bool>("save_total_state", save_total_state);
-  }
-  if (save_feature_images) {
-
+    ROSVisualizerHelper::init_total_state_files(
+        filepath_est, filepath_std, filepath_gt,
+        _sim, 
+        of_state_est, of_state_std, of_state_gt);
   }
 
   // Start thread for the visualizing
@@ -176,7 +147,6 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   _vis_thread = std::make_shared<std::thread>([&] {
     pthread_setname_np(pthread_self(), "ov_visualize");
 #if ! OPENVINS_FOR_TROS
-    gl_viewer = std::make_shared<Viewer>(app);
     gl_viewer->init();
 #else
 

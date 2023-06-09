@@ -144,7 +144,7 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
 }
 
 bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double timestamp, Eigen::Matrix<double, 13, 1> &state_plus,
-                                      Eigen::Matrix<double, 12, 12> &covariance) {
+                                      Eigen::Matrix<double, 12, 12> &covariance, double* output_timestamp) {
   // First we will store the current calibration / estimates of the state
   double state_time = state->_timestamp;
   Eigen::MatrixXd state_est = state->_imu->value();
@@ -163,6 +163,10 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
     return false;
 
   prop_data = ImuData::fill_imu_data_gaps(prop_data);
+  if (output_timestamp) {
+    *output_timestamp = prop_data.back().timestamp - t_off;
+  }
+  
 
   // Biases
   Eigen::Vector3d bias_g = state_est.block(10, 0, 3, 1);
