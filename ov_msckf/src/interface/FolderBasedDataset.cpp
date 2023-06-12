@@ -240,11 +240,17 @@ void FolderBasedDataset::setup_player(
   imu_data_cb_ = imu_data_cb;
   track_frequency_ = track_frequency;
   play_rate_ = play_rate;
-
+  std::cout << "FolderBasedDataset::setup_player(): "
+            << "dataset='" << dataset << "', "
+            << "track_frequency=" << track_frequency << ", "
+            << "stereo=" << stereo << ", "
+            << "play_rate=" << play_rate << std::endl;
+  
   load_dataset(dataset);
   stop_request_ = false;
   data_play_thread_.reset(new std::thread([this](){
     pthread_setname_np(pthread_self(), "ov_play");
+    // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     this->data_play();
   }));
 }
@@ -270,9 +276,12 @@ void FolderBasedDataset::load_dataset(const std::string& dataset_folder) {
     LoadImages(dataset_folder + "/cam0/data", "", dataset_folder + "/cam0/data.csv",
                left_image_files_, right_image_files_, image_times_);
   }
+  std::cout << "FolderBasedDataset::load_dataset():  imu frames: " << imu_data_.size() << std::endl;
+  std::cout << "FolderBasedDataset::load_dataset():  image frames: " << image_times_.size() << std::endl;
 }
 
 void FolderBasedDataset::data_play() {
+  std::cout << "**FolderBasedDataset::data_play()**" << std::endl;
   size_t imu_idx = 0;
   size_t image_idx = 0;
   std::map<int, double> camera_last_timestamp;
@@ -292,9 +301,9 @@ void FolderBasedDataset::data_play() {
   // }
 
 
-  std::cout << "play_rate: " << play_rate_ << std::endl;
-  std::cout << "imu frames: " << imu_data_.size() << std::endl;
-  std::cout << "image frames: " << image_times_.size() << std::endl;
+  std::cout << "FolderBasedDataset::data_play():  play_rate: " << play_rate_ << std::endl;
+  std::cout << "FolderBasedDataset::data_play():  imu frames: " << imu_data_.size() << std::endl;
+  std::cout << "FolderBasedDataset::data_play():  image frames: " << image_times_.size() << std::endl;
 
   double next_sensor_time;
   auto get_next_sensor_time = [&]() {

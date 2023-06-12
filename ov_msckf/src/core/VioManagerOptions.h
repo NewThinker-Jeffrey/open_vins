@@ -89,9 +89,9 @@ struct VioManagerOptions {
 
   bool vio_manager_high_frequency_log = false;
 
-  bool choose_new_landmark_by_disparity = false;  // better, but more computation
+  bool choose_new_landmark_by_disparity = true;  // better, but more computation
 
-  bool enable_early_landmark = false;
+  bool enable_early_landmark = true;
 
   /// Max velocity we will consider to try to do a zupt (i.e. if above this, don't do zupt)
   double zupt_max_velocity = 1.0;
@@ -124,9 +124,9 @@ struct VioManagerOptions {
     if (parser != nullptr) {
       parser->parse_config("dt_slam_delay", dt_slam_delay);
       parser->parse_config("try_zupt", try_zupt);
-      parser->parse_config("vio_manager_high_frequency_log", vio_manager_high_frequency_log);
-      parser->parse_config("choose_new_landmark_by_disparity", choose_new_landmark_by_disparity);
-      parser->parse_config("enable_early_landmark", enable_early_landmark);
+      parser->parse_config("vio_manager_high_frequency_log", vio_manager_high_frequency_log, false);
+      parser->parse_config("choose_new_landmark_by_disparity", choose_new_landmark_by_disparity, false);
+      parser->parse_config("enable_early_landmark", enable_early_landmark, false);
       parser->parse_config("zupt_max_velocity", zupt_max_velocity);
       parser->parse_config("zupt_noise_multiplier", zupt_noise_multiplier);
       parser->parse_config("zupt_max_disparity", zupt_max_disparity);
@@ -134,7 +134,7 @@ struct VioManagerOptions {
       parser->parse_config("record_timing_information", record_timing_information);
       parser->parse_config("record_timing_filepath", record_timing_filepath);
       parser->parse_config("async_img_process", async_img_process);
-      parser->parse_config("output_dir", output_dir);
+      parser->parse_config("output_dir", output_dir, false);
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
@@ -411,11 +411,11 @@ struct VioManagerOptions {
     if (parser != nullptr) {
       parser->parse_config("use_stereo", use_stereo);
       parser->parse_config("use_klt", use_klt);
-      parser->parse_config("klt_left_major_stereo", klt_left_major_stereo);
-      parser->parse_config("klt_strict_stereo", klt_strict_stereo);
-      parser->parse_config("klt_force_fundamental", klt_force_fundamental);
-      parser->parse_config("feattrack_high_frequency_log", feattrack_high_frequency_log);      
-      parser->parse_config("feattrack_predict_keypoints", feattrack_predict_keypoints);      
+      parser->parse_config("klt_left_major_stereo", klt_left_major_stereo, false);
+      parser->parse_config("klt_strict_stereo", klt_strict_stereo, false);
+      parser->parse_config("klt_force_fundamental", klt_force_fundamental, false);
+      parser->parse_config("feattrack_high_frequency_log", feattrack_high_frequency_log, false);      
+      parser->parse_config("feattrack_predict_keypoints", feattrack_predict_keypoints, false);      
       parser->parse_config("use_aruco", use_aruco);
       parser->parse_config("downsize_aruco", downsize_aruco);
       parser->parse_config("downsample_cameras", downsample_cameras);
