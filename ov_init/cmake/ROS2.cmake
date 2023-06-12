@@ -28,13 +28,13 @@ endif ()
 include_directories(
         src
         ${EIGEN3_INCLUDE_DIR}
-        ${Boost_INCLUDE_DIRS}
+        # ${Boost_INCLUDE_DIRS}
         ${CERES_INCLUDE_DIRS}
 )
 
 # Set link libraries used by all binaries
 list(APPEND thirdparty_libraries
-        ${Boost_LIBRARIES}
+        # ${Boost_LIBRARIES}
         ${CERES_LIBRARIES}
         ${OpenCV_LIBRARIES}
 )

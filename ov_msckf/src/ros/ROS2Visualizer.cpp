@@ -109,7 +109,7 @@ ROS2Visualizer::ROS2Visualizer(
 
   if (save_feature_images && !output_dir.empty()) {
     feature_image_save_dir = output_dir + "/" + "feature_images";
-    boost::filesystem::create_directories(boost::filesystem::path(feature_image_save_dir.c_str()));
+    std::filesystem::create_directories(std::filesystem::path(feature_image_save_dir.c_str()));
   }
 
   // Load if we should save the total state to file
@@ -248,8 +248,8 @@ void ROS2Visualizer::visualize() {
   last_visualization_timestamp = _vis_output->status.timestamp;
 
   // Start timing
-  // boost::posix_time::ptime rT0_1, rT0_2;
-  // rT0_1 = boost::posix_time::microsec_clock::local_time();
+  // std::chrono::high_resolution_clock::time_point rT0_1, rT0_2;
+  // rT0_1 = std::chrono::high_resolution_clock::now();
 
   // publish current image
   publish_images();
@@ -272,7 +272,7 @@ void ROS2Visualizer::visualize() {
 
   // Save the start time of this dataset
   if (!start_time_set) {
-    rT1 = boost::posix_time::microsec_clock::local_time();
+    rT1 = std::chrono::high_resolution_clock::now();
     start_time_set = true;
   }
 
@@ -294,8 +294,8 @@ void ROS2Visualizer::visualize() {
   }
 
   // Print how much time it took to publish / displaying things
-  // rT0_2 = boost::posix_time::microsec_clock::local_time();
-  // double time_total = (rT0_2 - rT0_1).total_microseconds() * 1e-6;
+  // rT0_2 = std::chrono::high_resolution_clock::now();
+  // double time_total = std::chrono::duration_cast<std::chrono::duration<double>>(rT0_2 - rT0_1).count();
   // PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for visualization\n" RESET, time_total);
 }
 
@@ -436,8 +436,8 @@ void ROS2Visualizer::visualize_final() {
   }
 
   // Print the total time
-  rT2 = boost::posix_time::microsec_clock::local_time();
-  PRINT_INFO(REDPURPLE "TIME: %.3f seconds\n\n" RESET, (rT2 - rT1).total_microseconds() * 1e-6);
+  rT2 = std::chrono::high_resolution_clock::now();
+  PRINT_INFO(REDPURPLE "TIME: %.3f seconds\n\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(rT2 - rT1).count());
 }
 
 void ROS2Visualizer::callback_inertial(const sensor_msgs::msg::Imu::SharedPtr msg) {

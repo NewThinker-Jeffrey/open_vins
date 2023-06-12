@@ -27,12 +27,12 @@ endif ()
 include_directories(
         src
         ${EIGEN3_INCLUDE_DIR}
-        ${Boost_INCLUDE_DIRS}
+        # ${Boost_INCLUDE_DIRS}
 )
 
 # Set link libraries used by all binaries
 list(APPEND thirdparty_libraries
-        ${Boost_LIBRARIES}
+        # ${Boost_LIBRARIES}
         ${OpenCV_LIBRARIES}
 )
 
@@ -56,6 +56,7 @@ list(APPEND LIBRARY_SOURCES
         src/feat/FeatureInitializer.cpp
         src/utils/print.cpp
         src/utils/sensor_data.cpp
+        src/utils/chi_square/chi_squared_quantile_table_0_95.cpp
 )
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_core_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})

@@ -298,7 +298,7 @@ struct VioManagerOptions {
           std::string mask_node = "mask" + std::to_string(i);
           parser->parse_config(mask_node, mask_path);
           std::string total_mask_path = parser->get_config_folder() + mask_path;
-          if (!boost::filesystem::exists(total_mask_path)) {
+          if (!std::filesystem::exists(total_mask_path)) {
             PRINT_ERROR(RED "VioManager(): invalid mask path:\n" RESET);
             PRINT_ERROR(RED "\t- mask%d - %s\n" RESET, i, total_mask_path.c_str());
             std::exit(EXIT_FAILURE);

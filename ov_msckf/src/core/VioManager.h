@@ -25,7 +25,7 @@
 #include <Eigen/StdVector>
 #include <algorithm>
 #include <atomic>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <mutex>
@@ -188,7 +188,7 @@ public:
 
 protected:
   struct ImgProcessContext {
-    boost::posix_time::ptime rT1, rT2, rT3, rT4, rT5, rT6, rT7;
+    std::chrono::high_resolution_clock::time_point rT1, rT2, rT3, rT4, rT5, rT6, rT7;
     std::shared_ptr<ov_core::CameraData> message;
   };  
   using ImgProcessContextPtr = std::shared_ptr<ImgProcessContext>;
@@ -295,7 +295,7 @@ protected:
 
   // Timing statistic file and variables
   std::ofstream of_statistics;
-  // boost::posix_time::ptime rT1, rT2, rT3, rT4, rT5, rT6, rT7;
+  // std::chrono::high_resolution_clock::time_point rT1, rT2, rT3, rT4, rT5, rT6, rT7;
 
   // Track how much distance we have traveled
   double timelastupdate = -1;

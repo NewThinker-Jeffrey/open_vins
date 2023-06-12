@@ -104,7 +104,7 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
     double timestamp;
     Eigen::MatrixXd covariance;
     std::vector<std::shared_ptr<ov_type::Type>> order;
-    auto init_rT1 = boost::posix_time::microsec_clock::local_time();
+    auto init_rT1 = std::chrono::high_resolution_clock::now();
 
     // Try to initialize the system
     // We will wait for a jerk if we do not have the zero velocity update enabled
@@ -140,8 +140,8 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
       }
 
       // Else we are good to go, print out our stats
-      auto init_rT2 = boost::posix_time::microsec_clock::local_time();
-      PRINT_INFO(GREEN "[init]: successful initialization in %.4f seconds\n" RESET, (init_rT2 - init_rT1).total_microseconds() * 1e-6);
+      auto init_rT2 = std::chrono::high_resolution_clock::now();
+      PRINT_INFO(GREEN "[init]: successful initialization in %.4f seconds\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(init_rT2 - init_rT1).count());
       PRINT_INFO(GREEN "[init]: orientation = %.4f, %.4f, %.4f, %.4f\n" RESET, state->_imu->quat()(0), state->_imu->quat()(1),
                  state->_imu->quat()(2), state->_imu->quat()(3));
       PRINT_INFO(GREEN "[init]: bias gyro = %.4f, %.4f, %.4f\n" RESET, state->_imu->bias_g()(0), state->_imu->bias_g()(1),
@@ -174,8 +174,8 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
       camera_queue_init.clear();
 
     } else {
-      auto init_rT2 = boost::posix_time::microsec_clock::local_time();
-      PRINT_DEBUG(YELLOW "[init]: failed initialization in %.4f seconds\n" RESET, (init_rT2 - init_rT1).total_microseconds() * 1e-6);
+      auto init_rT2 = std::chrono::high_resolution_clock::now();
+      PRINT_DEBUG(YELLOW "[init]: failed initialization in %.4f seconds\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(init_rT2 - init_rT1).count());
       thread_init_success = false;
       std::lock_guard<std::mutex> lck(camera_queue_init_mtx);
       camera_queue_init.clear();
@@ -196,8 +196,8 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
 void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message) {
 
   // Start timing
-  boost::posix_time::ptime retri_rT1, retri_rT2, retri_rT3;
-  retri_rT1 = boost::posix_time::microsec_clock::local_time();
+  std::chrono::high_resolution_clock::time_point retri_rT1, retri_rT2, retri_rT3;
+  retri_rT1 = std::chrono::high_resolution_clock::now();
 
   // Clear old active track data
   assert(state->_clones_IMU.find(message.timestamp) != state->_clones_IMU.end());
@@ -307,7 +307,7 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
   active_feat_linsys_b = active_feat_linsys_b_new;
   active_feat_linsys_count = active_feat_linsys_count_new;
   active_tracks_posinG = active_tracks_posinG_new;
-  retri_rT2 = boost::posix_time::microsec_clock::local_time();
+  retri_rT2 = std::chrono::high_resolution_clock::now();
 
   // Return if no features
   if (active_tracks_posinG.empty() && state->_features_SLAM.empty())
@@ -383,13 +383,13 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
     uvd << uv_dist, depth;
     active_tracks_uvd.insert({feat.first, uvd});
   }
-  retri_rT3 = boost::posix_time::microsec_clock::local_time();
+  retri_rT3 = std::chrono::high_resolution_clock::now();
 
   // Timing information
   PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds for triangulation (%zu tri of %zu active)\n" RESET,
-            (retri_rT2 - retri_rT1).total_microseconds() * 1e-6, total_triangulated, active_feat_linsys_A.size());
-  PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds for re-projection into current\n" RESET, (retri_rT3 - retri_rT2).total_microseconds() * 1e-6);
-  PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds total\n" RESET, (retri_rT3 - retri_rT1).total_microseconds() * 1e-6);
+            std::chrono::duration_cast<std::chrono::duration<double>>(retri_rT2 - retri_rT1).count(), total_triangulated, active_feat_linsys_A.size());
+  PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds for re-projection into current\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(retri_rT3 - retri_rT2).count());
+  PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds total\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(retri_rT3 - retri_rT1).count());
 }
 
 cv::Mat VioManager::get_historical_viz_image(std::shared_ptr<Output> output) {

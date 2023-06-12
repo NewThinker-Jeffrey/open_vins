@@ -32,9 +32,10 @@
 #include "utils/colors.h"
 #include "utils/print.h"
 #include "utils/quat_ops.h"
+#include "utils/chi_square/chi_squared_quantile_table_0_95.h"
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/math/distributions/chi_squared.hpp>
+#include <chrono>
+// #include <boost/math/distributions/chi_squared.hpp>
 
 using namespace ov_core;
 using namespace ov_type;
@@ -50,10 +51,11 @@ UpdaterMSCKF::UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerO
 
   // Initialize the chi squared test table with confidence level 0.95
   // https://github.com/KumarRobotics/msckf_vio/blob/050c50defa5a7fd9a04c1eed5687b405f02919b5/src/msckf_vio.cpp#L215-L221
-  for (int i = 1; i < 500; i++) {
-    boost::math::chi_squared chi_squared_dist(i);
-    chi_squared_table[i] = boost::math::quantile(chi_squared_dist, 0.95);
-  }
+  // for (int i = 1; i < 500; i++) {
+  //   boost::math::chi_squared chi_squared_dist(i);
+  //   chi_squared_table[i] = boost::math::quantile(chi_squared_dist, 0.95);
+  //   // std::cout << "chi_squared_table  " << i << ":  " << chi_squared_table[i] << std::endl;
+  // }
 }
 
 void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
@@ -62,8 +64,8 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
     return;
 
   // Start timing
-  boost::posix_time::ptime rT0, rT1, rT2, rT3, rT4, rT5;
-  rT0 = boost::posix_time::microsec_clock::local_time();
+  std::chrono::high_resolution_clock::time_point rT0, rT1, rT2, rT3, rT4, rT5;
+  rT0 = std::chrono::high_resolution_clock::now();
 
   // 0. Get all timestamps our clones are at (and thus valid measurement times)
   std::vector<double> clonetimes;
@@ -105,7 +107,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
       it0++;
     }
   }
-  rT1 = boost::posix_time::microsec_clock::local_time();
+  rT1 = std::chrono::high_resolution_clock::now();
 
   // 2. Create vector of cloned *CAMERA* poses at each of our clone timesteps
   std::unordered_map<size_t, std::unordered_map<double, FeatureInitializer::ClonePose>> clones_cam;
@@ -165,7 +167,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
     }
     it1++;
   }
-  rT2 = boost::posix_time::microsec_clock::local_time();
+  rT2 = std::chrono::high_resolution_clock::now();
 
   // Calculate the max possible measurement size
   size_t max_meas_size = 0;
@@ -241,13 +243,14 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
     // Get our threshold (we precompute up to 500 but handle the case that it is more)
     double chi2_check;
-    if (res.rows() < 500) {
-      chi2_check = chi_squared_table[res.rows()];
-    } else {
-      boost::math::chi_squared chi_squared_dist(res.rows());
-      chi2_check = boost::math::quantile(chi_squared_dist, 0.95);
-      PRINT_WARNING(YELLOW "chi2_check over the residual limit - %d\n" RESET, (int)res.rows());
-    }
+    // if (res.rows() < 500) {
+    //   chi2_check = chi_squared_table[res.rows()];
+    // } else {
+    //   boost::math::chi_squared chi_squared_dist(res.rows());
+    //   chi2_check = boost::math::quantile(chi_squared_dist, 0.95);
+    //   PRINT_WARNING(YELLOW "chi2_check over the residual limit - %d\n" RESET, (int)res.rows());
+    // }
+    chi2_check = ::chi_squared_quantile_table_0_95[res.rows()];
 
     // Check if we should delete or not
     if (chi2 > _options.chi2_multipler * chi2_check) {
@@ -285,7 +288,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
     ct_meas += res.rows();
     it2++;
   }
-  rT3 = boost::posix_time::microsec_clock::local_time();
+  rT3 = std::chrono::high_resolution_clock::now();
 
   // We have appended all features to our Hx_big, res_big
   // Delete it so we do not reuse information
@@ -310,20 +313,20 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   if (Hx_big.rows() < 1) {
     return;
   }
-  rT4 = boost::posix_time::microsec_clock::local_time();
+  rT4 = std::chrono::high_resolution_clock::now();
 
   // Our noise is isotropic, so make it here after our compression
   Eigen::MatrixXd R_big = _options.sigma_pix_sq * Eigen::MatrixXd::Identity(res_big.rows(), res_big.rows());
 
   // 6. With all good features update the state
   StateHelper::EKFUpdate(state, Hx_order_big, Hx_big, res_big, R_big);
-  rT5 = boost::posix_time::microsec_clock::local_time();
+  rT5 = std::chrono::high_resolution_clock::now();
 
   // Debug print timing information
-  PRINT_ALL("[MSCKF-UP]: %.4f seconds to clean\n", (rT1 - rT0).total_microseconds() * 1e-6);
-  PRINT_ALL("[MSCKF-UP]: %.4f seconds to triangulate\n", (rT2 - rT1).total_microseconds() * 1e-6);
-  PRINT_ALL("[MSCKF-UP]: %.4f seconds create system (%d features)\n", (rT3 - rT2).total_microseconds() * 1e-6, (int)feature_vec.size());
-  PRINT_ALL("[MSCKF-UP]: %.4f seconds compress system\n", (rT4 - rT3).total_microseconds() * 1e-6);
-  PRINT_ALL("[MSCKF-UP]: %.4f seconds update state (%d size)\n", (rT5 - rT4).total_microseconds() * 1e-6, (int)res_big.rows());
-  PRINT_ALL("[MSCKF-UP]: %.4f seconds total\n", (rT5 - rT1).total_microseconds() * 1e-6);
+  PRINT_ALL("[MSCKF-UP]: %.4f seconds to clean\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT1 - rT0).count());
+  PRINT_ALL("[MSCKF-UP]: %.4f seconds to triangulate\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT2 - rT1).count());
+  PRINT_ALL("[MSCKF-UP]: %.4f seconds create system (%d features)\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT3 - rT2).count(), (int)feature_vec.size());
+  PRINT_ALL("[MSCKF-UP]: %.4f seconds compress system\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT4 - rT3).count());
+  PRINT_ALL("[MSCKF-UP]: %.4f seconds update state (%d size)\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT5 - rT4).count(), (int)res_big.rows());
+  PRINT_ALL("[MSCKF-UP]: %.4f seconds total\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT5 - rT1).count());
 }

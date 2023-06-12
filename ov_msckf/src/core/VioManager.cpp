@@ -102,13 +102,13 @@ VioManager::VioManager(VioManagerOptions &params_) :
     }
 
     // If the file exists, then delete it
-    if (boost::filesystem::exists(params.record_timing_filepath)) {
-      boost::filesystem::remove(params.record_timing_filepath);
+    if (std::filesystem::exists(params.record_timing_filepath)) {
+      std::filesystem::remove(params.record_timing_filepath);
       PRINT_INFO(YELLOW "[STATS]: found old file found, deleted...\n" RESET);
     }
     // Create the directory that we will open the file in
-    boost::filesystem::path p(params.record_timing_filepath);
-    boost::filesystem::create_directories(p.parent_path());
+    std::filesystem::path p(params.record_timing_filepath);
+    std::filesystem::create_directories(p.parent_path());
     // Open our statistics file!
     of_statistics.open(params.record_timing_filepath, std::ofstream::out | std::ofstream::app);
     // Write the header information into it
@@ -262,7 +262,7 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
   ImgProcessContextPtr c(new ImgProcessContext());
 
   // Start timing
-  c->rT1 = boost::posix_time::microsec_clock::local_time();
+  c->rT1 = std::chrono::high_resolution_clock::now();
 
   // Check if we actually have a simulated tracker
   // If not, recreate and re-cast the tracker to our simulation tracker
@@ -283,7 +283,7 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
 
   // Feed our simulation tracker
   trackSIM->feed_measurement_simulation(timestamp, camids, feats);
-  c->rT2 = boost::posix_time::microsec_clock::local_time();
+  c->rT2 = std::chrono::high_resolution_clock::now();
 
   // Check if we should do zero-velocity, if so update the state with it
   // Note that in the case that we only use in the beginning initialization phase
@@ -411,7 +411,7 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
     });
   }
 
-  c->rT1 = boost::posix_time::microsec_clock::local_time();
+  c->rT1 = std::chrono::high_resolution_clock::now();
   // Assert we have valid measurement data and ids
   assert(!message.sensor_ids.empty());
   assert(message.sensor_ids.size() == message.images.size());
@@ -441,7 +441,7 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
   if (is_initialized_vio && trackARUCO != nullptr) {
     trackARUCO->feed_new_camera(message);
   }
-  c->rT2 = boost::posix_time::microsec_clock::local_time();
+  c->rT2 = std::chrono::high_resolution_clock::now();
 }
 
 
@@ -482,7 +482,7 @@ void VioManager::do_update(ImgProcessContextPtr c) {
   if (!is_initialized_vio) {
     is_initialized_vio = try_to_initialize(message);
     if (!is_initialized_vio) {
-      double time_track = (c->rT2 - c->rT1).total_microseconds() * 1e-6;
+      double time_track = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT2 - c->rT1).count();
       PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for tracking\n" RESET, time_track);
       return;
     }
@@ -669,7 +669,7 @@ void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
 
 void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   ov_core::CameraData &message = *(c->message);
-  auto tmp_rT2 = boost::posix_time::microsec_clock::local_time();
+  auto tmp_rT2 = std::chrono::high_resolution_clock::now();
 
   //===================================================================================
   // State propagation, and clone augmentation
@@ -691,7 +691,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     propagator->propagate_and_clone(state, message.timestamp, &new_gyro_rotation);
     update_gyro_integrated_rotations(message.timestamp, new_gyro_rotation);
   }
-  c->rT3 = boost::posix_time::microsec_clock::local_time();
+  c->rT3 = std::chrono::high_resolution_clock::now();
 
   // If we have not reached max clones, we should just return...
   // This isn't super ideal, but it keeps the logic after this easier...
@@ -1044,7 +1044,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   updaterMSCKF->update(state, featsup_MSCKF);
   msckf_features_outliers = msckf_features_used - featsup_MSCKF.size();
   msckf_features_used = featsup_MSCKF.size();
-  c->rT4 = boost::posix_time::microsec_clock::local_time();
+  c->rT4 = std::chrono::high_resolution_clock::now();
 
   // Perform SLAM delay init and update
   // NOTE: that we provide the option here to do a *sequential* update
@@ -1066,14 +1066,14 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   feats_slam_UPDATE = feats_slam_UPDATE_TEMP;
   slam_features_outliers = slam_features_used - feats_slam_UPDATE.size();
   slam_features_used = feats_slam_UPDATE.size();
-  c->rT5 = boost::posix_time::microsec_clock::local_time();
+  c->rT5 = std::chrono::high_resolution_clock::now();
 
   size_t delayed_features_used = feats_slam_DELAYED.size();
   size_t delayed_features_outliers = 0;
   updaterSLAM->delayed_init(state, feats_slam_DELAYED);
   delayed_features_outliers = delayed_features_used - feats_slam_DELAYED.size();
   delayed_features_used = feats_slam_DELAYED.size();
-  c->rT6 = boost::posix_time::microsec_clock::local_time();
+  c->rT6 = std::chrono::high_resolution_clock::now();
 
   //===================================================================================
   // Update our visualization feature set, and clean up the old features
@@ -1124,21 +1124,21 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
 
   // Finally marginalize the oldest clone if needed
   StateHelper::marginalize_old_clone(state);
-  c->rT7 = boost::posix_time::microsec_clock::local_time();
+  c->rT7 = std::chrono::high_resolution_clock::now();
 
   //===================================================================================
   // Debug info, and stats tracking
   //===================================================================================
 
   // Get timing statitics information
-  double time_track = (c->rT2 - c->rT1).total_microseconds() * 1e-6;
-  double time_switch_thread = (tmp_rT2 - c->rT2).total_microseconds() * 1e-6;
-  double time_prop = (c->rT3 - tmp_rT2).total_microseconds() * 1e-6;
-  double time_msckf = (c->rT4 - c->rT3).total_microseconds() * 1e-6;
-  double time_slam_update = (c->rT5 - c->rT4).total_microseconds() * 1e-6;
-  double time_slam_delay = (c->rT6 - c->rT5).total_microseconds() * 1e-6;
-  double time_marg = (c->rT7 - c->rT6).total_microseconds() * 1e-6;
-  double time_total = (c->rT7 - c->rT1).total_microseconds() * 1e-6;
+  double time_track = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT2 - c->rT1).count();
+  double time_switch_thread = std::chrono::duration_cast<std::chrono::duration<double>>(tmp_rT2 - c->rT2).count();
+  double time_prop = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT3 - tmp_rT2).count();
+  double time_msckf = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT4 - c->rT3).count();
+  double time_slam_update = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT5 - c->rT4).count();
+  double time_slam_delay = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT6 - c->rT5).count();
+  double time_marg = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT7 - c->rT6).count();
+  double time_total = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT7 - c->rT1).count();
 
   // Timing information
   PRINT_INFO(BLUE "[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f), total(%d + %d, %.4f), timestampe: %.6f\n" RESET,

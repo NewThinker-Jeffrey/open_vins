@@ -27,7 +27,7 @@
 #include <string>
 
 #include <Eigen/Eigen>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 #include "utils/colors.h"
 #include "utils/print.h"

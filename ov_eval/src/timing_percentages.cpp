@@ -21,7 +21,7 @@
 
 #include <Eigen/Eigen>
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/foreach.hpp>
 #include <fstream>
 #include <iostream>
@@ -57,9 +57,9 @@ int main(int argc, char **argv) {
   // Get the algorithms we will process
   // Also create empty statistic objects for each of our datasets
   std::string path_algos(argv[1]);
-  std::vector<boost::filesystem::path> path_algorithms;
-  for (const auto &entry : boost::filesystem::directory_iterator(path_algos)) {
-    if (boost::filesystem::is_directory(entry)) {
+  std::vector<std::filesystem::path> path_algorithms;
+  for (const auto &entry : std::filesystem::directory_iterator(path_algos)) {
+    if (std::filesystem::is_directory(entry)) {
       path_algorithms.push_back(entry.path());
     }
   }
@@ -88,10 +88,10 @@ int main(int argc, char **argv) {
     std::vector<Eigen::Vector3d> total_summed_values;
 
     // Loop through each sub-directory in this folder
-    for (auto &entry : boost::filesystem::recursive_directory_iterator(path_algorithms.at(i))) {
+    for (auto &entry : std::filesystem::recursive_directory_iterator(path_algorithms.at(i))) {
 
       // skip if not a directory
-      if (boost::filesystem::is_directory(entry))
+      if (std::filesystem::is_directory(entry))
         continue;
 
       // skip if not a text file

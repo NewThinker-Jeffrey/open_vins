@@ -54,7 +54,7 @@ VisualizerForFolderBasedDataset::VisualizerForFolderBasedDataset(
 
   if (save_feature_images && !output_dir.empty()) {
     feature_image_save_dir = output_dir + "/" + "feature_images";
-    boost::filesystem::create_directories(boost::filesystem::path(feature_image_save_dir.c_str()));
+    std::filesystem::create_directories(std::filesystem::path(feature_image_save_dir.c_str()));
   }
 
   // Load if we should save the total state to file

@@ -69,8 +69,8 @@ set(CERES_INCLUDE_DIRS ${HPS_3RDPARTY_DIR}/ceres2.0.0/include)
 set(CERES_LIBRARIES ${Ceres_DEP_LIBRARIES} ceres)
 #set(Ceres_FOUND TRUE)
 
-set(Boost_INCLUDE_DIRS ${HPS_3RDPARTY_DIR}/slam_dep_libs/boost_1_81_0/include)
-set(Boost_LIBRARIES boost_system boost_filesystem boost_thread boost_date_time)
+# set(Boost_INCLUDE_DIRS ${HPS_3RDPARTY_DIR}/slam_dep_libs/boost_1_81_0/include)
+# set(Boost_LIBRARIES boost_system boost_filesystem boost_thread boost_date_time)
 
 
 link_directories(
@@ -82,7 +82,7 @@ link_directories(
     ${HPS_3RDPARTY_DIR}/tiff/lib_arm
     ${HPS_3RDPARTY_DIR}/gflags2.2.2/lib_arm    
     ${HPS_3RDPARTY_DIR}/glog0.6.0/lib_arm
-    ${HPS_3RDPARTY_DIR}/slam_dep_libs/boost_1_81_0/lib_arm    
+    # ${HPS_3RDPARTY_DIR}/slam_dep_libs/boost_1_81_0/lib_arm    
     ${HPS_3RDPARTY_DIR}/slam_dep_libs/libgtk2.0-0/lib_arm
     ${HPS_3RDPARTY_DIR}/slam_dep_libs/libz1/lib_arm
     ${HPS_3RDPARTY_DIR}/slam_dep_libs/libcairo2/lib_arm
@@ -96,5 +96,5 @@ include_directories(
     ${OpenCV_INCLUDE_DIR}
     ${EIGEN3_INCLUDE_DIR}
     ${Ceres_INCLUDE_DIR}
-    ${Boost_INCLUDE_DIRS}
+    # ${Boost_INCLUDE_DIRS}
     /root/workspace/cc_ws/sysroot_docker/usr/include)

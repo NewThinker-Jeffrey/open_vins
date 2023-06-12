@@ -23,7 +23,7 @@
 #define OPENCV_YAML_PARSER_H
 
 #include <Eigen/Eigen>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <memory>
 #include <opencv2/opencv.hpp>
 
@@ -61,11 +61,11 @@ public:
   explicit YamlParser(const std::string &config_path, bool fail_if_not_found = true) : config_path_(config_path) {
 
     // Check if file exists
-    if (!fail_if_not_found && !boost::filesystem::exists(config_path)) {
+    if (!fail_if_not_found && !std::filesystem::exists(config_path)) {
       config = nullptr;
       return;
     }
-    if (!boost::filesystem::exists(config_path)) {
+    if (!std::filesystem::exists(config_path)) {
       PRINT_ERROR(RED "unable to open the configuration file!\n%s\n" RESET, config_path.c_str());
       std::exit(EXIT_FAILURE);
     }

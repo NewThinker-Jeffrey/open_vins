@@ -21,7 +21,7 @@
 
 #include <Eigen/Eigen>
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/foreach.hpp>
 #include <fstream>
 #include <iostream>

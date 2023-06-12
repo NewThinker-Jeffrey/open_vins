@@ -20,7 +20,7 @@
  */
 
 #include <Eigen/Eigen>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <string>
 
 #include "calc/ResultTrajectory.h"
@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
   }
 
   // Load it!
-  boost::filesystem::path path_gt(argv[2]);
+  std::filesystem::path path_gt(argv[2]);
   std::vector<double> times;
   std::vector<Eigen::Matrix<double, 7, 1>> poses;
   std::vector<Eigen::Matrix3d> cov_ori, cov_pos;
