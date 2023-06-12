@@ -149,6 +149,8 @@ if (ENABLE_ROS)
                 src/ros/ROSVisualizerHelper.h
                 src/no_ros/VisualizerHelper.cpp
                 src/no_ros/VisualizerHelper.h
+                src/no_ros/Viewer.cpp
+                src/no_ros/Viewer.h
                 )
         ament_target_dependencies(run_subscribe_msckf ${ament_libraries} ov_core ov_init)
         target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
@@ -161,7 +163,17 @@ if (ENABLE_ROS)
         install(TARGETS heisenberg_export_imu DESTINATION lib/${PROJECT_NAME})
         
         
-        add_executable(run_simulation src/run_simulation.cpp)
+        add_executable(run_simulation 
+                        src/run_simulation.cpp
+                        src/ros/ROS2Visualizer.cpp
+                        src/ros/ROS2Visualizer.h
+                        src/ros/ROSVisualizerHelper.cpp
+                        src/ros/ROSVisualizerHelper.h
+                        src/no_ros/VisualizerHelper.cpp
+                        src/no_ros/VisualizerHelper.h
+                        src/no_ros/Viewer.cpp
+                        src/no_ros/Viewer.h        
+                        )
         ament_target_dependencies(run_simulation ${ament_libraries} ov_core ov_init)
         target_link_libraries(run_simulation ov_msckf_lib ${thirdparty_libraries})
         install(TARGETS run_simulation DESTINATION lib/${PROJECT_NAME})

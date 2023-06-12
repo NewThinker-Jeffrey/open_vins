@@ -56,7 +56,7 @@
 #include <cv_bridge/cv_bridge.h>
 
 #if ! OPENVINS_FOR_TROS
-#include "Viewer.h"
+#include "no_ros/Viewer.h"
 #else
 
 #endif

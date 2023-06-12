@@ -90,12 +90,12 @@ int main(int argc, char **argv) {
   auto node = std::make_shared<rclcpp::Node>("run_folder_based_msckf", options);
   node->get_parameter<std::string>("config_path", config_path);
 
-  if (_node->has_parameter("dataset")) {
-    _node->get_parameter<std::string>("dataset", dataset);
+  if (node->has_parameter("dataset")) {
+    node->get_parameter<std::string>("dataset", dataset);
   }
-  if (_node->has_parameter("play_rate")) {
+  if (node->has_parameter("play_rate")) {
     std::string play_rate_str;
-    _node->get_parameter<std::string>("play_rate", play_rate_str);
+    node->get_parameter<std::string>("play_rate", play_rate_str);
     play_rate = std::stod(play_rate_str);
   }
   if (node->has_parameter("output_dir")) {
@@ -108,7 +108,7 @@ int main(int argc, char **argv) {
     node->get_parameter<bool>("save_total_state", save_total_state);
   }  
 
-  unique_parser_node = _node;
+  unique_parser_node = node;
 #elif ROS_AVAILABLE == 0
   std::cout << "ROS_AVAILABLE == 0" << std::endl;
 #ifdef USE_GFLAGS  // ROS_AVAILABLE == 0  
