@@ -94,30 +94,30 @@ VioManager::VioManager(VioManagerOptions &params_) :
   //===================================================================================
   //===================================================================================
 
-  // If we are recording statistics, then open our file
-  if (params.record_timing_information) {
-    // override the record_timing_filepath if output_dir is set.
-    if (!params.output_dir.empty()) {
-      params.record_timing_filepath = params.output_dir + "/" + "ov_msckf_timing.txt";
-    }
+  // // If we are recording statistics, then open our file
+  // if (params.record_timing_information) {
+  //   // override the record_timing_filepath if output_dir is set.
+  //   if (!params.output_dir.empty()) {
+  //     params.record_timing_filepath = params.output_dir + "/" + "ov_msckf_timing.txt";
+  //   }
 
-    // If the file exists, then delete it
-    if (std::filesystem::exists(params.record_timing_filepath)) {
-      std::filesystem::remove(params.record_timing_filepath);
-      PRINT_INFO(YELLOW "[STATS]: found old file found, deleted...\n" RESET);
-    }
-    // Create the directory that we will open the file in
-    std::filesystem::path p(params.record_timing_filepath);
-    std::filesystem::create_directories(p.parent_path());
-    // Open our statistics file!
-    of_statistics.open(params.record_timing_filepath, std::ofstream::out | std::ofstream::app);
-    // Write the header information into it
-    of_statistics << "# timestamp (sec),tracking,propagation,msckf update,";
-    if (state->_options.max_slam_features > 0) {
-      of_statistics << "slam update,slam delayed,";
-    }
-    of_statistics << "re-tri & marg,total" << std::endl;
-  }
+  //   // If the file exists, then delete it
+  //   if (std::filesystem::exists(params.record_timing_filepath)) {
+  //     std::filesystem::remove(params.record_timing_filepath);
+  //     PRINT_INFO(YELLOW "[STATS]: found old file found, deleted...\n" RESET);
+  //   }
+  //   // Create the directory that we will open the file in
+  //   std::filesystem::path p(params.record_timing_filepath);
+  //   std::filesystem::create_directories(p.parent_path());
+  //   // Open our statistics file!
+  //   of_statistics.open(params.record_timing_filepath, std::ofstream::out | std::ofstream::app);
+  //   // Write the header information into it
+  //   of_statistics << "# timestamp (sec),tracking,propagation,msckf update,";
+  //   if (state->_options.max_slam_features > 0) {
+  //     of_statistics << "slam update,slam delayed,";
+  //   }
+  //   of_statistics << "re-tri & marg,total" << std::endl;
+  // }
 
   //===================================================================================
   //===================================================================================
@@ -1169,21 +1169,21 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   ss << ")" << std::endl;
   PRINT_DEBUG(BLUE "%s" RESET, ss.str().c_str());
 
-  // Finally if we are saving stats to file, lets save it to file
-  if (params.record_timing_information && of_statistics.is_open()) {
-    // We want to publish in the IMU clock frame
-    // The timestamp in the state will be the last camera time
-    double t_ItoC = state->_calib_dt_CAMtoIMU->value()(0);
-    double timestamp_inI = state->_timestamp + t_ItoC;
-    // Append to the file
-    of_statistics << std::fixed << std::setprecision(15) << timestamp_inI << "," << std::fixed << std::setprecision(5) << time_track << ","
-                  << time_prop << "," << time_msckf << ",";
-    if (state->_options.max_slam_features > 0) {
-      of_statistics << time_slam_update << "," << time_slam_delay << ",";
-    }
-    of_statistics << time_marg << "," << time_total << std::endl;
-    of_statistics.flush();
-  }
+  // // Finally if we are saving stats to file, lets save it to file
+  // if (params.record_timing_information && of_statistics.is_open()) {
+  //   // We want to publish in the IMU clock frame
+  //   // The timestamp in the state will be the last camera time
+  //   double t_ItoC = state->_calib_dt_CAMtoIMU->value()(0);
+  //   double timestamp_inI = state->_timestamp + t_ItoC;
+  //   // Append to the file
+  //   of_statistics << std::fixed << std::setprecision(15) << timestamp_inI << "," << std::fixed << std::setprecision(5) << time_track << ","
+  //                 << time_prop << "," << time_msckf << ",";
+  //   if (state->_options.max_slam_features > 0) {
+  //     of_statistics << time_slam_update << "," << time_slam_delay << ",";
+  //   }
+  //   of_statistics << time_marg << "," << time_total << std::endl;
+  //   of_statistics.flush();
+  // }
 
   // Update our distance traveled
   if (timelastupdate != -1 && state->_clones_IMU.find(timelastupdate) != state->_clones_IMU.end()) {

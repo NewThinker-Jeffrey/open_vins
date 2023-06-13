@@ -293,9 +293,9 @@ protected:
   std::vector<double> camera_queue_init;
   std::mutex camera_queue_init_mtx;
 
-  // Timing statistic file and variables
-  std::ofstream of_statistics;
-  // std::chrono::high_resolution_clock::time_point rT1, rT2, rT3, rT4, rT5, rT6, rT7;
+  // // Timing statistic file and variables
+  // std::ofstream of_statistics;
+  // // std::chrono::high_resolution_clock::time_point rT1, rT2, rT3, rT4, rT5, rT6, rT7;
 
   // Track how much distance we have traveled
   double timelastupdate = -1;

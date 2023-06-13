@@ -78,8 +78,8 @@ struct VioManagerOptions {
   /// Otherwise, a separate thread will be created for feature tracking and state update each.
   bool async_img_process = true;
 
-  /// our output. save nothing if not set.
-  std::string output_dir = "";
+  // /// our output. save nothing if not set.
+  // std::string output_dir = "";
 
   /// Delay, in seconds, that we should wait from init before we start estimating SLAM features
   double dt_slam_delay = 2.0;
@@ -105,11 +105,11 @@ struct VioManagerOptions {
   /// If we should only use the zupt at the very beginning static initialization phase
   bool zupt_only_at_beginning = false;
 
-  /// If we should record the timing performance to file
-  bool record_timing_information = false;
+  // /// If we should record the timing performance to file
+  // bool record_timing_information = false;
 
-  /// The path to the file we will record the timing information into
-  std::string record_timing_filepath = "ov_msckf_timing.txt";
+  // /// The path to the file we will record the timing information into
+  // std::string record_timing_filepath = "ov_msckf_timing.txt";
 
   /**
    * @brief This function will load print out all estimator settings loaded.
@@ -131,10 +131,10 @@ struct VioManagerOptions {
       parser->parse_config("zupt_noise_multiplier", zupt_noise_multiplier);
       parser->parse_config("zupt_max_disparity", zupt_max_disparity);
       parser->parse_config("zupt_only_at_beginning", zupt_only_at_beginning);
-      parser->parse_config("record_timing_information", record_timing_information);
-      parser->parse_config("record_timing_filepath", record_timing_filepath);
       parser->parse_config("async_img_process", async_img_process);
-      parser->parse_config("output_dir", output_dir, false);
+      // parser->parse_config("record_timing_information", record_timing_information);
+      // parser->parse_config("record_timing_filepath", record_timing_filepath);
+      // parser->parse_config("output_dir", output_dir, false);
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
@@ -145,10 +145,10 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - zupt_noise_multiplier: %.2f\n", zupt_noise_multiplier);
     PRINT_DEBUG("  - zupt_max_disparity: %.4f\n", zupt_max_disparity);
     PRINT_DEBUG("  - zupt_only_at_beginning?: %d\n", zupt_only_at_beginning);
-    PRINT_DEBUG("  - record timing?: %d\n", (int)record_timing_information);
-    PRINT_DEBUG("  - record timing filepath: %s\n", record_timing_filepath.c_str());
     PRINT_DEBUG("  - async_img_process: %d\n", async_img_process);
-    PRINT_DEBUG("  - output_dir: %d\n", output_dir);
+    // PRINT_DEBUG("  - record timing?: %d\n", (int)record_timing_information);
+    // PRINT_DEBUG("  - record timing filepath: %s\n", record_timing_filepath.c_str());
+    // PRINT_DEBUG("  - output_dir: %d\n", output_dir);
   }
 
   // NOISE / CHI2 ============================
