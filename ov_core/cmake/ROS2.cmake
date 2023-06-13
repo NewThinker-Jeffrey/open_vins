@@ -60,9 +60,9 @@ list(APPEND LIBRARY_SOURCES
 )
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_core_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
-if (ENABLE_ROS)
-        ament_target_dependencies(ov_core_lib ${ament_libraries})
-endif()
+# if (ENABLE_ROS)
+#         ament_target_dependencies(ov_core_lib ${ament_libraries})
+# endif()
 target_link_libraries(ov_core_lib ${thirdparty_libraries})
 target_include_directories(ov_core_lib PUBLIC src/)
 install(TARGETS ov_core_lib

@@ -56,7 +56,8 @@ list(APPEND LIBRARY_SOURCES
 )
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_init_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
-ament_target_dependencies(ov_init_lib ${ament_libraries} ov_core)
+# ament_target_dependencies(ov_init_lib ${ament_libraries} ov_core)
+ament_target_dependencies(ov_init_lib ov_core)
 target_link_libraries(ov_init_lib ${thirdparty_libraries})
 target_include_directories(ov_init_lib PUBLIC src/)
 install(TARGETS ov_init_lib

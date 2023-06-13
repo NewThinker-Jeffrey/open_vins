@@ -88,7 +88,8 @@ list(APPEND LIBRARY_SOURCES
 # list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROS2VisualizerForFolderBasedDataset.cpp src/ros/ROSVisualizerHelper.cpp src/no_ros/Viewer.cpp)
 file(GLOB_RECURSE LIBRARY_HEADERS "src/core/*.h" "src/interface/*.h" "src/state/*.h" "src/update/*.h" "src/utils/*.h" "src/sim/*.h")
 add_library(ov_msckf_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
-ament_target_dependencies(ov_msckf_lib ${ament_libraries} ov_core ov_init)
+# ament_target_dependencies(ov_msckf_lib ${ament_libraries} ov_core ov_init)
+ament_target_dependencies(ov_msckf_lib ov_core ov_init)
 target_link_libraries(ov_msckf_lib ${thirdparty_libraries})
 target_include_directories(ov_msckf_lib PUBLIC src/)
 install(TARGETS ov_msckf_lib
