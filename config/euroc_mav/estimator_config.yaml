@@ -15,6 +15,10 @@ calib_cam_extrinsics: true # if the transform between camera and IMU should be o
 calib_cam_intrinsics: true # if camera intrinsics should be optimized (focal, center, distortion)
 calib_cam_timeoffset: true # if timeoffset between camera and IMU should be optimized
 
+vio_manager_high_frequency_log: false
+choose_new_landmark_by_disparity: true
+enable_early_landmark: true
+
 max_clones: 11 # how many clones in the sliding window
 max_slam: 50 # number of features in our state vector
 max_slam_in_update: 25 # update can be split into sequential updates of batches, how many in a batch
@@ -90,6 +94,13 @@ track_frequency: 11.0 # frequency we will perform feature tracking at (in frames
 downsample_cameras: false # will downsample image in half if true
 num_opencv_threads: 4 # -1: auto, 0-1: serial, >1: number of threads
 histogram_method: "HISTOGRAM" # NONE, HISTOGRAM, CLAHE
+
+klt_left_major_stereo: true
+klt_strict_stereo: false
+klt_force_fundamental: true
+feattrack_high_frequency_log: false
+feattrack_predict_keypoints: true
+
 
 # aruco tag tracker for the system
 # DICT_6X6_1000 from https://chev.me/arucogen/

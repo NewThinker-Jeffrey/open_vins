@@ -76,11 +76,11 @@ int main(int argc, char **argv) {
 
   // Load the config
   auto parser = std::make_shared<ov_core::YamlParser>(config_path);
-#if ROS_AVAILABLE == 1
-  parser->set_node_handler(nh);
-#elif ROS_AVAILABLE == 2
-  parser->set_node(node);
-#endif
+// #if ROS_AVAILABLE == 1
+//   parser->set_node_handler(nh);
+// #elif ROS_AVAILABLE == 2
+//   parser->set_node(node);
+// #endif
 
   // Verbosity
   std::string verbosity = "INFO";

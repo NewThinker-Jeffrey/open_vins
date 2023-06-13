@@ -27,9 +27,13 @@
 #include <memory>
 #include <opencv2/opencv.hpp>
 
-#if ROS_AVAILABLE == 1
+#ifndef ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML
+  #define ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML 0  // 1
+#endif
+
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 1
 #include <ros/ros.h>
-#elif ROS_AVAILABLE == 2
+#elif ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 2
 #include <rclcpp/rclcpp.hpp>
 #endif
 
@@ -82,12 +86,12 @@ public:
     }
   }
 
-#if ROS_AVAILABLE == 1
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 1
   /// Allows setting of the node handler if we have ROS to override parameters
   void set_node_handler(std::shared_ptr<ros::NodeHandle> nh_) { this->nh = nh_; }
 #endif
 
-#if ROS_AVAILABLE == 2
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 2
   /// Allows setting of the node if we have ROS to override parameters
   void set_node(std::shared_ptr<rclcpp::Node> &node_) { this->node = node_; }
 #endif
@@ -117,13 +121,13 @@ public:
    */
   template <class T> void parse_config(const std::string &node_name, T &node_result, bool required = true) {
 
-#if ROS_AVAILABLE == 1
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 1
     if (nh != nullptr && nh->getParam(node_name, node_result)) {
       PRINT_INFO(GREEN "overriding node " BOLDGREEN "%s" RESET GREEN " with value from ROS!\n" RESET, node_name.c_str());
       nh->param<T>(node_name, node_result);
       return;
     }
-#elif ROS_AVAILABLE == 2
+#elif ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 2
     if (node != nullptr && node->has_parameter(node_name)) {
       PRINT_INFO(GREEN "overriding node " BOLDGREEN "%s" RESET GREEN " with value from ROS!\n" RESET, node_name.c_str());
       node->get_parameter<T>(node_name, node_result);
@@ -154,14 +158,14 @@ public:
   void parse_external(const std::string &external_node_name, const std::string &sensor_name, const std::string &node_name, T &node_result,
                       bool required = true) {
 
-#if ROS_AVAILABLE == 1
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 1
     std::string rosnode = sensor_name + "_" + node_name;
     if (nh != nullptr && nh->getParam(rosnode, node_result)) {
       PRINT_INFO(GREEN "overriding node " BOLDGREEN "%s" RESET GREEN " with value from ROS!\n" RESET, rosnode.c_str());
       nh->param<T>(rosnode, node_result);
       return;
     }
-#elif ROS_AVAILABLE == 2
+#elif ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 2
     std::string rosnode = sensor_name + "_" + node_name;
     if (node != nullptr && node->has_parameter(rosnode)) {
       PRINT_INFO(GREEN "overriding node " BOLDGREEN "%s" RESET GREEN " with value from ROS!\n" RESET, rosnode.c_str());
@@ -191,7 +195,7 @@ public:
   void parse_external(const std::string &external_node_name, const std::string &sensor_name, const std::string &node_name,
                       Eigen::Matrix3d &node_result, bool required = true) {
 
-#if ROS_AVAILABLE == 1
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 1
     // If we have the ROS parameter, we should just get that one
     // NOTE: for our 3x3 matrix we should read it as an array from ROS then covert it back into the 3x3
     std::string rosnode = sensor_name + "_" + node_name;
@@ -203,7 +207,7 @@ public:
           matrix_RCtoI.at(6), matrix_RCtoI.at(7), matrix_RCtoI.at(8);
       return;
     }
-#elif ROS_AVAILABLE == 2
+#elif ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 2
     // If we have the ROS parameter, we should just get that one
     // NOTE: for our 3x3 matrix we should read it as an array from ROS then covert it back into the 4x4
     std::string rosnode = sensor_name + "_" + node_name;
@@ -238,7 +242,7 @@ public:
   void parse_external(const std::string &external_node_name, const std::string &sensor_name, const std::string &node_name,
                       Eigen::Matrix4d &node_result, bool required = true) {
 
-#if ROS_AVAILABLE == 1
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 1
     // If we have the ROS parameter, we should just get that one
     // NOTE: for our 4x4 matrix we should read it as an array from ROS then covert it back into the 4x4
     std::string rosnode = sensor_name + "_" + node_name;
@@ -251,7 +255,7 @@ public:
           matrix_TCtoI.at(12), matrix_TCtoI.at(13), matrix_TCtoI.at(14), matrix_TCtoI.at(15);
       return;
     }
-#elif ROS_AVAILABLE == 2
+#elif ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 2
     // If we have the ROS parameter, we should just get that one
     // NOTE: for our 4x4 matrix we should read it as an array from ROS then covert it back into the 4x4
     std::string rosnode = sensor_name + "_" + node_name;
@@ -270,7 +274,7 @@ public:
     parse_external_yaml(external_node_name, sensor_name, node_name, node_result, required);
   }
 
-#if ROS_AVAILABLE == 2
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 2
   /// For ROS2 we need to override the int since it seems to only support int64_t types
   /// https://docs.ros2.org/bouncy/api/rclcpp/classrclcpp_1_1_parameter.html
   void parse_config(const std::string &node_name, int &node_result, bool required = true) {
@@ -313,12 +317,12 @@ private:
   /// Record if all parameters were found
   bool all_params_found_successfully = true;
 
-#if ROS_AVAILABLE == 1
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 1
   /// ROS1 node handler that will override values
   std::shared_ptr<ros::NodeHandle> nh;
 #endif
 
-#if ROS_AVAILABLE == 2
+#if ALLOW_ROS_PARAM_OVERRIDE_CONFIG_YML && ROS_AVAILABLE == 2
   /// Our ROS2 rclcpp node pointer
   std::shared_ptr<rclcpp::Node> node = nullptr;
 #endif

@@ -9,11 +9,11 @@
 #include "utils/print.h"
 #include "utils/sensor_data.h"
 
-#if ROS_AVAILABLE == 2
-#include <rclcpp/rclcpp.hpp>
-std::weak_ptr<rclcpp::Node> unique_parser_node;
-// extern std::weak_ptr<rclcpp::Node> unique_parser_node;
-#endif
+// #if ROS_AVAILABLE == 2
+// #include <rclcpp/rclcpp.hpp>
+// std::weak_ptr<rclcpp::Node> unique_parser_node;
+// // extern std::weak_ptr<rclcpp::Node> unique_parser_node;
+// #endif
 
 
 // extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(heisenberg_algo::VIO*);
@@ -176,11 +176,11 @@ void VIO::Reset() {
   // Load the config
   auto parser = std::make_shared<ov_core::YamlParser>(config_file_);
 
-#if ROS_AVAILABLE == 2
-  if (auto node = unique_parser_node.lock()) {
-    parser->set_node(node);
-  }
-#endif
+// #if ROS_AVAILABLE == 2
+//   if (auto node = unique_parser_node.lock()) {
+//     parser->set_node(node);
+//   }
+// #endif
 
   // Verbosity
   std::string verbosity = "DEBUG";

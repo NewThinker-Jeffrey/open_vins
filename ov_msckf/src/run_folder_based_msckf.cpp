@@ -34,7 +34,7 @@
 #include "ros/ROS2VisualizerForFolderBasedDataset.h"
 #include <rclcpp/rclcpp.hpp>
 std::shared_ptr<ov_msckf::ROS2VisualizerForFolderBasedDataset> viz;
-extern std::weak_ptr<rclcpp::Node> unique_parser_node;
+// extern std::weak_ptr<rclcpp::Node> unique_parser_node;
 
 #elif ROS_AVAILABLE == 0
 #include "no_ros/VisualizerForFolderBasedDataset.h"
@@ -108,7 +108,7 @@ int main(int argc, char **argv) {
     node->get_parameter<bool>("save_total_state", save_total_state);
   }  
 
-  unique_parser_node = node;
+  // unique_parser_node = node;
 #elif ROS_AVAILABLE == 0
   std::cout << "ROS_AVAILABLE == 0" << std::endl;
 #ifdef USE_GFLAGS  // ROS_AVAILABLE == 0  
