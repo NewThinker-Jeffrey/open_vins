@@ -113,18 +113,18 @@ void VisualizerForFolderBasedDataset::setup_player(const std::string& dataset, d
               << (std::chrono::high_resolution_clock::now() - dataset_->play_start_time()).count() / 1e9 << std::endl;
   };
 
-  auto cam_data_cb = [this, print_queue](int image_idx, heisenberg_algo::IMG_MSG msg) {
+  auto cam_data_cb = [this, print_queue](int image_idx, const heisenberg_algo::IMG_MSG& msg) {
     print_queue(image_idx, msg.timestamp);
     sys_->ReceiveCamera(msg);
   };
 
-  auto stereo_cam_data_cb = [this, print_queue](int image_idx, heisenberg_algo::STEREO_IMG_MSG msg) {
+  auto stereo_cam_data_cb = [this, print_queue](int image_idx, const heisenberg_algo::STEREO_IMG_MSG& msg) {
     print_queue(image_idx, msg.timestamp);
     sys_->ReceiveStereoCamera(msg);
   };
 
-  auto imu_data_cb = [this](int imu_idx, heisenberg_algo::IMU_MSG msg) {
-    // std::cout << "play imu: " << imu_idx << ", " << sensor_dt << std::endl;
+  auto imu_data_cb = [this](int imu_idx, const heisenberg_algo::IMU_MSG& msg) {
+    // std::cout << "play imu: " << imu_idx << std::endl;
     sys_->ReceiveImu(msg);
     visualize_odometry(msg.timestamp);
   };
@@ -149,13 +149,9 @@ void VisualizerForFolderBasedDataset::visualize() {
   // last_visualization_timestamp = vis_output_->state_clone->_timestamp;
   last_visualization_timestamp = vis_output_->status.timestamp;
 
-#if ! OPENVINS_FOR_TROS
   if (gl_viewer_) {
     gl_viewer_->show(vis_output_);
   }
-#else
-
-#endif
 
   // Save total state
   if (save_total_state) {

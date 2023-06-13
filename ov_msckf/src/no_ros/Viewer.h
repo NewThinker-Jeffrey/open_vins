@@ -22,12 +22,13 @@
 #ifndef OV_MSCKF_VIEWER_H
 #define OV_MSCKF_VIEWER_H
 
-#if ! OPENVINS_FOR_TROS
-
-#include <pangolin/pangolin.h>
 #include "core/VioManager.h"
 #include "interface/HeisenbergVIO.h"
 #include <mutex>
+
+
+#if ENABLE_PANGOLIN
+#include <pangolin/pangolin.h>
 
 namespace ov_msckf {
 
@@ -50,6 +51,20 @@ private:
 
 } // namespace ov_msckf
 
+#else
+
+namespace ov_msckf {
+
+class Viewer {
+public:
+  Viewer(std::shared_ptr<heisenberg_algo::VIO> app) {
+    std::cout << "Viewer::Viewer():  No Pangolin!" << std::endl;
+  }
+  void init() {}
+  void show(std::shared_ptr<VioManager::Output> task) {}
+};
+
+} // namespace ov_msckf
 
 #endif
 

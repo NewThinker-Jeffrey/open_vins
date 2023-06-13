@@ -64,7 +64,7 @@ struct STEREO_IMG_MSG {
 
 struct LOC_MSG {
   double timestamp;
-  Eigen::Isometry3d pose;
+  Eigen::Isometry3d pose;  // todo: no eigen 
   Eigen::Matrix<double, 6, 6> cov;
   int64_t err;
 };

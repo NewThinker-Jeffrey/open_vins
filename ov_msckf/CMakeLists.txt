@@ -34,6 +34,15 @@ else ()
     add_definitions(-DENABLE_ARUCO_TAGS=1)
 endif ()
 
+
+option(ENABLE_PANGOLIN "Enable or disable Pangolin viewer" ON)
+if (NOT ENABLE_PANGOLIN)
+    add_definitions(-DENABLE_PANGOLIN=0)
+    message(WARNING "Disable Pangolin viewer!")
+else ()
+    add_definitions(-DENABLE_PANGOLIN=1)
+endif ()
+
 # We need c++14 for ROS2, thus just require it for everybody
 # NOTE: To future self, hope this isn't an issue...
 set(CMAKE_CXX_STANDARD 17)  # use c++ 17

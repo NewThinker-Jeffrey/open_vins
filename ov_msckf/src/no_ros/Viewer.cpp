@@ -20,7 +20,7 @@
  */
 
 
-#if ! OPENVINS_FOR_TROS
+#if ENABLE_PANGOLIN
 
 #include "Viewer.h"
 #include <pangolin/pangolin.h>
@@ -38,7 +38,7 @@ using namespace ov_msckf;
 const double viewpoint_height = 10.0;
 
 Viewer::Viewer(std::shared_ptr<heisenberg_algo::VIO> app) : _app(app) {
-
+  std::cout << "Viewer::Viewer():  Use Pangolin!" << std::endl;
 }
 
 void Viewer::init() {
@@ -62,7 +62,9 @@ void Viewer::init() {
   // Define Camera Render Object (for view / scene browsing)
   pangolin::OpenGlMatrix proj = pangolin::ProjectionMatrix(640,480,320,320,320,240,0.1,1000);
   // pangolin::OpenGlRenderState s_cam(proj, pangolin::ModelViewLookAt(1,0.5,-2,0,0,0, pangolin::AxisY) );
+std::cout << "Viewer::init(): Before pangolin::OpenGlRenderState" << std::endl;
   s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY));
+std::cout << "Viewer::init(): After pangolin::OpenGlRenderState" << std::endl;
 
   // Add named OpenGL viewport to window and provide 3D Handler
   pangolin::View& d_cam1 = pangolin::Display("cam1")

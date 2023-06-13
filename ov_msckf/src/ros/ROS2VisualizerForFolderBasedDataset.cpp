@@ -71,18 +71,18 @@ void ROS2VisualizerForFolderBasedDataset::setup_player(const std::string& datase
               << (std::chrono::high_resolution_clock::now() - dataset_->play_start_time()).count() / 1e9 << std::endl;
   };
 
-  auto cam_data_cb = [this, print_queue](int image_idx, heisenberg_algo::IMG_MSG msg) {
+  auto cam_data_cb = [this, print_queue](int image_idx, const heisenberg_algo::IMG_MSG& msg) {
     print_queue(image_idx, msg.timestamp);
     sys_->ReceiveCamera(msg);
   };
 
-  auto stereo_cam_data_cb = [this, print_queue](int image_idx, heisenberg_algo::STEREO_IMG_MSG msg) {
-    print_queue(image_idx, msg.timestamp);
-    sys_->ReceiveStereoCamera(msg);
+  auto stereo_cam_data_cb = [this, print_queue](int image_idx, const heisenberg_algo::STEREO_IMG_MSG& msg) {
+    // print_queue(image_idx, msg.timestamp);
+    // sys_->ReceiveStereoCamera(msg);
   };
 
-  auto imu_data_cb = [this](int imu_idx, heisenberg_algo::IMU_MSG msg) {
-    // std::cout << "play imu: " << imu_idx << ", " << sensor_dt << std::endl;
+  auto imu_data_cb = [this](int imu_idx, const heisenberg_algo::IMU_MSG& msg) {
+    // std::cout << "play imu: " << imu_idx << std::endl;
     sys_->ReceiveImu(msg);
     visualize_odometry(msg.timestamp);
   };

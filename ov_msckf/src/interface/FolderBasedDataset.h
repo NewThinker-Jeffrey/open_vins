@@ -69,9 +69,9 @@ protected:
 
 
   double track_frequency_;
-  std::function<void(int image_idx, IMG_MSG msg)> cam_data_cb_;
-  std::function<void(int image_idx, STEREO_IMG_MSG msg)> stereo_cam_data_cb_;
-  std::function<void(int imu_idx, IMU_MSG msg)> imu_data_cb_;
+  std::function<void(int image_idx, const IMG_MSG& msg)> cam_data_cb_;
+  std::function<void(int image_idx, const STEREO_IMG_MSG& msg)> stereo_cam_data_cb_;
+  std::function<void(int imu_idx, const IMU_MSG& msg)> imu_data_cb_;
 
   bool stereo_;
   double play_rate_;

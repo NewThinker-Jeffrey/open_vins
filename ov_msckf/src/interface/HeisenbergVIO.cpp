@@ -71,12 +71,12 @@ void VIO::ReceiveCamera(const IMG_MSG &img_msg) {
 
   cv::Mat gray;
   if (img_msg.channel == 1) {
-    gray = cv::Mat(img_msg.width, img_msg.height, CV_8UC1, const_cast<char*>(img_msg.data)).clone();
+    gray = cv::Mat(img_msg.height, img_msg.width, CV_8UC1, const_cast<char*>(img_msg.data)).clone();
   } else if (img_msg.channel == 3) {
-    cv::Mat color(img_msg.width, img_msg.height, CV_8UC3, const_cast<char*>(img_msg.data));
+    cv::Mat color(img_msg.height, img_msg.width, CV_8UC3, const_cast<char*>(img_msg.data));
     cv::cvtColor(color, gray, cv::COLOR_RGB2GRAY);
     // cv::cvtColor(img, img, cv::COLOR_BGR2GRAY);
-  }    
+  }
 
   ov_core::CameraData message;
   int cam_id0 = img_msg.cam_id;
@@ -97,15 +97,13 @@ void VIO::ReceiveStereoCamera(const STEREO_IMG_MSG &img_msg) {
   if (!img_msg.valid) {
     return;
   }
-
   cv::Mat gray_l, gray_r;
   if (img_msg.channel == 1) {
-    gray_l = cv::Mat(img_msg.width, img_msg.height, CV_8UC1, const_cast<char*>(img_msg.data_l)).clone();
-    gray_r = cv::Mat(img_msg.width, img_msg.height, CV_8UC1, const_cast<char*>(img_msg.data_r)).clone();
+    gray_l = cv::Mat(img_msg.height, img_msg.width, CV_8UC1, const_cast<char*>(img_msg.data_l)).clone();
+    gray_r = cv::Mat(img_msg.height, img_msg.width, CV_8UC1, const_cast<char*>(img_msg.data_r)).clone();
   } else if (img_msg.channel == 3) {
-    cv::Mat color_l(img_msg.width, img_msg.height, CV_8UC3, const_cast<char*>(img_msg.data_l));
-    cv::Mat color_r(img_msg.width, img_msg.height, CV_8UC3, const_cast<char*>(img_msg.data_r));
-
+    cv::Mat color_l(img_msg.height, img_msg.width, CV_8UC3, const_cast<char*>(img_msg.data_l));
+    cv::Mat color_r(img_msg.height, img_msg.width, CV_8UC3, const_cast<char*>(img_msg.data_r));
     cv::cvtColor(color_l, gray_l, cv::COLOR_RGB2GRAY);
     cv::cvtColor(color_r, gray_r, cv::COLOR_RGB2GRAY);
 

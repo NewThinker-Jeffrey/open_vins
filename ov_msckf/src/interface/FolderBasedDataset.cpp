@@ -21,63 +21,19 @@
 
 #include "FolderBasedDataset.h"
 
+#include <iostream>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <fstream>
+#include <thread>
+#include <opencv2/opencv.hpp>
+
+
+// #define LOAD_INTERNAL_SENSOR_DATA
+#ifdef LOAD_INTERNAL_SENSOR_DATA
 #include "utils/sensor_data.h"
-
 namespace {
-
-bool checkFileExistence(const std::string& path) {
-  std::ifstream f(path.c_str());
-  return f.good();
-}
-
-void LoadImages(const std::string &strPathLeft, const std::string &strPathRight, const std::string &strPathTimes,
-                std::vector<std::string> &vstrImageLeft, std::vector<std::string> &vstrImageRight, std::vector<double> &vTimeStamps)
-{
-    std::ifstream fTimes;
-    std::string pic_suffix;
-    fTimes.open(strPathTimes.c_str());
-    vTimeStamps.reserve(5000);
-    vstrImageLeft.reserve(5000);
-    vstrImageRight.reserve(5000);
-    while(!fTimes.eof())
-    {
-        std::string s;
-        std::getline(fTimes,s);
-        int pos;
-        if ((pos = s.find(',')) != std::string::npos) {
-          s = s.substr(0, pos);
-        }
-
-        if(!s.empty())
-        {
-            std::stringstream ss;
-            ss << s;
-            if (pic_suffix.empty()) {
-              std::string testfile = strPathLeft + "/" + ss.str();
-              std::vector <std::string> suffix_list = {".png", ".jpg"};
-              for (const std::string & suffix : suffix_list) {
-                if (checkFileExistence(testfile + suffix)) {
-                  pic_suffix = suffix;
-                  break;
-                }
-              }
-            }
-
-            vstrImageLeft.push_back(strPathLeft + "/" + ss.str() + pic_suffix);
-            if (!strPathRight.empty()) {
-              vstrImageRight.push_back(strPathRight + "/" + ss.str() + pic_suffix);
-            }
-            double t;
-            ss >> t;
-            vTimeStamps.push_back(t/1e9);
-        }
-    }
-}
-
 void LoadIMU(const std::string &strImuPath, std::vector<ov_core::ImuData>& imu_data)
 {
     std::ifstream fImu;
@@ -133,7 +89,59 @@ void readStereoImg(const std::string& img_path_l, const std::string& img_path_r,
   message.images.push_back(img_left.clone());
   message.images.push_back(img_right.clone());
 }
+}
+#endif
 
+namespace {
+
+bool checkFileExistence(const std::string& path) {
+  std::ifstream f(path.c_str());
+  return f.good();
+}
+
+void LoadImages(const std::string &strPathLeft, const std::string &strPathRight, const std::string &strPathTimes,
+                std::vector<std::string> &vstrImageLeft, std::vector<std::string> &vstrImageRight, std::vector<double> &vTimeStamps)
+{
+    std::ifstream fTimes;
+    std::string pic_suffix;
+    fTimes.open(strPathTimes.c_str());
+    vTimeStamps.reserve(5000);
+    vstrImageLeft.reserve(5000);
+    vstrImageRight.reserve(5000);
+    while(!fTimes.eof())
+    {
+        std::string s;
+        std::getline(fTimes,s);
+        int pos;
+        if ((pos = s.find(',')) != std::string::npos) {
+          s = s.substr(0, pos);
+        }
+
+        if(!s.empty())
+        {
+            std::stringstream ss;
+            ss << s;
+            if (pic_suffix.empty()) {
+              std::string testfile = strPathLeft + "/" + ss.str();
+              std::vector <std::string> suffix_list = {".png", ".jpg"};
+              for (const std::string & suffix : suffix_list) {
+                if (checkFileExistence(testfile + suffix)) {
+                  pic_suffix = suffix;
+                  break;
+                }
+              }
+            }
+
+            vstrImageLeft.push_back(strPathLeft + "/" + ss.str() + pic_suffix);
+            if (!strPathRight.empty()) {
+              vstrImageRight.push_back(strPathRight + "/" + ss.str() + pic_suffix);
+            }
+            double t;
+            ss >> t;
+            vTimeStamps.push_back(t/1e9);
+        }
+    }
+}
 
 void LoadIMU(const std::string &strImuPath, std::vector<heisenberg_algo::IMU_MSG>& imu_data)
 {
@@ -170,6 +178,7 @@ void LoadIMU(const std::string &strImuPath, std::vector<heisenberg_algo::IMU_MSG
             imu.linear_acceleration[0] = data[4];
             imu.linear_acceleration[1] = data[5];
             imu.linear_acceleration[2] = data[6];
+            imu.valid = true;
             imu_data.push_back(imu);
         }
     }
@@ -183,6 +192,9 @@ void readImg(const std::string& img_path, heisenberg_algo::IMG_MSG& message) {
   message.channel = img.channels();
   message.width = img.cols;
   message.height = img.rows;
+  // std::cout << "readImg():  channel = " << message.channel
+  //           << ", width = " << message.width
+  //           << ", height = " << message.height << std::endl;
   size_t img_size = message.channel * message.width * message.height;
   assert(img_size <= heisenberg_algo::kMaxImageSize);
   message.size = img_size;
@@ -206,6 +218,11 @@ void readStereoImg(const std::string& img_path_l, const std::string& img_path_r,
   message.channel = img_left.channels();
   message.width = img_left.cols;
   message.height = img_left.rows;
+
+  // std::cout << "readStereoImg():  channel = " << message.channel
+  //           << ", width = " << message.width
+  //           << ", height = " << message.height << std::endl;
+
   size_t img_size = message.channel * message.width * message.height;
   assert(img_size <= heisenberg_algo::kMaxImageSize);
   message.size = img_size;
@@ -250,7 +267,6 @@ void FolderBasedDataset::setup_player(
   stop_request_ = false;
   data_play_thread_.reset(new std::thread([this](){
     pthread_setname_np(pthread_self(), "ov_play");
-    // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     this->data_play();
   }));
 }
@@ -323,39 +339,40 @@ void FolderBasedDataset::data_play() {
   while(!stop_request_ && (next_sensor_time = get_next_sensor_time()) > 0) {
     double sensor_dt = next_sensor_time - sensor_start_time_;
     auto next_play_time = play_start_time_ + std::chrono::milliseconds(int(sensor_dt / play_rate_ * 1000));
-
     {
       std::unique_lock<std::mutex> locker(mutex);
       while (cond.wait_until(locker, next_play_time) != std::cv_status::timeout);
     }
 
     if (image_idx < image_times_.size() && image_times_[image_idx] <= next_sensor_time) {
+
       const int& cam_id0 = cam_id0_;
       const int& cam_id1 = cam_id1_;
       bool control_imread_frequency = true;  // todo: try false
       double timestamp = image_times_[image_idx];
       double time_delta = 1.0 / track_frequency_;
+
       if (!control_imread_frequency || camera_last_timestamp.find(cam_id0) == camera_last_timestamp.end() || timestamp >= camera_last_timestamp.at(cam_id0) + time_delta) {
         camera_last_timestamp[cam_id0] = timestamp;
-
         if (stereo_) {
-          heisenberg_algo::STEREO_IMG_MSG message;
-          message.timestamp = timestamp;
-          message.cam_id_left = cam_id0;
-          message.cam_id_right = cam_id1;
-          readStereoImg(left_image_files_[image_idx], right_image_files_[image_idx], message);
+          auto message = std::make_shared<heisenberg_algo::STEREO_IMG_MSG>();
+          message->timestamp = timestamp;
+          message->cam_id_left = cam_id0;
+          message->cam_id_right = cam_id1;
+          readStereoImg(left_image_files_[image_idx], right_image_files_[image_idx], *message);
           if (stereo_cam_data_cb_) {
-            stereo_cam_data_cb_(image_idx, std::move(message));
-            // stereo_cam_data_cb_(image_idx, message);
+std::cout << "FolderBasedDataset::data_play():  DEBUG 4.3.4" << std::endl;
+            // std::cout << "stereo_cam_data_cb_ " << image_idx << std::endl;
+            stereo_cam_data_cb_(image_idx, *message);
+std::cout << "FolderBasedDataset::data_play():  DEBUG 4.3.5" << std::endl;
           }
         } else {
-          heisenberg_algo::IMG_MSG message;
-          message.timestamp = timestamp;
-          message.cam_id = cam_id0;
-          readImg(left_image_files_[image_idx], message);
+          auto message = std::make_shared<heisenberg_algo::IMG_MSG>();
+          message->timestamp = timestamp;
+          message->cam_id = cam_id0;
+          readImg(left_image_files_[image_idx], *message);
           if (cam_data_cb_) {
-            cam_data_cb_(image_idx, std::move(message));
-            // cam_data_cb_(image_idx, message);
+            cam_data_cb_(image_idx, *message);
           }
         }
       }
