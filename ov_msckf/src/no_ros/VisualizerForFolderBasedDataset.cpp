@@ -163,6 +163,10 @@ void VisualizerForFolderBasedDataset::visualize_odometry(double timestamp) {
   // do nothing
 }
 
+void VisualizerForFolderBasedDataset::request_stop_play() {
+  dataset_->request_stop_play();
+}
+
 void VisualizerForFolderBasedDataset::wait_play_over() {
   dataset_->wait_play_over();
 }

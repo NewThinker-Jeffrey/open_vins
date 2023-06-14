@@ -96,6 +96,10 @@ void ROS2VisualizerForFolderBasedDataset::setup_player(const std::string& datase
       play_rate, stereo);
 }
 
+void ROS2VisualizerForFolderBasedDataset::request_stop_play() {
+  dataset_->request_stop_play();
+}
+
 void ROS2VisualizerForFolderBasedDataset::wait_play_over() {
   dataset_->wait_play_over();
 }

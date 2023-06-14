@@ -19,9 +19,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <iostream>
 #include <memory>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <signal.h>
 
 #include "core/VioManager.h"
 #include "core/VioManagerOptions.h"
@@ -53,7 +55,18 @@ DEFINE_bool(save_total_state, false, "save_total_state");
 #endif
 
 std::shared_ptr<heisenberg_algo::VIO> sys;
-extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(heisenberg_algo::VIO*);
+
+__sighandler_t old_sigint_handler = nullptr;
+void shutdownSigintHandler(int sig) {
+  std::cout << "Stop Requested ... " << std::endl;
+  if (viz) {
+    viz->request_stop_play();
+  }
+  if (old_sigint_handler) {
+    old_sigint_handler(sig);
+  }
+}
+
 
 // Main function
 int main(int argc, char **argv) {
@@ -67,7 +80,6 @@ int main(int argc, char **argv) {
   FLAGS_alsologtostderr = true;
   FLAGS_colorlogtostderr = true;
   // FLAGS_run_register = false;
-
 
   std::string config_path = "";
   std::string dataset = "";
@@ -150,13 +162,12 @@ int main(int argc, char **argv) {
     return 2;
   }
 
+  // Override the default sigint handler.
+  // This must be set after the first NodeHandle is created.
+  old_sigint_handler = signal(SIGINT, shutdownSigintHandler);
+
   sys = std::make_shared<heisenberg_algo::VIO>(config_path);
   auto gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
-
-
-  // auto internal_sys = getVioManagerFromVioInterface(sys.get());
-  // bool stereo = (internal_sys->get_params().state_options.num_cameras == 2);
-  // internal_sys.reset();
 
 #if ROS_AVAILABLE == 2
   viz = std::make_shared<ov_msckf::ROS2VisualizerForFolderBasedDataset>(node, sys, gl_viewer, output_dir, save_feature_images, save_total_state);
@@ -179,10 +190,12 @@ int main(int argc, char **argv) {
   rclcpp::shutdown();
 #endif
 
-  std::cout << "Destroying VIO ..." << std::endl;
-  sys.reset();
   std::cout << "Destroying Visualizer ..." << std::endl;
   viz.reset();
+  std::cout << "Destroying GL-Viewer ..." << std::endl;
+  gl_viewer.reset();
+  std::cout << "Destroying VIO ..." << std::endl;
+  sys.reset();
   std::cout << "All done." << std::endl;
 
   // Done!

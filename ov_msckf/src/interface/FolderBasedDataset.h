@@ -47,7 +47,7 @@ public:
                     int cam_id0 = 0,
                     int cam_id1 = 1);
 
-  void stop_play();
+  void request_stop_play();
 
   void wait_play_over();
 

@@ -237,7 +237,8 @@ void readStereoImg(const std::string& img_path_l, const std::string& img_path_r,
 namespace heisenberg_algo {
 
 FolderBasedDataset::~FolderBasedDataset() {
-  stop_play();
+  request_stop_play();
+  wait_play_over();
 }
 
 void FolderBasedDataset::setup_player(
@@ -271,9 +272,9 @@ void FolderBasedDataset::setup_player(
   }));
 }
 
-void FolderBasedDataset::stop_play() {
+void FolderBasedDataset::request_stop_play() {
   stop_request_ = true;
-  wait_play_over();
+  // wait_play_over();
 }
 
 void FolderBasedDataset::wait_play_over() {

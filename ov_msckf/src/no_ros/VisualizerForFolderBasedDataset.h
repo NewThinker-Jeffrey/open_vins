@@ -67,7 +67,7 @@ public:
   void setup_player(const std::string& dataset,
                     double play_rate = 1.0);
 
-  // void stop_play();
+  void request_stop_play();
 
   void wait_play_over();
 
