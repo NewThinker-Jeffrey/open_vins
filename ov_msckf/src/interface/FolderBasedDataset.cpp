@@ -361,10 +361,10 @@ void FolderBasedDataset::data_play() {
           message->cam_id_right = cam_id1;
           readStereoImg(left_image_files_[image_idx], right_image_files_[image_idx], *message);
           if (stereo_cam_data_cb_) {
-std::cout << "FolderBasedDataset::data_play():  DEBUG 4.3.4" << std::endl;
+            // std::cout << "FolderBasedDataset::data_play():  DEBUG 4.3.4" << std::endl;
             // std::cout << "stereo_cam_data_cb_ " << image_idx << std::endl;
             stereo_cam_data_cb_(image_idx, *message);
-std::cout << "FolderBasedDataset::data_play():  DEBUG 4.3.5" << std::endl;
+            // std::cout << "FolderBasedDataset::data_play():  DEBUG 4.3.5" << std::endl;
           }
         } else {
           auto message = std::make_shared<heisenberg_algo::IMG_MSG>();

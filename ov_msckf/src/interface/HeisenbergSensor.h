@@ -65,8 +65,9 @@ struct STEREO_IMG_MSG {
 
 struct LOC_MSG {
   double timestamp;
-  Eigen::Isometry3d pose;  // todo: no eigen 
-  Eigen::Matrix<double, 6, 6> cov;
+  double q[4];  // in Hamilton convention. memory order = xyzw (consistent with Eigen::Quaterniond::coeffs()) 
+  double p[3];
+  double cov[36];
   int64_t err;
 };
 

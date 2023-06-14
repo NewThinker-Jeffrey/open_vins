@@ -140,14 +140,26 @@ LOC_MSG VIO::Localization(double timestamp) {
   bool predict_with_imu = true;
 
   if (!predict_with_imu || timestamp < 0 || timestamp < output->status.timestamp) {
-    Eigen::Isometry3d imu_pose(output->state_clone->_imu->Rot().inverse());
-    imu_pose.translation() = output->state_clone->_imu->pos();
+
+    // Eigen::Isometry3d imu_pose(output->state_clone->_imu->Rot().inverse());
+    // imu_pose.translation() = output->state_clone->_imu->pos();
+    // loc.pose = imu_pose;
+    auto jpl_q = output->state_clone->_imu->quat();
+    auto pos = output->state_clone->_imu->pos();
+    loc.q[0] = -jpl_q[0];
+    loc.q[1] = -jpl_q[1];
+    loc.q[2] = -jpl_q[2];
+    loc.q[3] =  jpl_q[3];
+    loc.p[0] = pos[0];
+    loc.p[1] = pos[1];
+    loc.p[2] = pos[2];
+
     std::vector<std::shared_ptr<ov_type::Type>> variables;
     variables.push_back(output->state_clone->_imu->pose());
     auto cov = ov_msckf::StateHelper::get_marginal_covariance(output->state_clone, variables);
+
     loc.timestamp = output->status.timestamp;
-    loc.pose = imu_pose;
-    loc.cov = cov;
+    memcpy(loc.cov, cov.data(), sizeof(loc.cov));
   } else {
     Eigen::Matrix<double, 13, 1> state_plus;
     Eigen::Matrix<double, 12, 12> covariance;
@@ -155,13 +167,22 @@ LOC_MSG VIO::Localization(double timestamp) {
     bool propagate_ok = impl_->get_propagator()->fast_state_propagate(
         output->state_clone, timestamp, state_plus, covariance, &output_time);
     if (propagate_ok) {
-      Eigen::Matrix<double, 4, 1> q = state_plus.block(0, 0, 4, 1);
-      Eigen::Isometry3d imu_pose(ov_core::quat_2_Rot(q).inverse());
-      imu_pose.translation() = state_plus.block(4, 0, 3, 1);
+      Eigen::Matrix<double, 4, 1> jpl_q = state_plus.block(0, 0, 4, 1);
+      Eigen::Vector3d pos = state_plus.block(4, 0, 3, 1);
+      // Eigen::Isometry3d imu_pose(ov_core::quat_2_Rot(jpl_q).inverse());
+      // imu_pose.translation() = pos;
+      // loc.pose = imu_pose;
+      loc.q[0] = -jpl_q[0];
+      loc.q[1] = -jpl_q[1];
+      loc.q[2] = -jpl_q[2];
+      loc.q[3] =  jpl_q[3];
+      loc.p[0] = pos[0];
+      loc.p[1] = pos[1];
+      loc.p[2] = pos[2];
+
       Eigen::Matrix<double, 6, 6> cov = covariance.block(0, 0, 6, 6);
       loc.timestamp = output_time;
-      loc.pose = imu_pose;
-      loc.cov = cov;
+      memcpy(loc.cov, cov.data(), sizeof(loc.cov));
     }
   }
 
