@@ -144,7 +144,8 @@ bool StaticInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarianc
   order.clear();
   order.push_back(t_imu);
 
-  bool opt_cov = true;
+  // bool opt_cov = true;
+  bool opt_cov = false;
   if (opt_cov) {
     double ba_var = 0.05 * 0.05;
     Eigen::Matrix3d normalized_acc_bias_cov;
