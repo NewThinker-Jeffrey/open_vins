@@ -77,8 +77,8 @@ void ROS2VisualizerForFolderBasedDataset::setup_player(const std::string& datase
   };
 
   auto stereo_cam_data_cb = [this, print_queue](int image_idx, const heisenberg_algo::STEREO_IMG_MSG& msg) {
-    // print_queue(image_idx, msg.timestamp);
-    // sys_->ReceiveStereoCamera(msg);
+    print_queue(image_idx, msg.timestamp);
+    sys_->ReceiveStereoCamera(msg);
   };
 
   auto imu_data_cb = [this](int imu_idx, const heisenberg_algo::IMU_MSG& msg) {

@@ -12,7 +12,8 @@ namespace heisenberg_algo {
 // const int kImageChannel = 3;
 // const int kImageSize = kImageWidth * kImageHeight * kImageChannel;
 // const int kMaxImageSize = kImageSize;
-const int kMaxImageSize = 2000 * 1000 * 3;
+// const int kMaxImageSize = 2000 * 1000 * 3;
+const int kMaxImageSize = 1000 * 1000 * 3;
 
 struct GNSS_MSG {
     double timestamp; // us
