@@ -27,6 +27,7 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <functional>
 
 namespace heisenberg_algo {
 

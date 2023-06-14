@@ -2,8 +2,6 @@
 #define HEISENBERG_SENSOR_H
 
 #include <stdint.h>
-#include <Eigen/Geometry>
-
 
 namespace heisenberg_algo {
 

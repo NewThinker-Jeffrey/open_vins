@@ -167,6 +167,7 @@ int main(int argc, char **argv) {
   old_sigint_handler = signal(SIGINT, shutdownSigintHandler);
 
   sys = std::make_shared<heisenberg_algo::VIO>(config_path);
+  sys->Init();
   auto gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
 
 #if ROS_AVAILABLE == 2

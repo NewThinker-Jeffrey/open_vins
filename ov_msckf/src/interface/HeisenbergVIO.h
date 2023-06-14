@@ -14,7 +14,7 @@ public:
   VIO(const std::string& config_file = "");
   ~VIO();
 
-  bool Initial();
+  bool Init();
   void ReceiveImu(const IMU_MSG &imu_msg);
   void ReceiveWheel(const WHEEL_MSG &wheel_msg);
   void ReceiveGnss(const GNSS_MSG &gnss_msg);

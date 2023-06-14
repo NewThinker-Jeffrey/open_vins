@@ -30,16 +30,16 @@ class VIO::Impl : public ov_msckf::VioManager {
 
 
 VIO::VIO(const std::string& config_file) : config_file_(config_file), impl_(nullptr) {
-  Reset();
+
 }
 
 VIO::~VIO() {
   Shutdown();
 }
 
-bool VIO::Initial() {
-  auto output = impl_->getLastOutput(false, false);
-  return output->status.initialized;
+bool VIO::Init() {
+  Reset();
+  return true;
 }
 
 void VIO::ReceiveImu(const IMU_MSG &imu_msg) {
@@ -136,6 +136,10 @@ LOC_MSG VIO::Localization(double timestamp) {
   loc.timestamp = -1.0;
   loc.err = 0;
   auto output = impl_->getLastOutput(true, false);
+  if (!output->status.initialized) {
+    // vio has not been initilized yet.
+    return loc;
+  }
 
   bool predict_with_imu = true;
 
