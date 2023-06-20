@@ -84,13 +84,13 @@ link_directories(
     ${HPS_3RDPARTY_DIR}/glog0.6.0/lib_arm
     # ${HPS_3RDPARTY_DIR}/slam_dep_libs/boost_1_81_0/lib_arm    
     ${HPS_3RDPARTY_DIR}/slam_dep_libs/libgtk2.0-0/lib_arm
-    ${HPS_3RDPARTY_DIR}/slam_dep_libs/libz1/lib_arm
+    ${HPS_3RDPARTY_DIR}/slam_dep_libs/zlib1g/lib_arm
     ${HPS_3RDPARTY_DIR}/slam_dep_libs/libcairo2/lib_arm
     ${HPS_3RDPARTY_DIR}/slam_dep_libs/libgdk-pixbuf-2.0/lib_arm
-    ${HPS_3RDPARTY_DIR}/slam_dep_libs/liblapack3/lib_arm
+    # ${HPS_3RDPARTY_DIR}/slam_dep_libs/liblapack3/lib_arm
     ${HPS_3RDPARTY_DIR}/slam_dep_libs/libatlas3-base/lib_arm    
+    ${HPS_3RDPARTY_DIR}/slam_dep_libs/libatlas3-base/lib_arm/atlas  # liblapack3
     ${HPS_3RDPARTY_DIR}/slam_dep_libs/suitesparse/lib_arm    
-    ${HPS_3RDPARTY_DIR}/slam_dep_libs/metis5/lib_arm    
     /root/workspace/cc_ws/sysroot_docker/usr/lib)
 include_directories(
     ${OpenCV_INCLUDE_DIR}
