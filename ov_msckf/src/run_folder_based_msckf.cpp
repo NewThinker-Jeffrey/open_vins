@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
   // This must be set after the first NodeHandle is created.
   old_sigint_handler = signal(SIGINT, shutdownSigintHandler);
 
-  sys = std::make_shared<heisenberg_algo::VIO>(config_path);
+  sys = std::make_shared<heisenberg_algo::VIO>(config_path.c_str());
   sys->Init();
   auto gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
 

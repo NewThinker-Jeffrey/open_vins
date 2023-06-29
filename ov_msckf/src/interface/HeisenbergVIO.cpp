@@ -1,6 +1,9 @@
 
 #include "HeisenbergVIO.h"
 
+#include <memory>
+#include <string>
+#include <mutex>
 #include "core/VioManager.h"
 #include "core/VioManagerOptions.h"
 #include "state/Propagator.h"
@@ -16,33 +19,77 @@
 // #endif
 
 
+struct heisenberg_algo::VIO::Impl {
+  Impl(const std::string& config_file) : config_file_(config_file) {
+    latest_imu_msg_.valid = false;
+    latest_imu_msg_.timestamp = -1;
+    memset(latest_imu_msg_.angle_velocity, 0, sizeof(latest_imu_msg_.angle_velocity));
+    memset(latest_imu_msg_.linear_acceleration, 0, sizeof(latest_imu_msg_.linear_acceleration));
+  }
+
+  std::string config_file_;
+  ov_msckf::VioManagerOptions params_;
+  std::shared_ptr<ov_msckf::VioManager> internal_;
+
+  std::mutex latest_imu_msg_mutex_;
+  IMU_MSG latest_imu_msg_;
+};
+
 // extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(heisenberg_algo::VIO*);
 std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(heisenberg_algo::VIO* vio) {
-  return std::dynamic_pointer_cast<ov_msckf::VioManager>(vio->impl());
+  // return std::dynamic_pointer_cast<ov_msckf::VioManager>(vio->impl());
+  return vio->impl()->internal_;
 }
+
 
 namespace heisenberg_algo {
 
-class VIO::Impl : public ov_msckf::VioManager {
- public:
-  Impl(ov_msckf::VioManagerOptions &params) : ov_msckf::VioManager(params) {}
-};
-
-
-VIO::VIO(const std::string& config_file) : config_file_(config_file), impl_(nullptr) {
-
+VIO::VIO(const char* config_file) : impl_(new Impl(config_file)) {
+  
 }
 
 VIO::~VIO() {
   Shutdown();
+  if (impl_) {
+    delete impl_;
+  }
 }
 
 bool VIO::Init() {
+  // Load the config
+  auto parser = std::make_shared<ov_core::YamlParser>(impl_->config_file_);
+
+// #if ROS_AVAILABLE == 2
+//   if (auto node = unique_parser_node.lock()) {
+//     parser->set_node(node);
+//   }
+// #endif
+
+  // Verbosity
+  std::string verbosity = "DEBUG";
+  parser->parse_config("verbosity", verbosity);
+  ov_core::Printer::setPrintLevel(verbosity);
+
+  // Create our VIO system
+  ov_msckf::VioManagerOptions params;
+  params.print_and_load(parser);
+  params.use_multi_threading_subs = true;
+  // Ensure we read in all parameters required
+  if (!parser->successful()) {
+    PRINT_ERROR(RED "unable to parse all parameters, please fix\n" RESET);
+    std::exit(EXIT_FAILURE);
+  }
+  impl_->params_ = params;
   Reset();
   return true;
 }
 
 void VIO::ReceiveImu(const IMU_MSG &imu_msg) {
+  {
+    std::unique_lock<std::mutex> locker(impl_->latest_imu_msg_mutex_);
+    impl_->latest_imu_msg_ = imu_msg;
+  }
+
   if (!imu_msg.valid) {
     return;
   }
@@ -53,7 +100,12 @@ void VIO::ReceiveImu(const IMU_MSG &imu_msg) {
   message.timestamp = imu_msg.timestamp;
   message.wm = Eigen::Vector3d(w[0], w[1], w[2]);
   message.am = Eigen::Vector3d(a[0], a[1], a[2]);
-  impl_->feed_measurement_imu(message);
+  impl_->internal_->feed_measurement_imu(message);
+}
+
+IMU_MSG VIO::GetLatestIMU() {
+  std::unique_lock<std::mutex> locker(impl_->latest_imu_msg_mutex_);
+  return impl_->latest_imu_msg_;
 }
 
 void VIO::ReceiveWheel(const WHEEL_MSG &wheel_msg) {
@@ -84,13 +136,13 @@ void VIO::ReceiveCamera(const IMG_MSG &img_msg) {
   message.sensor_ids.push_back(cam_id0);
   message.images.push_back(gray);
 
-  if (impl_->get_params().use_mask) {
-    message.masks.push_back(impl_->get_params().masks.at(cam_id0));
+  if (impl_->internal_->get_params().use_mask) {
+    message.masks.push_back(impl_->internal_->get_params().masks.at(cam_id0));
   } else {
     message.masks.push_back(cv::Mat::zeros(gray.rows, gray.cols, CV_8UC1));
   }
 
-  impl_->feed_measurement_camera(std::move(message));  // todo: run this in another thread?
+  impl_->internal_->feed_measurement_camera(std::move(message));  // todo: run this in another thread?
 }
 
 void VIO::ReceiveStereoCamera(const STEREO_IMG_MSG &img_msg) {
@@ -120,22 +172,34 @@ void VIO::ReceiveStereoCamera(const STEREO_IMG_MSG &img_msg) {
   message.images.push_back(gray_l);
   message.images.push_back(gray_r);
 
-  if (impl_->get_params().use_mask) {
-    message.masks.push_back(impl_->get_params().masks.at(cam_id0));
-    message.masks.push_back(impl_->get_params().masks.at(cam_id1));
+  if (impl_->internal_->get_params().use_mask) {
+    message.masks.push_back(impl_->internal_->get_params().masks.at(cam_id0));
+    message.masks.push_back(impl_->internal_->get_params().masks.at(cam_id1));
   } else {
     message.masks.push_back(cv::Mat::zeros(gray_l.rows, gray_l.cols, CV_8UC1));
     message.masks.push_back(cv::Mat::zeros(gray_r.rows, gray_r.cols, CV_8UC1));
   }
 
-  impl_->feed_measurement_camera(std::move(message));  // todo: run this in another thread?
+  impl_->internal_->feed_measurement_camera(std::move(message));  // todo: run this in another thread?
 }
+
+
+//#define PREDICT_LOCALIZATION_WITH_IMU 
+#ifdef PREDICT_LOCALIZATION_WITH_IMU
+
+// struct LOC_MSG {
+//   double timestamp;
+//   double q[4];  // in Hamilton convention. memory order = xyzw (consistent with Eigen::Quaterniond::coeffs()) 
+//   double p[3];
+//   double cov[36];
+//   int64_t err;
+// };
 
 LOC_MSG VIO::Localization(double timestamp) {
   LOC_MSG loc;
   loc.timestamp = -1.0;
   loc.err = 0;
-  auto output = impl_->getLastOutput(true, false);
+  auto output = impl_->internal_->getLastOutput(true, false);
   if (!output->status.initialized) {
     // vio has not been initilized yet.
     return loc;
@@ -150,10 +214,15 @@ LOC_MSG VIO::Localization(double timestamp) {
     // loc.pose = imu_pose;
     auto jpl_q = output->state_clone->_imu->quat();
     auto pos = output->state_clone->_imu->pos();
-    loc.q[0] = -jpl_q[0];
-    loc.q[1] = -jpl_q[1];
-    loc.q[2] = -jpl_q[2];
+
+    // loc.q[0] = -jpl_q[0];
+    // loc.q[1] = -jpl_q[1];
+    // loc.q[2] = -jpl_q[2];
+    loc.q[0] =  jpl_q[0];
+    loc.q[1] =  jpl_q[1];
+    loc.q[2] =  jpl_q[2];
     loc.q[3] =  jpl_q[3];
+
     loc.p[0] = pos[0];
     loc.p[1] = pos[1];
     loc.p[2] = pos[2];
@@ -168,7 +237,7 @@ LOC_MSG VIO::Localization(double timestamp) {
     Eigen::Matrix<double, 13, 1> state_plus;
     Eigen::Matrix<double, 12, 12> covariance;
     double output_time;
-    bool propagate_ok = impl_->get_propagator()->fast_state_propagate(
+    bool propagate_ok = impl_->internal_->get_propagator()->fast_state_propagate(
         output->state_clone, timestamp, state_plus, covariance, &output_time);
     if (propagate_ok) {
       Eigen::Matrix<double, 4, 1> jpl_q = state_plus.block(0, 0, 4, 1);
@@ -176,10 +245,15 @@ LOC_MSG VIO::Localization(double timestamp) {
       // Eigen::Isometry3d imu_pose(ov_core::quat_2_Rot(jpl_q).inverse());
       // imu_pose.translation() = pos;
       // loc.pose = imu_pose;
-      loc.q[0] = -jpl_q[0];
-      loc.q[1] = -jpl_q[1];
-      loc.q[2] = -jpl_q[2];
+
+      // loc.q[0] = -jpl_q[0];
+      // loc.q[1] = -jpl_q[1];
+      // loc.q[2] = -jpl_q[2];
+      loc.q[0] =  jpl_q[0];
+      loc.q[1] =  jpl_q[1];
+      loc.q[2] =  jpl_q[2];
       loc.q[3] =  jpl_q[3];
+
       loc.p[0] = pos[0];
       loc.p[1] = pos[1];
       loc.p[2] = pos[2];
@@ -193,41 +267,70 @@ LOC_MSG VIO::Localization(double timestamp) {
   return loc;
 }
 
+#else
+
+LOC_MSG VIO::Localization() {
+  LOC_MSG loc;
+  loc.timestamp = -1.0;
+  loc.err = 0;
+  auto output = impl_->internal_->getLastOutput(true, false);
+  if (!output->status.initialized) {
+    // vio has not been initilized yet.
+    return loc;
+  }
+
+  // Eigen::Isometry3d imu_pose(output->state_clone->_imu->Rot().inverse());
+  // imu_pose.translation() = output->state_clone->_imu->pos();
+  // loc.pose = imu_pose;
+  auto jpl_q = output->state_clone->_imu->quat();
+  auto pos = output->state_clone->_imu->pos();
+  auto vel = output->state_clone->_imu->vel();
+  auto b_g = output->state_clone->_imu->bias_g();
+  auto b_a = output->state_clone->_imu->bias_a();
+
+  // loc.q[0] = -jpl_q[0];
+  // loc.q[1] = -jpl_q[1];
+  // loc.q[2] = -jpl_q[2];
+  loc.q[0] =  jpl_q[0];
+  loc.q[1] =  jpl_q[1];
+  loc.q[2] =  jpl_q[2];
+  loc.q[3] =  jpl_q[3];
+
+  loc.p[0] = pos[0];
+  loc.p[1] = pos[1];
+  loc.p[2] = pos[2];
+  loc.v[0] = vel[0];
+  loc.v[1] = vel[1];
+  loc.v[2] = vel[2];
+  loc.b_g[0] = b_g[0];
+  loc.b_g[1] = b_g[1];
+  loc.b_g[2] = b_g[2];
+  loc.b_a[0] = b_a[0];
+  loc.b_a[1] = b_a[1];
+  loc.b_a[2] = b_a[2];
+
+  std::vector<std::shared_ptr<ov_type::Type>> variables;
+  variables.push_back(output->state_clone->_imu);
+  auto cov = ov_msckf::StateHelper::get_marginal_covariance(output->state_clone, variables);
+
+  loc.timestamp = output->status.timestamp;
+  memcpy(loc.cov, cov.data(), sizeof(loc.cov));
+
+  return loc;
+}
+#endif
+
 void VIO::Reset() {
   Shutdown();
-  impl_.reset();
-
-
-  // Load the config
-  auto parser = std::make_shared<ov_core::YamlParser>(config_file_);
-
-// #if ROS_AVAILABLE == 2
-//   if (auto node = unique_parser_node.lock()) {
-//     parser->set_node(node);
-//   }
-// #endif
-
-  // Verbosity
-  std::string verbosity = "DEBUG";
-  parser->parse_config("verbosity", verbosity);
-  ov_core::Printer::setPrintLevel(verbosity);
-
-  // Create our VIO system
-  ov_msckf::VioManagerOptions params;
-  params.print_and_load(parser);
-  params.use_multi_threading_subs = true;
-  impl_ = std::make_shared<Impl>(params);
-
-  // Ensure we read in all parameters required
-  if (!parser->successful()) {
-    PRINT_ERROR(RED "unable to parse all parameters, please fix\n" RESET);
-    std::exit(EXIT_FAILURE);
-  }
+  impl_->internal_.reset();
+  impl_->internal_ = std::make_shared<ov_msckf::VioManager>(impl_->params_);
 }
 
 void VIO::Shutdown() {
   if (impl_) {
-    impl_->stop_threads();
+    if (impl_->internal_) {
+      impl_->internal_->stop_threads();
+    }
   }
 }
 

@@ -28,6 +28,7 @@
 #include <mutex>
 #include <opencv2/core/core.hpp>
 #include <opencv2/opencv.hpp>
+#include <Eigen/Geometry>
 
 extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(heisenberg_algo::VIO*);
 
@@ -93,9 +94,21 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   glColor4f(1.0f,1.0f,1.0f,1.0f);
   imageTexture.RenderToViewport();
 
+#define USE_INTERFACE_LOC
+#ifndef USE_INTERFACE_LOC
   Eigen::Vector3f new_pos = output->state_clone->_imu->pos().cast<float>();
   Eigen::Isometry3f imu_pose(output->state_clone->_imu->Rot().inverse().cast<float>());
   imu_pose.translation() = new_pos;
+#else
+  auto loc = _app->Localization();
+  const double* q = loc.q;
+  const double* p = loc.p;
+  Eigen::Vector3f new_pos(p[0], p[1], p[2]);
+  Eigen::Quaternionf quat(q[3], q[0], q[1], q[2]);
+  Eigen::Isometry3f imu_pose(quat);
+  imu_pose.translation() = new_pos;
+#endif
+
   Eigen::Matrix4f imu_pose_mat = imu_pose.matrix();  // column major
   pangolin::OpenGlMatrix Twi;
   for (int i = 0; i<4; i++) {

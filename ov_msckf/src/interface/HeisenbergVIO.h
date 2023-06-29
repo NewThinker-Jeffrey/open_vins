@@ -3,15 +3,12 @@
 
 #include "HeisenbergSensor.h"
 
-#include <memory>
-#include <string>
-
 namespace heisenberg_algo {
 
 class VIO {
 
 public:
-  VIO(const std::string& config_file = "");
+  VIO(const char* config_file = "");
   ~VIO();
 
   bool Init();
@@ -20,19 +17,20 @@ public:
   void ReceiveGnss(const GNSS_MSG &gnss_msg);
   void ReceiveCamera(const IMG_MSG &img_msg);
   void ReceiveStereoCamera(const STEREO_IMG_MSG &img_msg);
-  LOC_MSG Localization(double timestamp);
+  LOC_MSG Localization();
   void Reset();
   void Shutdown();
+
+  IMU_MSG GetLatestIMU();
 
 public:
   class Impl;
 
   // for internal debug
-  std::shared_ptr<Impl> impl() {return impl_;}
+  Impl* impl() {return impl_;}
 
 private:
-  std::shared_ptr<Impl> impl_;
-  std::string config_file_;
+  Impl* impl_;
 };
 
 } // namespace heisenberg_algo
