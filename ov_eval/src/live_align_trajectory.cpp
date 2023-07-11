@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
   // Load our groundtruth from file
   std::string path_to_gt;
   nh.param<std::string>("path_gt", path_to_gt, "");
-  boost::filesystem::path infolder(path_to_gt);
+  std::filesystem::path infolder(path_to_gt);
   if (infolder.extension() == ".csv") {
     std::vector<Eigen::Matrix3d> cov_ori_temp, cov_pos_temp;
     ov_eval::Loader::load_data_csv(path_to_gt, times_gt, poses_gt, cov_ori_temp, cov_pos_temp);

@@ -73,7 +73,7 @@ public:
    * @param feat Feature with data in it
    * @return True if the feature was found
    */
-  bool get_feature_clone(size_t id, Feature &feat);
+  bool get_feature_clone(size_t id, Feature &feat, bool from_cache=false);
 
   /**
    * @brief Update a feature object
@@ -127,6 +127,8 @@ public:
    */
   void cleanup_measurements(double timestamp);
 
+  void cleanup_measurements_cache(double timestamp);
+
   /**
    * @brief This function will delete all feature measurements that are at the specified timestamp
    */
@@ -143,10 +145,18 @@ public:
   /**
    * @brief Returns the internal data (should not normally be used)
    */
+  //// TODO(isaac): This function may cause the features not thread-safe anymore since
+  ////              it returns the shared_ptr's of the features, making access to the returned
+  ////              ptr's not protected. For now this doesn't matter much as the calls to this
+  ////              function are limited in the initializing stage (and ZUPT which is not enabled).
+  ////              Maybe we should make this function private latter.
   std::unordered_map<size_t, std::shared_ptr<Feature>> get_internal_data() {
     std::lock_guard<std::mutex> lck(mtx);
     return features_idlookup;
   }
+
+
+  void change_feat_id(size_t id_old, size_t id_new);
 
   /**
    * @brief Gets the oldest time in the database
@@ -156,7 +166,11 @@ public:
   /**
    * @brief Will update the passed database with this database's latest feature information.
    */
+  //// TODO(isaac): This function is not used for now. Otherwise it should update the 
+  ////              features_cache_idlookup as well;
   void append_new_measurements(const std::shared_ptr<FeatureDatabase> &database);
+
+  std::mutex& get_mutex() {return mtx;}
 
 protected:
   /// Mutex lock for our map
@@ -164,6 +178,9 @@ protected:
 
   /// Our lookup array that allow use to query based on ID
   std::unordered_map<size_t, std::shared_ptr<Feature>> features_idlookup;
+
+  /// Cache a window of measurements for visualization.
+  std::unordered_map<size_t, std::shared_ptr<Feature>> features_cache_idlookup;
 };
 
 } // namespace ov_core

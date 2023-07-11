@@ -46,7 +46,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
                                     std::unordered_map<size_t, std::shared_ptr<ov_type::Landmark>> &_features_SLAM) {
 
   // Get the newest and oldest timestamps we will try to initialize between!
-  auto rT1 = boost::posix_time::microsec_clock::local_time();
+  auto rT1 = std::chrono::high_resolution_clock::now();
   double newest_cam_time = -1;
   for (auto const &feat : _db->get_internal_data()) {
     for (auto const &camtimepair : feat.second->timestamps) {
@@ -174,7 +174,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   double theta_inI_norm = 0.0;
   double time0_in_imu = oldest_camera_time + params.calib_camimu_dt;
   double time1_in_imu = newest_cam_time + params.calib_camimu_dt;
-  std::vector<ov_core::ImuData> readings = InitializerHelper::select_imu_readings(*imu_data, time0_in_imu, time1_in_imu);
+  std::vector<ov_core::ImuData> readings = ov_core::ImuData::select_imu_readings(*imu_data, time0_in_imu, time1_in_imu);
   assert(readings.size() > 2);
   for (size_t k = 0; k < readings.size() - 1; k++) {
     auto imu0 = readings.at(k);
@@ -216,7 +216,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   //    features_bearings.insert({feat->featid, bearing});
   //    features_index.insert({feat->featid, (int)features_index.size()});
   //  }
-  auto rT2 = boost::posix_time::microsec_clock::local_time();
+  auto rT2 = std::chrono::high_resolution_clock::now();
 
   // ======================================================
   // ======================================================
@@ -257,7 +257,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
     auto cpiI0toIi1 = std::make_shared<ov_core::CpiV1>(params.sigma_w, params.sigma_wb, params.sigma_a, params.sigma_ab, true);
     cpiI0toIi1->setLinearizationPoints(gyroscope_bias, accelerometer_bias);
     std::vector<ov_core::ImuData> cpiI0toIi1_readings =
-        InitializerHelper::select_imu_readings(*imu_data, cpiI0toIi1_time0_in_imu, cpiI0toIi1_time1_in_imu);
+        ov_core::ImuData::select_imu_readings(*imu_data, cpiI0toIi1_time0_in_imu, cpiI0toIi1_time1_in_imu);
     if (cpiI0toIi1_readings.size() < 2) {
       PRINT_DEBUG(YELLOW "[init-d]: camera %.2f in has %zu IMU readings!\n" RESET, (cpiI0toIi1_time1_in_imu - cpiI0toIi1_time0_in_imu),
                   cpiI0toIi1_readings.size());
@@ -281,7 +281,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
     auto cpiIitoIi1 = std::make_shared<ov_core::CpiV1>(params.sigma_w, params.sigma_wb, params.sigma_a, params.sigma_ab, true);
     cpiIitoIi1->setLinearizationPoints(gyroscope_bias, accelerometer_bias);
     std::vector<ov_core::ImuData> cpiIitoIi1_readings =
-        InitializerHelper::select_imu_readings(*imu_data, cpiIitoIi1_time0_in_imu, cpiIitoIi1_time1_in_imu);
+        ov_core::ImuData::select_imu_readings(*imu_data, cpiIitoIi1_time0_in_imu, cpiIitoIi1_time1_in_imu);
     if (cpiIitoIi1_readings.size() < 2) {
       PRINT_DEBUG(YELLOW "[init-d]: camera %.2f in has %zu IMU readings!\n" RESET, (cpiIitoIi1_time1_in_imu - cpiIitoIi1_time0_in_imu),
                   cpiIitoIi1_readings.size());
@@ -391,7 +391,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
       }
     }
   }
-  auto rT3 = boost::posix_time::microsec_clock::local_time();
+  auto rT3 = std::chrono::high_resolution_clock::now();
 
   // ======================================================
   // ======================================================
@@ -489,7 +489,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   }
   PRINT_INFO("[init-d]: gravity in I0 was %.3f,%.3f,%.3f and |g| = %.4f\n", gravity_inI0(0), gravity_inI0(1), gravity_inI0(2),
              gravity_inI0.norm());
-  auto rT4 = boost::posix_time::microsec_clock::local_time();
+  auto rT4 = std::chrono::high_resolution_clock::now();
 
   // ======================================================
   // ======================================================
@@ -873,7 +873,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   assert(ceres_vars_ori.size() == ceres_vars_vel.size());
   assert(ceres_vars_ori.size() == ceres_vars_bias_a.size());
   assert(ceres_vars_ori.size() == ceres_vars_pos.size());
-  auto rT5 = boost::posix_time::microsec_clock::local_time();
+  auto rT5 = std::chrono::high_resolution_clock::now();
 
   // Optimize the ceres graph
   ceres::Solver::Summary summary;
@@ -881,7 +881,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   PRINT_INFO("[init-d]: %d iterations | %zu states, %zu feats (%zu valid) | %d param and %d res | cost %.4e => %.4e\n",
              (int)summary.iterations.size(), map_states.size(), map_features.size(), count_valid_features, summary.num_parameters,
              summary.num_residuals, summary.initial_cost, summary.final_cost);
-  auto rT6 = boost::posix_time::microsec_clock::local_time();
+  auto rT6 = std::chrono::high_resolution_clock::now();
 
   // Return if we have failed!
   timestamp = newest_cam_time;
@@ -1078,13 +1078,13 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   _imu->set_fej(x);
 
   // Debug timing information about how long it took to initialize!!
-  auto rT7 = boost::posix_time::microsec_clock::local_time();
-  PRINT_DEBUG("[TIME]: %.4f sec for prelim tests\n", (rT2 - rT1).total_microseconds() * 1e-6);
-  PRINT_DEBUG("[TIME]: %.4f sec for linsys setup\n", (rT3 - rT2).total_microseconds() * 1e-6);
-  PRINT_DEBUG("[TIME]: %.4f sec for linsys\n", (rT4 - rT3).total_microseconds() * 1e-6);
-  PRINT_DEBUG("[TIME]: %.4f sec for ceres opt setup\n", (rT5 - rT4).total_microseconds() * 1e-6);
-  PRINT_DEBUG("[TIME]: %.4f sec for ceres opt\n", (rT6 - rT5).total_microseconds() * 1e-6);
-  PRINT_DEBUG("[TIME]: %.4f sec for ceres covariance\n", (rT7 - rT6).total_microseconds() * 1e-6);
-  PRINT_DEBUG("[TIME]: %.4f sec total for initialization\n", (rT7 - rT1).total_microseconds() * 1e-6);
+  auto rT7 = std::chrono::high_resolution_clock::now();
+  PRINT_DEBUG("[TIME]: %.4f sec for prelim tests\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT2 - rT1).count());
+  PRINT_DEBUG("[TIME]: %.4f sec for linsys setup\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT3 - rT2).count());
+  PRINT_DEBUG("[TIME]: %.4f sec for linsys\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT4 - rT3).count());
+  PRINT_DEBUG("[TIME]: %.4f sec for ceres opt setup\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT5 - rT4).count());
+  PRINT_DEBUG("[TIME]: %.4f sec for ceres opt\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT6 - rT5).count());
+  PRINT_DEBUG("[TIME]: %.4f sec for ceres covariance\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT7 - rT6).count());
+  PRINT_DEBUG("[TIME]: %.4f sec total for initialization\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT7 - rT1).count());
   return true;
 }

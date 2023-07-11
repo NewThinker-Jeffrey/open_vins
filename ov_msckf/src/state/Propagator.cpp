@@ -24,12 +24,13 @@
 #include "state/State.h"
 #include "state/StateHelper.h"
 #include "utils/quat_ops.h"
+#include <Eigen/Geometry>
 
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timestamp) {
+void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timestamp, Eigen::Matrix3d* output_rotation) {
 
   // If the difference between the current update time and state is zero
   // We should crash, as this means we would have two clones at the same time!!!!
@@ -64,7 +65,29 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
   std::vector<ov_core::ImuData> prop_data;
   {
     std::lock_guard<std::mutex> lck(imu_data_mtx);
-    prop_data = Propagator::select_imu_readings(imu_data, time0, time1);
+    prop_data = ov_core::ImuData::select_imu_readings(imu_data, time0, time1);
+  }
+
+  prop_data = ImuData::fill_imu_data_gaps(prop_data);
+
+  if (output_rotation) {
+    if (prop_data.size() < 2) {
+      PRINT_WARNING(YELLOW "propagate_and_clone::output_rotation: no prop_data!\n" RESET);
+      *output_rotation = Eigen::Matrix3d::Identity();
+    } else {
+      Eigen::Quaterniond q(1,0,0,0);
+      for (size_t i=0; i<prop_data.size()-1; i++) {
+        const auto & d0 = prop_data[i];
+        const auto & d1 = prop_data[i+1];
+        double dt = d1.timestamp - d0.timestamp;
+        Eigen::Vector3d w_ave = 0.5 * (d0.wm + d1.wm) - state->_imu->bias_g();
+        Eigen::Vector3d im = 0.5 * w_ave * dt;    
+        Eigen::Quaterniond dq(1, im.x(), im.y(), im.z());
+        q = q * dq;
+      }
+      q.normalize();
+      *output_rotation = q.toRotationMatrix();
+    }
   }
 
   // We are going to sum up all the state transition matrices, so we can do a single large multiplication at the end
@@ -121,8 +144,7 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
 }
 
 bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double timestamp, Eigen::Matrix<double, 13, 1> &state_plus,
-                                      Eigen::Matrix<double, 12, 12> &covariance) {
-
+                                      Eigen::Matrix<double, 12, 12> &covariance, double* output_timestamp) {
   // First we will store the current calibration / estimates of the state
   double state_time = state->_timestamp;
   Eigen::MatrixXd state_est = state->_imu->value();
@@ -130,15 +152,26 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
   double t_off = state->_calib_dt_CAMtoIMU->value()(0);
 
   // First lets construct an IMU vector of measurements we need
-  double time0 = state_time + t_off;
-  double time1 = timestamp + t_off;
   std::vector<ov_core::ImuData> prop_data;
   {
+    double time0 = state_time + t_off;
     std::lock_guard<std::mutex> lck(imu_data_mtx);
-    prop_data = Propagator::select_imu_readings(imu_data, time0, time1, false);
+    double time1;
+    if (timestamp < 0) {
+      time1 = imu_data.back().timestamp;
+    } else {
+      time1 = timestamp + t_off;
+    }
+    prop_data = ov_core::ImuData::select_imu_readings(imu_data, time0, time1, false);
   }
   if (prop_data.size() < 2)
     return false;
+
+  prop_data = ImuData::fill_imu_data_gaps(prop_data);
+  if (output_timestamp) {
+    *output_timestamp = prop_data.back().timestamp - t_off;
+  }
+  
 
   // Biases
   Eigen::Vector3d bias_g = state_est.block(10, 0, 3, 1);
@@ -216,123 +249,6 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
   double dt = prop_data.at(prop_data.size() - 1).timestamp - prop_data.at(prop_data.size() - 2).timestamp;
   covariance.block(9, 9, 3, 3) = _noises.sigma_w_2 / dt * Eigen::Matrix3d::Identity();
   return true;
-}
-
-std::vector<ov_core::ImuData> Propagator::select_imu_readings(const std::vector<ov_core::ImuData> &imu_data, double time0, double time1,
-                                                              bool warn) {
-
-  // Our vector imu readings
-  std::vector<ov_core::ImuData> prop_data;
-
-  // Ensure we have some measurements in the first place!
-  if (imu_data.empty()) {
-    if (warn)
-      PRINT_WARNING(YELLOW "Propagator::select_imu_readings(): No IMU measurements. IMU-CAMERA are likely messed up!!!\n" RESET);
-    return prop_data;
-  }
-
-  // Loop through and find all the needed measurements to propagate with
-  // Note we split measurements based on the given state time, and the update timestamp
-  for (size_t i = 0; i < imu_data.size() - 1; i++) {
-
-    // START OF THE INTEGRATION PERIOD
-    // If the next timestamp is greater then our current state time
-    // And the current is not greater then it yet...
-    // Then we should "split" our current IMU measurement
-    if (imu_data.at(i + 1).timestamp > time0 && imu_data.at(i).timestamp < time0) {
-      ov_core::ImuData data = Propagator::interpolate_data(imu_data.at(i), imu_data.at(i + 1), time0);
-      prop_data.push_back(data);
-      // PRINT_DEBUG("propagation #%d = CASE 1 = %.3f => %.3f\n", (int)i, data.timestamp - prop_data.at(0).timestamp,
-      //             time0 - prop_data.at(0).timestamp);
-      continue;
-    }
-
-    // MIDDLE OF INTEGRATION PERIOD
-    // If our imu measurement is right in the middle of our propagation period
-    // Then we should just append the whole measurement time to our propagation vector
-    if (imu_data.at(i).timestamp >= time0 && imu_data.at(i + 1).timestamp <= time1) {
-      prop_data.push_back(imu_data.at(i));
-      // PRINT_DEBUG("propagation #%d = CASE 2 = %.3f\n", (int)i, imu_data.at(i).timestamp - prop_data.at(0).timestamp);
-      continue;
-    }
-
-    // END OF THE INTEGRATION PERIOD
-    // If the current timestamp is greater then our update time
-    // We should just "split" the NEXT IMU measurement to the update time,
-    // NOTE: we add the current time, and then the time at the end of the interval (so we can get a dt)
-    // NOTE: we also break out of this loop, as this is the last IMU measurement we need!
-    if (imu_data.at(i + 1).timestamp > time1) {
-      // If we have a very low frequency IMU then, we could have only recorded the first integration (i.e. case 1) and nothing else
-      // In this case, both the current IMU measurement and the next is greater than the desired intepolation, thus we should just cut the
-      // current at the desired time Else, we have hit CASE2 and this IMU measurement is not past the desired propagation time, thus add the
-      // whole IMU reading
-      if (imu_data.at(i).timestamp > time1 && i == 0) {
-        // This case can happen if we don't have any imu data that has occured before the startup time
-        // This means that either we have dropped IMU data, or we have not gotten enough.
-        // In this case we can't propgate forward in time, so there is not that much we can do.
-        break;
-      } else if (imu_data.at(i).timestamp > time1) {
-        ov_core::ImuData data = interpolate_data(imu_data.at(i - 1), imu_data.at(i), time1);
-        prop_data.push_back(data);
-        // PRINT_DEBUG("propagation #%d = CASE 3.1 = %.3f => %.3f\n",
-        // (int)i,imu_data.at(i).timestamp-prop_data.at(0).timestamp,imu_data.at(i).timestamp-time0);
-      } else {
-        prop_data.push_back(imu_data.at(i));
-        // PRINT_DEBUG("propagation #%d = CASE 3.2 = %.3f => %.3f\n",
-        // (int)i,imu_data.at(i).timestamp-prop_data.at(0).timestamp,imu_data.at(i).timestamp-time0);
-      }
-      // If the added IMU message doesn't end exactly at the camera time
-      // Then we need to add another one that is right at the ending time
-      if (prop_data.at(prop_data.size() - 1).timestamp != time1) {
-        ov_core::ImuData data = interpolate_data(imu_data.at(i), imu_data.at(i + 1), time1);
-        prop_data.push_back(data);
-        // PRINT_DEBUG("propagation #%d = CASE 3.3 = %.3f => %.3f\n", (int)i,data.timestamp-prop_data.at(0).timestamp,data.timestamp-time0);
-      }
-      break;
-    }
-  }
-
-  // Check that we have at least one measurement to propagate with
-  if (prop_data.empty()) {
-    if (warn)
-      PRINT_WARNING(
-          YELLOW
-          "Propagator::select_imu_readings(): No IMU measurements to propagate with (%d of 2). IMU-CAMERA are likely messed up!!!\n" RESET,
-          (int)prop_data.size());
-    return prop_data;
-  }
-
-  // If we did not reach the whole integration period (i.e., the last inertial measurement we have is smaller then the time we want to
-  // reach) Then we should just "stretch" the last measurement to be the whole period (case 3 in the above loop)
-  // if(time1-imu_data.at(imu_data.size()-1).timestamp > 1e-3) {
-  //    PRINT_DEBUG(YELLOW "Propagator::select_imu_readings(): Missing inertial measurements to propagate with (%.6f sec missing).
-  //    IMU-CAMERA are likely messed up!!!\n" RESET, (time1-imu_data.at(imu_data.size()-1).timestamp)); return prop_data;
-  //}
-
-  // Loop through and ensure we do not have an zero dt values
-  // This would cause the noise covariance to be Infinity
-  for (size_t i = 0; i < prop_data.size() - 1; i++) {
-    if (std::abs(prop_data.at(i + 1).timestamp - prop_data.at(i).timestamp) < 1e-12) {
-      if (warn)
-        PRINT_WARNING(YELLOW "Propagator::select_imu_readings(): Zero DT between IMU reading %d and %d, removing it!\n" RESET, (int)i,
-                      (int)(i + 1));
-      prop_data.erase(prop_data.begin() + i);
-      i--;
-    }
-  }
-
-  // Check that we have at least one measurement to propagate with
-  if (prop_data.size() < 2) {
-    if (warn)
-      PRINT_WARNING(
-          YELLOW
-          "Propagator::select_imu_readings(): No IMU measurements to propagate with (%d of 2). IMU-CAMERA are likely messed up!!!\n" RESET,
-          (int)prop_data.size());
-    return prop_data;
-  }
-
-  // Success :D
-  return prop_data;
 }
 
 void Propagator::predict_and_compute(std::shared_ptr<State> state, const ov_core::ImuData &data_minus, const ov_core::ImuData &data_plus,

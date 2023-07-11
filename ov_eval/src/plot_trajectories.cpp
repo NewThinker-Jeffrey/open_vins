@@ -21,7 +21,7 @@
 
 #include <Eigen/Eigen>
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/foreach.hpp>
 #include <fstream>
 #include <iostream>
@@ -149,7 +149,7 @@ int main(int argc, char **argv) {
     }
 
     // Debug print the length stats
-    boost::filesystem::path path(argv[i]);
+    std::filesystem::path path(argv[i]);
     std::string name = path.stem().string();
     double length = ov_eval::Loader::get_total_length(poses_temp);
     PRINT_INFO("[COMP]: %d poses in %s => length of %.2f meters\n", (int)times_temp.size(), name.c_str(), length);

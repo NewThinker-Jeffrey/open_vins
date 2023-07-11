@@ -9,9 +9,10 @@ find_package(OpenCV 3 QUIET)
 if (NOT OpenCV_FOUND)
     find_package(OpenCV 4 REQUIRED)
 endif ()
-find_package(Boost REQUIRED COMPONENTS system filesystem thread date_time)
 find_package(Ceres REQUIRED)
-message(STATUS "OPENCV: " ${OpenCV_VERSION} " | BOOST: " ${Boost_VERSION} " | CERES: " ${Ceres_VERSION})
+message(STATUS "OPENCV: " ${OpenCV_VERSION} " | CERES: " ${Ceres_VERSION})
+# find_package(Boost REQUIRED COMPONENTS system filesystem thread date_time)
+# message(STATUS "Boost: " ${Boost_VERSION} ")
 
 # check if we have our python libs files (will search for python3 then python2 installs)
 # sudo apt-get install python-matplotlib python-numpy python-dev
@@ -29,7 +30,7 @@ endif ()
 
 # We need c++14 for ROS2, thus just require it for everybody
 # NOTE: To future self, hope this isn't an issue...
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)  # use c++ 17
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 

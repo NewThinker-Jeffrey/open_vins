@@ -44,6 +44,37 @@ struct ImuData {
 
   /// Sort function to allow for using of STL containers
   bool operator<(const ImuData &other) const { return timestamp < other.timestamp; }
+
+  /**
+   * @brief Nice helper function that will linearly interpolate between two imu messages.
+   *
+   * This should be used instead of just "cutting" imu messages that bound the camera times
+   * Give better time offset if we use this function, could try other orders/splines if the imu is slow.
+   *
+   * @param imu_1 imu at begining of interpolation interval
+   * @param imu_2 imu at end of interpolation interval
+   * @param timestamp Timestamp being interpolated to
+   */
+  static ImuData interpolate_data(const ImuData &imu_1, const ImuData &imu_2, double timestamp);
+
+
+  static std::vector<ImuData> fill_imu_data_gaps(const std::vector<ImuData>& in_data, double max_gap = 0.011);
+
+  /**
+   * @brief Helper function that given current imu data, will select imu readings between the two times.
+   *
+   * This will create measurements that we will integrate with, and an extra measurement at the end.
+   * We use the @ref interpolate_data() function to "cut" the imu readings at the begining and end of the integration.
+   * The timestamps passed should already take into account the time offset values.
+   *
+   * @param imu_data IMU data we will select measurements from
+   * @param time0 Start timestamp
+   * @param time1 End timestamp
+   * @param warn If we should warn if we don't have enough IMU to propagate with (e.g. fast prop will get warnings otherwise)
+   * @return Vector of measurements (if we could compute them)
+   */
+  static std::vector<ImuData> select_imu_readings(const std::vector<ImuData> &imu_data, double time0, double time1,
+                                                  bool warn = true);
 };
 
 /**

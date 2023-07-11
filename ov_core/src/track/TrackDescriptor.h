@@ -51,8 +51,10 @@ public:
    * @param knnratio matching ratio needed (smaller value forces top two descriptors during match to be more different)
    */
   explicit TrackDescriptor(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
-                           HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist, double knnratio)
-      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
+                           HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist, double knnratio,
+                           std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>(),
+                           bool keypoint_predict = true, bool high_frequency_log = false)
+      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod, camera_extrinsics, keypoint_predict, high_frequency_log), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
         min_px_dist(minpxdist), knn_ratio(knnratio) {}
 
   /**
@@ -143,7 +145,7 @@ protected:
                             std::vector<cv::DMatch> &good_matches);
 
   // Timing variables
-  boost::posix_time::ptime rT1, rT2, rT3, rT4, rT5, rT6, rT7;
+  std::chrono::high_resolution_clock::time_point rT1, rT2, rT3, rT4, rT5, rT6, rT7;
 
   // Our orb extractor
   cv::Ptr<cv::ORB> orb0 = cv::ORB::create();

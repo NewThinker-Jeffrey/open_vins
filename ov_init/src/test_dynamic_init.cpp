@@ -27,8 +27,8 @@
 #include <unistd.h>
 #include <vector>
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/filesystem.hpp>
+#include <chrono>
+#include <filesystem>
 
 #if ROS_AVAILABLE == 1
 #include <nav_msgs/Path.h>
@@ -100,9 +100,9 @@ int main(int argc, char **argv) {
 
   // Load the config
   auto parser = std::make_shared<ov_core::YamlParser>(config_path);
-#if ROS_AVAILABLE == 1
-  parser->set_node_handler(nh);
-#endif
+// #if ROS_AVAILABLE == 1
+//   parser->set_node_handler(nh);
+// #endif
 
   // Verbosity
   std::string verbosity = "INFO";
@@ -176,10 +176,10 @@ int main(int argc, char **argv) {
       std::unordered_map<size_t, std::shared_ptr<ov_type::Landmark>> _features_SLAM;
 
       // First we will try to make sure we have all the data required for our initialization
-      boost::posix_time::ptime rT1 = boost::posix_time::microsec_clock::local_time();
+      std::chrono::high_resolution_clock::time_point rT1 = std::chrono::high_resolution_clock::now();
       bool success = initializer->initialize(timestamp, covariance, order, _imu, _clones_IMU, _features_SLAM);
-      boost::posix_time::ptime rT2 = boost::posix_time::microsec_clock::local_time();
-      double time = (rT2 - rT1).total_microseconds() * 1e-6;
+      std::chrono::high_resolution_clock::time_point rT2 = std::chrono::high_resolution_clock::now();
+      double time = std::chrono::duration_cast<std::chrono::duration<double>>(rT2 - rT1).count();
       if (success) {
 
         // Debug that we finished!

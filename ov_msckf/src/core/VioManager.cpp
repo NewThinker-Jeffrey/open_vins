@@ -33,6 +33,7 @@
 #include "utils/opencv_lambda_body.h"
 #include "utils/print.h"
 #include "utils/sensor_data.h"
+#include "utils/quat_ops.h"
 
 #include "init/InertialInitializer.h"
 
@@ -47,7 +48,11 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false), thread_init_success(false) {
+VioManager::VioManager(VioManagerOptions &params_) : 
+    thread_init_running(false), thread_init_success(false), 
+    stop_request_(false), 
+    cur_gyro_integrated_time(-1.0),
+    cur_gyro_integrated_rotation(Eigen::Matrix3d::Identity()) {
 
   // Nice startup message
   PRINT_DEBUG("=======================================\n");
@@ -89,25 +94,30 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   //===================================================================================
   //===================================================================================
 
-  // If we are recording statistics, then open our file
-  if (params.record_timing_information) {
-    // If the file exists, then delete it
-    if (boost::filesystem::exists(params.record_timing_filepath)) {
-      boost::filesystem::remove(params.record_timing_filepath);
-      PRINT_INFO(YELLOW "[STATS]: found old file found, deleted...\n" RESET);
-    }
-    // Create the directory that we will open the file in
-    boost::filesystem::path p(params.record_timing_filepath);
-    boost::filesystem::create_directories(p.parent_path());
-    // Open our statistics file!
-    of_statistics.open(params.record_timing_filepath, std::ofstream::out | std::ofstream::app);
-    // Write the header information into it
-    of_statistics << "# timestamp (sec),tracking,propagation,msckf update,";
-    if (state->_options.max_slam_features > 0) {
-      of_statistics << "slam update,slam delayed,";
-    }
-    of_statistics << "re-tri & marg,total" << std::endl;
-  }
+  // // If we are recording statistics, then open our file
+  // if (params.record_timing_information) {
+  //   // override the record_timing_filepath if output_dir is set.
+  //   if (!params.output_dir.empty()) {
+  //     params.record_timing_filepath = params.output_dir + "/" + "ov_msckf_timing.txt";
+  //   }
+
+  //   // If the file exists, then delete it
+  //   if (std::filesystem::exists(params.record_timing_filepath)) {
+  //     std::filesystem::remove(params.record_timing_filepath);
+  //     PRINT_INFO(YELLOW "[STATS]: found old file found, deleted...\n" RESET);
+  //   }
+  //   // Create the directory that we will open the file in
+  //   std::filesystem::path p(params.record_timing_filepath);
+  //   std::filesystem::create_directories(p.parent_path());
+  //   // Open our statistics file!
+  //   of_statistics.open(params.record_timing_filepath, std::ofstream::out | std::ofstream::app);
+  //   // Write the header information into it
+  //   of_statistics << "# timestamp (sec),tracking,propagation,msckf update,";
+  //   if (state->_options.max_slam_features > 0) {
+  //     of_statistics << "slam update,slam delayed,";
+  //   }
+  //   of_statistics << "re-tri & marg,total" << std::endl;
+  // }
 
   //===================================================================================
   //===================================================================================
@@ -120,11 +130,17 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   if (params.use_klt) {
     trackFEATS = std::shared_ptr<TrackBase>(new TrackKLT(state->_cam_intrinsics_cameras, init_max_features,
                                                          state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
-                                                         params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist));
+                                                         params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist,
+                                                         params.camera_extrinsics,
+                                                         params.klt_left_major_stereo, params.klt_strict_stereo, params.klt_force_fundamental,
+                                                         params.feattrack_predict_keypoints,
+                                                         params.feattrack_high_frequency_log));
   } else {
     trackFEATS = std::shared_ptr<TrackBase>(new TrackDescriptor(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
-        params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio));
+        params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio, params.camera_extrinsics,
+        params.feattrack_predict_keypoints,
+        params.feattrack_high_frequency_log));
   }
 
   // Initialize our aruco tag extractor
@@ -140,8 +156,8 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   initializer = std::make_shared<ov_init::InertialInitializer>(params.init_options, trackFEATS->get_feature_database());
 
   // Make the updater!
-  updaterMSCKF = std::make_shared<UpdaterMSCKF>(params.msckf_options, params.featinit_options);
-  updaterSLAM = std::make_shared<UpdaterSLAM>(params.slam_options, params.aruco_options, params.featinit_options);
+  updaterMSCKF = std::make_shared<UpdaterMSCKF>(params.msckf_options, params.featinit_options, trackFEATS->get_feature_database());
+  updaterSLAM = std::make_shared<UpdaterSLAM>(params.slam_options, params.aruco_options, params.featinit_options, trackFEATS->get_feature_database());
 
   // If we are using zero velocity updates, then create the updater
   if (params.try_zupt) {
@@ -152,20 +168,71 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
 
   // Feature initializer for active tracks
   active_tracks_initializer = std::make_shared<FeatureInitializer>(params.featinit_options);
+
+  // sync the output with our state
+  update_output(-1);
+
+  if (params.async_img_process)  {
+    feature_tracking_thread_.reset(new std::thread(std::bind(&VioManager::feature_tracking_thread_func, this)));
+    update_thread_.reset(new std::thread(std::bind(&VioManager::update_thread_func, this)));
+  }
+}
+
+void VioManager::stop_threads() {
+  stop_request_ = true;
+  if (initialization_thread_ && initialization_thread_->joinable()) {
+    initialization_thread_->join();
+    initialization_thread_.reset();
+  }
+  std::cout << "initialization_thread stoped." << std::endl;
+
+  if (feature_tracking_thread_ && feature_tracking_thread_->joinable()) {
+    {
+      std::unique_lock<std::mutex> locker(feature_tracking_task_queue_mutex_);
+      feature_tracking_task_queue_cond_.notify_one();
+    }
+    feature_tracking_thread_->join();
+    feature_tracking_thread_.reset();
+  }
+  std::cout << "feature_tracking_thread stoped." << std::endl;
+
+  if (update_thread_ && update_thread_->joinable()) {
+    {
+      std::unique_lock<std::mutex> locker(update_task_queue_mutex_);
+      update_task_queue_cond_.notify_one();
+    }
+    update_thread_->join();
+    update_thread_.reset();
+  }
+  std::cout << "update_thread stoped." << std::endl;
 }
 
 void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
+  if (stop_request_) {
+    PRINT_WARNING(YELLOW "VioManager::feed_measurement_imu called after the stop_request!\n" RESET);
+    return;
+  }
 
   // The oldest time we need IMU with is the last clone
   // We shouldn't really need the whole window, but if we go backwards in time we will
-  double oldest_time = state->margtimestep();
-  if (oldest_time > state->_timestamp) {
-    oldest_time = -1;
+  // double oldest_time = state->margtimestep();  // not thread-safe
+
+  double oldest_time;
+  {
+    std::unique_lock<std::mutex> locker(output_mutex_);
+    // it's ok to get these timestamps from the last cloned state.
+    oldest_time = output.state_clone->margtimestep();
+    if (oldest_time > output.state_clone->_timestamp) {
+      oldest_time = -1;
+    }
+    if (!output.status.initialized) {
+      oldest_time = message.timestamp - params.init_options.init_window_time + output.state_clone->_calib_dt_CAMtoIMU->value()(0) - 0.10;
+    }
   }
-  if (!is_initialized_vio) {
-    oldest_time = message.timestamp - params.init_options.init_window_time + state->_calib_dt_CAMtoIMU->value()(0) - 0.10;
-  }
+
   propagator->feed_imu(message, oldest_time);
+  trackFEATS->feed_imu(message, oldest_time);
+  // trackARUCO->feed_imu(message, oldest_time);
 
   // Push back to our initializer
   if (!is_initialized_vio) {
@@ -177,13 +244,25 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
   if (is_initialized_vio && updaterZUPT != nullptr && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
     updaterZUPT->feed_imu(message, oldest_time);
   }
+
+  {
+    std::unique_lock<std::mutex> locker(imu_sync_mutex_);
+    last_imu_time_ = message.timestamp;
+    imu_sync_cond_.notify_all();
+  }
 }
 
 void VioManager::feed_measurement_simulation(double timestamp, const std::vector<int> &camids,
                                              const std::vector<std::vector<std::pair<size_t, Eigen::VectorXf>>> &feats) {
+  if (stop_request_) {
+    PRINT_WARNING(YELLOW "VioManager::feed_measurement_simulation called after the stop_request!\n" RESET);
+    return;
+  }
+
+  ImgProcessContextPtr c(new ImgProcessContext());
 
   // Start timing
-  rT1 = boost::posix_time::microsec_clock::local_time();
+  c->rT1 = std::chrono::high_resolution_clock::now();
 
   // Check if we actually have a simulated tracker
   // If not, recreate and re-cast the tracker to our simulation tracker
@@ -204,7 +283,7 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
 
   // Feed our simulation tracker
   trackSIM->feed_measurement_simulation(timestamp, camids, feats);
-  rT2 = boost::posix_time::microsec_clock::local_time();
+  c->rT2 = std::chrono::high_resolution_clock::now();
 
   // Check if we should do zero-velocity, if so update the state with it
   // Note that in the case that we only use in the beginning initialization phase
@@ -240,23 +319,107 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
     message.images.push_back(cv::Mat::zeros(cv::Size(width, height), CV_8UC1));
     message.masks.push_back(cv::Mat::zeros(cv::Size(width, height), CV_8UC1));
   }
-  do_feature_propagate_update(message);
+
+  c->message.reset(new ov_core::CameraData(std::move(message)));
+  do_feature_propagate_update(c);
 }
 
-void VioManager::track_image_and_update(const ov_core::CameraData &message_const) {
+void VioManager::feature_tracking_thread_func() {
+  pthread_setname_np(pthread_self(), "ov_track");
 
-  // Start timing
-  rT1 = boost::posix_time::microsec_clock::local_time();
+  while(1) {
+    ImgProcessContextPtr c;
+    size_t queue_size;
+    {
+      std::unique_lock<std::mutex> locker(feature_tracking_task_queue_mutex_);
+      feature_tracking_task_queue_cond_.wait(locker, [this](){
+        return ! feature_tracking_task_queue_.empty() || stop_request_;
+      });
+      queue_size = feature_tracking_task_queue_.size();
+      if (queue_size > 0) {
+        c = feature_tracking_task_queue_.front();
+        feature_tracking_task_queue_.pop_front();
+      } else {  // stop_request_ is true and we've finished the queue
+        return;
+      }
+    }
 
+    if (queue_size > 2) {
+      PRINT_WARNING(YELLOW "too many feature tracking tasks in the queue!! (queue size = %d)\n" RESET,
+                    (queue_size));
+    }
+
+    do_feature_tracking(c);
+
+    {
+      std::unique_lock<std::mutex> locker(update_task_queue_mutex_);
+      update_task_queue_.push_back(c);
+      update_task_queue_cond_.notify_one();
+    }
+  }
+}
+
+void VioManager::update_thread_func() {
+  pthread_setname_np(pthread_self(), "ov_update");
+
+  while(1) {
+    ImgProcessContextPtr c;
+    int abandon = 0;
+    size_t queue_size;
+    {
+      std::unique_lock<std::mutex> locker(update_task_queue_mutex_);
+      update_task_queue_cond_.wait(locker, [this](){
+        return ! update_task_queue_.empty() || stop_request_;
+      });
+      while (update_task_queue_.size() > 2) {
+        update_task_queue_.pop_front();
+        abandon ++;
+      }
+      queue_size = update_task_queue_.size();
+      if (queue_size > 0) {
+        c = update_task_queue_.front();
+        update_task_queue_.pop_front();
+      } else {  // stop_request_ is true and we've finished the queue
+        return;
+      }
+    }
+
+    if (abandon > 0) {
+      PRINT_WARNING(YELLOW "Abandon some updating tasks!! (abandon %d)\n" RESET,
+                    (abandon));
+    }
+
+    do_update(c);
+    has_drift = check_drift();
+    update_output(c->message->timestamp);
+  }
+}
+
+void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
+  ov_core::CameraData &message = *(c->message);
+  std::shared_ptr<Output> output = getLastOutput();
+  double t_d = output->state_clone->_calib_dt_CAMtoIMU->value()(0);
+  Eigen::Vector3d gyro_bias = output->state_clone->_imu->bias_g();
+
+  double timestamp_imu_inC;
+  {
+    // We are able to process if we have at least one IMU measurement greater than the camera time
+    std::unique_lock<std::mutex> locker(imu_sync_mutex_);
+    imu_sync_cond_.wait(locker, [&](){
+      timestamp_imu_inC = last_imu_time_ - t_d;
+      return  message.timestamp < timestamp_imu_inC || stop_request_;
+    });
+  }
+
+  c->rT1 = std::chrono::high_resolution_clock::now();
   // Assert we have valid measurement data and ids
-  assert(!message_const.sensor_ids.empty());
-  assert(message_const.sensor_ids.size() == message_const.images.size());
-  for (size_t i = 0; i < message_const.sensor_ids.size() - 1; i++) {
-    assert(message_const.sensor_ids.at(i) != message_const.sensor_ids.at(i + 1));
+  assert(!message.sensor_ids.empty());
+  assert(message.sensor_ids.size() == message.images.size());
+  for (size_t i = 0; i < message.sensor_ids.size() - 1; i++) {
+    assert(message.sensor_ids.at(i) != message.sensor_ids.at(i + 1));
   }
 
   // Downsample if we are downsampling
-  ov_core::CameraData message = message_const;
   for (size_t i = 0; i < message.sensor_ids.size() && params.downsample_cameras; i++) {
     cv::Mat img = message.images.at(i);
     cv::Mat mask = message.masks.at(i);
@@ -268,6 +431,8 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
   }
 
   // Perform our feature tracking!
+  trackFEATS->set_t_d(t_d);
+  trackFEATS->set_gyro_bias(gyro_bias);
   trackFEATS->feed_new_camera(message);
 
   // If the aruco tracker is available, the also pass to it
@@ -276,7 +441,25 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
   if (is_initialized_vio && trackARUCO != nullptr) {
     trackARUCO->feed_new_camera(message);
   }
-  rT2 = boost::posix_time::microsec_clock::local_time();
+  c->rT2 = std::chrono::high_resolution_clock::now();
+}
+
+
+void VioManager::do_update(ImgProcessContextPtr c) {
+  ov_core::CameraData &message = *(c->message);
+  double timestamp_imu_inC;
+  {
+    // We are able to process if we have at least one IMU measurement greater than the camera time
+    std::unique_lock<std::mutex> locker(imu_sync_mutex_);
+    imu_sync_cond_.wait(locker, [&](){
+      timestamp_imu_inC = last_imu_time_ - state->_calib_dt_CAMtoIMU->value()(0);
+      return  message.timestamp < timestamp_imu_inC || stop_request_;
+    });
+  }
+
+  if (message.timestamp >= timestamp_imu_inC) {
+    return;   // stop_request_ is true and we don't have newer imu data.
+  }
 
   // Check if we should do zero-velocity, if so update the state with it
   // Note that in the case that we only use in the beginning initialization phase
@@ -299,17 +482,194 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
   if (!is_initialized_vio) {
     is_initialized_vio = try_to_initialize(message);
     if (!is_initialized_vio) {
-      double time_track = (rT2 - rT1).total_microseconds() * 1e-6;
+      double time_track = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT2 - c->rT1).count();
       PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for tracking\n" RESET, time_track);
       return;
     }
   }
 
   // Call on our propagate and update function
-  do_feature_propagate_update(message);
+  do_feature_propagate_update(c);
 }
 
-void VioManager::do_feature_propagate_update(const ov_core::CameraData &message) {
+bool VioManager::check_drift() {
+  constexpr double acc_bias_thr = 3.0;  // m / s^2
+  constexpr double gyro_bias_thr = 1.0;  // rad / s
+  constexpr double velocity_thr = 2.0;  // m / s
+  constexpr double std_p_thr = 2.0;  // m  (larger std_p means we've lost confidence about the estimate)
+  constexpr double std_q_thr = 0.5;  // rad
+
+
+  if (!is_initialized_vio || !state || state->_timestamp <= 0) {
+    return false;  // we have not initialized.
+  }
+
+  if (last_drift_check_time >= state->_timestamp) {
+    return false;  // prevent duplicate checks.
+  }
+
+  double dt = state->_timestamp - last_drift_check_time;
+  double ds = 0.0;
+  if (last_drift_check_distance > 0 ) {
+    ds = distance - last_drift_check_distance;
+  }
+
+  last_drift_check_time = state->_timestamp;
+  last_drift_check_distance = distance;
+
+  Eigen::Vector3d acc_bias = state->_imu->bias_a();
+  Eigen::Vector3d gyro_bias = state->_imu->bias_g();
+  Eigen::Vector3d vel = state->_imu->vel();
+
+  double newest_clone_time = -1.0;
+  std::shared_ptr<ov_type::PoseJPL> newest_clone_pose;
+  for (auto it = state->_clones_IMU.begin(); it != state->_clones_IMU.end(); it ++) {
+    if (it->first > newest_clone_time) {
+      newest_clone_time = it->first;
+      newest_clone_pose = it->second;
+    }
+  }
+
+  double std_p = 0.0;
+  double std_q = 0.0;
+  if (newest_clone_pose) {
+    Eigen::MatrixXd cov =
+    StateHelper::get_marginal_covariance(state, {newest_clone_pose});
+    Eigen::MatrixXd q_cov = cov.block(0,0,3,3);
+    Eigen::MatrixXd p_cov = cov.block(3,3,3,3);
+    std_q = std::sqrt(q_cov.trace());
+    std_p = std::sqrt(p_cov.trace());
+  }
+  
+  bool drift_alarm = false;
+  if (vel.norm() > velocity_thr || ds / dt > velocity_thr ||
+      acc_bias.norm() > acc_bias_thr || gyro_bias.norm() > gyro_bias_thr ||
+      std_q > std_q_thr || std_p > std_p_thr) {
+    drift_alarm = true;
+  }
+
+  if (drift_alarm) {
+    drift_alarm_count ++;
+  } else {
+    drift_alarm_count = 0;
+  }
+
+  PRINT_INFO("DriftCheck: vel=%.4f,  ds/dt=%.4f, acc_bias=%.4f,  gyro_bias=%.4f, "
+             "std_q=%.4f, std_p=%.4f, drift_alarm=%d, drift_alarm_count=%d\n",
+                           vel.norm(), ds/dt,    acc_bias.norm(), gyro_bias.norm(),
+              std_q,      std_p,       drift_alarm,    drift_alarm_count);
+
+  if (drift_alarm_count > 10) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void VioManager::update_output(double timestamp) {
+
+  Output output;
+  if (timestamp > 0) {
+    std::unique_lock<std::mutex> locker(output_mutex_);
+    output.status.prev_timestamp = this->output.status.timestamp;
+  } else {
+    output.status.prev_timestamp = -1;
+  }
+
+  output.status.timestamp = timestamp;
+  output.status.initialized = is_initialized_vio;
+  output.status.initialized_time = startup_time;
+  output.status.distance = distance;
+  output.status.drift = has_drift;
+  // output.state_clone = std::const_pointer_cast<const State>(state->clone());
+  output.state_clone = std::const_pointer_cast<State>(state->clone());
+  output.visualization.good_features_MSCKF = good_features_MSCKF;
+  output.visualization.good_feature_ids_MSCKF = good_feature_ids_MSCKF;
+  output.visualization.features_SLAM = get_features_SLAM();
+  output.visualization.feature_ids_SLAM = get_feature_ids_SLAM();
+  output.visualization.features_ARUCO = get_features_ARUCO();
+  output.visualization.feature_ids_ARUCO = get_feature_ids_ARUCO();
+  output.visualization.active_tracks_posinG = active_tracks_posinG;
+  output.visualization.active_tracks_uvd = active_tracks_uvd;
+  output.visualization.active_cam0_image = active_image;
+  std::unique_lock<std::mutex> locker(output_mutex_);
+  this->output = std::move(output);
+}
+
+void VioManager::clear_older_tracking_cache(double timestamp) {
+  trackFEATS->clear_older_history(timestamp);
+  trackFEATS->get_feature_database()->cleanup_measurements_cache(timestamp - 2.0);  // 2s
+
+  if (trackARUCO) {
+    trackARUCO->clear_older_history(timestamp);
+    trackARUCO->get_feature_database()->cleanup_measurements_cache(timestamp - 2.0);  // 2s
+  }  
+}
+
+void VioManager::feed_measurement_camera(ov_core::CameraData &&message) {
+  if (stop_request_) {
+    PRINT_WARNING(YELLOW "VioManager::feed_measurement_camera called after the stop_request!\n" RESET);
+    return;
+  }
+
+  std::deque<ov_core::CameraData> pending_messages;
+  double time_delta = 1.0 / params.track_frequency;
+
+  {
+    std::unique_lock<std::mutex> locker(camera_queue_mutex_);
+    camera_queue_.push_back(message);
+    std::sort(camera_queue_.begin(), camera_queue_.end());
+    size_t num_unique_cameras = (params.state_options.num_cameras == 2) ? 1 : params.state_options.num_cameras;
+
+    while(1) {
+      // Count how many unique image streams
+      std::map<int, bool> unique_cam_ids;
+      for (const auto &cam_msg : camera_queue_) {
+        unique_cam_ids[cam_msg.sensor_ids.at(0)] = true;
+      }
+  
+      // We should wait till we have one of each camera to ensure we propagate in the correct order
+      if (unique_cam_ids.size() == num_unique_cameras) {
+        pending_messages.push_back(std::move(camera_queue_.at(0)));
+        camera_queue_.pop_front();
+      } else {
+        // If we do not have enough unique cameras then we need to wait (for the nexe message)
+        break;
+      }
+    }
+  }
+
+  for (auto & msg : pending_messages) {
+    // Check if we should drop this image
+    int cam_id0 = msg.sensor_ids[0];
+    if (camera_last_timestamp.find(cam_id0) != camera_last_timestamp.end() && msg.timestamp < camera_last_timestamp.at(cam_id0) + time_delta) {
+      return;
+    }
+    track_image_and_update(std::move(msg));
+  }
+}
+
+void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
+  // Start timing
+  auto c = std::make_shared<ImgProcessContext>();
+  c->message = std::make_shared<ov_core::CameraData>(std::move(message_in));
+  if (params.async_img_process)  {
+    PRINT_DEBUG("Run feature tracking and state update in separate threads\n");
+    std::unique_lock<std::mutex> locker(feature_tracking_task_queue_mutex_);
+    feature_tracking_task_queue_.push_back(c);
+    feature_tracking_task_queue_cond_.notify_one();
+  } else {
+    PRINT_DEBUG("Run feature tracking and state update in the same thread\n");
+    do_feature_tracking(c);
+    do_update(c);
+    has_drift = check_drift();
+    update_output(c->message->timestamp);
+  }
+}
+
+void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
+  ov_core::CameraData &message = *(c->message);
+  auto tmp_rT2 = std::chrono::high_resolution_clock::now();
 
   //===================================================================================
   // State propagation, and clone augmentation
@@ -327,16 +687,21 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   // NOTE: if the state is already at the given time (can happen in sim)
   // NOTE: then no need to prop since we already are at the desired timestep
   if (state->_timestamp != message.timestamp) {
-    propagator->propagate_and_clone(state, message.timestamp);
+    Eigen::Matrix3d new_gyro_rotation = Eigen::Matrix3d::Identity();
+    propagator->propagate_and_clone(state, message.timestamp, &new_gyro_rotation);
+    update_gyro_integrated_rotations(message.timestamp, new_gyro_rotation);
   }
-  rT3 = boost::posix_time::microsec_clock::local_time();
+  c->rT3 = std::chrono::high_resolution_clock::now();
 
   // If we have not reached max clones, we should just return...
   // This isn't super ideal, but it keeps the logic after this easier...
   // We can start processing things when we have at least 5 clones since we can start triangulating things...
-  if ((int)state->_clones_IMU.size() < std::min(state->_options.max_clone_size, 5)) {
+
+  // int min_clones = 5;
+  int min_clones = 3;
+  if ((int)state->_clones_IMU.size() < std::min(state->_options.max_clone_size, min_clones)) {
     PRINT_DEBUG("waiting for enough clone states (%d of %d)....\n", (int)state->_clones_IMU.size(),
-                std::min(state->_options.max_clone_size, 5));
+                std::min(state->_options.max_clone_size, min_clones));
     return;
   }
 
@@ -355,11 +720,14 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   // Now, lets get all features that should be used for an update that are lost in the newest frame
   // We explicitly request features that have not been deleted (used) in another update step
   std::vector<std::shared_ptr<Feature>> feats_lost, feats_marg, feats_slam;
-  feats_lost = trackFEATS->get_feature_database()->features_not_containing_newer(state->_timestamp, false, true);
+  double marg_timestamp = state->margtimestep();
+  clear_old_gyro_integrated_rotations(marg_timestamp - 1.0);
+  double current_timestamp = state->_timestamp;
+  feats_lost = trackFEATS->get_feature_database()->features_not_containing_newer(current_timestamp, false, true);
 
   // Don't need to get the oldest features until we reach our max number of clones
-  if ((int)state->_clones_IMU.size() > state->_options.max_clone_size || (int)state->_clones_IMU.size() > 5) {
-    feats_marg = trackFEATS->get_feature_database()->features_containing(state->margtimestep(), false, true);
+  if ((int)state->_clones_IMU.size() > state->_options.max_clone_size || (int)state->_clones_IMU.size() > min_clones) {
+    feats_marg = trackFEATS->get_feature_database()->features_containing(marg_timestamp, false, true);
     if (trackARUCO != nullptr && message.timestamp - startup_time >= params.dt_slam_delay) {
       feats_slam = trackARUCO->get_feature_database()->features_containing(state->margtimestep(), false, true);
     }
@@ -371,7 +739,14 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   auto it1 = feats_lost.begin();
   while (it1 != feats_lost.end()) {
     bool found_current_message_camid = false;
-    for (const auto &camuvpair : (*it1)->uvs) {
+    Feature cloned_feature;
+    {
+      std::unique_lock<std::mutex> lck(trackFEATS->get_feature_database()->get_mutex());
+      cloned_feature = *(*it1);
+    }
+    cloned_feature.clean_future_measurements(message.timestamp);
+
+    for (const auto &camuvpair : cloned_feature.uvs) {
       if (std::find(message.sensor_ids.begin(), message.sensor_ids.end(), camuvpair.first) != message.sensor_ids.end()) {
         found_current_message_camid = true;
         break;
@@ -402,8 +777,17 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   while (it2 != feats_marg.end()) {
     // See if any of our camera's reached max track
     bool reached_max = false;
-    for (const auto &cams : (*it2)->timestamps) {
-      if ((int)cams.second.size() > state->_options.max_clone_size) {
+    Feature cloned_feature;
+    {
+      std::unique_lock<std::mutex> lck(trackFEATS->get_feature_database()->get_mutex());
+      cloned_feature = *(*it2);
+    }
+    cloned_feature.clean_future_measurements(message.timestamp);
+
+    for (const auto &cams : cloned_feature.timestamps) {
+      if ((int)cams.second.size() > state->_options.max_clone_size &&
+          cams.second.front() <= marg_timestamp &&
+          cams.second.back() >= current_timestamp) {
         reached_max = true;
         break;
       }
@@ -414,30 +798,6 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
       it2 = feats_marg.erase(it2);
     } else {
       it2++;
-    }
-  }
-
-  // Count how many aruco tags we have in our state
-  int curr_aruco_tags = 0;
-  auto it0 = state->_features_SLAM.begin();
-  while (it0 != state->_features_SLAM.end()) {
-    if ((int)(*it0).second->_featid <= 4 * state->_options.max_aruco_features)
-      curr_aruco_tags++;
-    it0++;
-  }
-
-  // Append a new SLAM feature if we have the room to do so
-  // Also check that we have waited our delay amount (normally prevents bad first set of slam points)
-  if (state->_options.max_slam_features > 0 && message.timestamp - startup_time >= params.dt_slam_delay &&
-      (int)state->_features_SLAM.size() < state->_options.max_slam_features + curr_aruco_tags) {
-    // Get the total amount to add, then the max amount that we can add given our marginalize feature array
-    int amount_to_add = (state->_options.max_slam_features + curr_aruco_tags) - (int)state->_features_SLAM.size();
-    int valid_amount = (amount_to_add > (int)feats_maxtracks.size()) ? (int)feats_maxtracks.size() : amount_to_add;
-    // If we have at least 1 that we can add, lets add it!
-    // Note: we remove them from the feat_marg array since we don't want to reuse information...
-    if (valid_amount > 0) {
-      feats_slam.insert(feats_slam.end(), feats_maxtracks.end() - valid_amount, feats_maxtracks.end());
-      feats_maxtracks.erase(feats_maxtracks.end() - valid_amount, feats_maxtracks.end());
     }
   }
 
@@ -468,6 +828,174 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   // These are ones that where not successfully tracked into the current frame
   // We do *NOT* marginalize out our aruco tags landmarks
   StateHelper::marginalize_slam(state);
+
+
+  // add new slam features.
+  
+  // prepare variables for calculating disparities
+  std::map<std::shared_ptr<Feature>, double> feat_to_disparity_square;
+  std::vector<double> cloned_times;
+  std::vector<Eigen::Matrix3d> R_Cold_in_Ccurs;
+  std::set<std::shared_ptr<Feature>> feats_maxtracks_set;
+  const auto ref_K = params.camera_intrinsics.at(message.sensor_ids[0])->get_K();
+  const double ref_focallength = std::max(ref_K(0, 0), ref_K(1, 1));
+
+  Eigen::Matrix3d cur_imu_rotation = gyro_integrated_rotations_window.at(message.timestamp);
+  Eigen::Matrix3d R_C_in_I = Eigen::Matrix3d::Identity();
+  const auto & extrinsic = params.camera_extrinsics.at(message.sensor_ids[0]);
+  R_C_in_I = ov_core::quat_2_Rot(extrinsic.block(0,0,4,1)).transpose();
+  if (params.vio_manager_high_frequency_log) {
+    std::ostringstream oss;
+    oss << R_C_in_I << std::endl;
+    PRINT_ALL(YELLOW "%s" RESET, oss.str().c_str());
+  }
+
+  for (const auto &clone_imu : state->_clones_IMU) {
+    cloned_times.push_back(clone_imu.first);
+    if (clone_imu.first == message.timestamp) {
+      R_Cold_in_Ccurs.push_back(Eigen::Matrix3d::Identity());
+      continue;
+    }
+    const Eigen::Matrix3d& old_imu_rotation = gyro_integrated_rotations_window.at(clone_imu.first);
+    Eigen::Matrix3d R_Iold_in_Icur = cur_imu_rotation.transpose() * old_imu_rotation;
+    Eigen::Matrix3d R_Cold_in_Ccur = R_C_in_I.transpose() * R_Iold_in_Icur * R_C_in_I;
+    R_Cold_in_Ccurs.push_back(R_Cold_in_Ccur);
+  }
+
+  assert(cloned_times.size() == R_Cold_in_Ccurs.size());
+  assert(cloned_times.back() == message.timestamp);
+
+  for (auto feat : feats_maxtracks) {
+    feats_maxtracks_set.insert(feat);
+  }
+  auto compare_feat_disparity = [&](std::shared_ptr<Feature> a, std::shared_ptr<Feature> b) -> bool {
+    return feat_to_disparity_square.at(a) < feat_to_disparity_square.at(b);
+  };
+
+  if (params.choose_new_landmark_by_disparity) {
+    for (auto feat : feats_maxtracks) {
+      feat_to_disparity_square[feat] = compute_disparity_square(feat, cloned_times, R_Cold_in_Ccurs, message.sensor_ids[0]);
+    }
+    if (!feats_maxtracks.empty()) {
+      std::sort(feats_maxtracks.begin(), feats_maxtracks.end(), compare_feat_disparity);
+    }
+    // todo(isaac): set a threshold for the disparities?
+    if (params.vio_manager_high_frequency_log) {
+      std::ostringstream oss;
+      oss << "DEBUG feats_slam: for feats_maxtracks (total " <<  feats_maxtracks.size() << "):  ";
+      if (!feats_maxtracks.empty()) {
+        for (auto feat : feats_maxtracks) {
+          oss << sqrt(feat_to_disparity_square.at(feat)) * ref_focallength << "  ";
+        }
+      }
+      oss << std::endl;
+      PRINT_DEBUG(YELLOW "%s" RESET, oss.str().c_str());
+    }
+  }
+
+  // Count how many aruco tags we have in our state
+  int curr_aruco_tags = 0;
+  auto it0 = state->_features_SLAM.begin();
+  while (it0 != state->_features_SLAM.end()) {
+    if ((int)(*it0).second->_featid <= 4 * state->_options.max_aruco_features)
+      curr_aruco_tags++;
+    it0++;
+  }
+
+  // Append a new SLAM feature if we have the room to do so
+  // Also check that we have waited our delay amount (normally prevents bad first set of slam points)
+  if (state->_options.max_slam_features > 0 && 
+      (params.enable_early_landmark || message.timestamp - startup_time >= params.dt_slam_delay) &&
+      (int)state->_features_SLAM.size() < state->_options.max_slam_features + curr_aruco_tags) {
+    // Get the total amount to add, then the max amount that we can add given our marginalize feature array
+    int amount_to_add = (state->_options.max_slam_features + curr_aruco_tags) - (int)state->_features_SLAM.size();
+    int valid_amount = (amount_to_add > (int)feats_maxtracks.size()) ? (int)feats_maxtracks.size() : amount_to_add;
+    // If we have at least 1 that we can add, lets add it!
+    // Note: we remove them from the feat_marg array since we don't want to reuse information...
+    if (valid_amount > 0) {
+      feats_slam.insert(feats_slam.end(), feats_maxtracks.end() - valid_amount, feats_maxtracks.end());
+      if (params.choose_new_landmark_by_disparity) {
+        PRINT_DEBUG(YELLOW "DEBUG feats_slam: add feats_maxtracks (%d) with disparities from %f to %f\n" RESET,
+                      valid_amount,
+                      sqrt(feat_to_disparity_square.at(*(feats_maxtracks.end() - valid_amount))) * ref_focallength,
+                      sqrt(feat_to_disparity_square.at(feats_maxtracks.back())) * ref_focallength);
+      }
+      feats_maxtracks.erase(feats_maxtracks.end() - valid_amount, feats_maxtracks.end());      
+    }
+    // PRINT_DEBUG(YELLOW "DEBUG feats_slam: new feats_slam size %d, amount_to_add=%d, valid_amount=%d\n" RESET,
+    //             feats_slam.size(), amount_to_add, valid_amount);
+
+
+
+    // int reserve_for_future_maxtrack = 0;
+    // int most_quick_feats_slam_per_frame = state->_options.max_slam_features;
+    int reserve_for_future_maxtrack = std::min(5, state->_options.max_slam_features / 4);
+    int most_quick_feats_slam_per_frame = state->_options.max_slam_features;  // std::min(15, state->_options.max_slam_features / 4);
+    if (valid_amount < amount_to_add - reserve_for_future_maxtrack && params.enable_early_landmark) {
+      std::vector<std::shared_ptr<Feature>> quick_feats_slam = 
+          trackFEATS->get_feature_database()->features_containing(message.timestamp, false, true);
+      const double disparity_thr = std::min(
+        1.0 / 180.0 * M_PI,   // 1 degree
+        10.0 / ref_focallength  // 10 pixels
+      );
+      const double disparity_square_thr = disparity_thr * disparity_thr;
+      // std::cout << "DEBUG feats_slam:  initial quick_feats_slam.size() = " << quick_feats_slam.size() 
+      //           << ",  state->_timestamp - message.timestamp = " << state->_timestamp - message.timestamp << std::endl;
+      if (!quick_feats_slam.empty()) {
+        auto it = quick_feats_slam.begin();
+
+        while (it != quick_feats_slam.end()) {
+          auto feat = *it;
+          // if (!feat->timestamps.count(message.sensor_ids[0])) {
+          //   // feature belongs to other camera.
+          //   it = quick_feats_slam.erase(it);
+          //   continue;
+          // }
+          auto it2 = feats_maxtracks_set.find(feat);
+          if (it2 != feats_maxtracks_set.end()) {
+            // feature already in feats_maxtracks
+            it = quick_feats_slam.erase(it);
+            feats_maxtracks_set.erase(it2);
+            continue;
+          }
+          double disparity_square = compute_disparity_square(feat, cloned_times, R_Cold_in_Ccurs, message.sensor_ids[0]);
+          if (disparity_square < disparity_square_thr) {
+            it = quick_feats_slam.erase(it);
+            continue;
+          }
+          feat_to_disparity_square[feat] = disparity_square;
+          it ++;
+        }
+
+        std::sort(quick_feats_slam.begin(), quick_feats_slam.end(), compare_feat_disparity);
+
+        if (params.vio_manager_high_frequency_log) {
+          std::ostringstream oss;
+          oss << "DEBUG feats_slam: for quick_feats_slam (total " <<  quick_feats_slam.size() << "):  ";
+          if (!quick_feats_slam.empty()) {
+            for (auto feat : quick_feats_slam) {
+              oss << sqrt(feat_to_disparity_square.at(feat)) * ref_focallength << "  ";
+            }
+          }
+          oss << std::endl;
+          PRINT_DEBUG(YELLOW "%s" RESET, oss.str().c_str());
+        }
+      }
+      int amount_to_add2 = amount_to_add - reserve_for_future_maxtrack - valid_amount;
+      amount_to_add2 = amount_to_add2 > most_quick_feats_slam_per_frame ? most_quick_feats_slam_per_frame : amount_to_add2;
+      int valid_amount2 = (amount_to_add2 > (int)quick_feats_slam.size()) ? (int)quick_feats_slam.size() : amount_to_add2;
+      if (valid_amount2 > 0) {
+        feats_slam.insert(feats_slam.end(), quick_feats_slam.end() - valid_amount2, quick_feats_slam.end());
+        PRINT_DEBUG(YELLOW "DEBUG feats_slam: add quick_feats_slam (%d) with disparities from %f to %f (disparity_thr = %f)\n" RESET,
+                    valid_amount2,
+                    sqrt(feat_to_disparity_square.at(*(quick_feats_slam.end() - valid_amount2))) * ref_focallength,
+                    sqrt(feat_to_disparity_square.at(quick_feats_slam.back())) * ref_focallength,
+                    disparity_thr * ref_focallength);
+      }
+      PRINT_DEBUG(YELLOW "DEBUG feats_slam: new feats_slam size %d, amount_to_add=%d, valid_amount=%d, amount_to_add2=%d, valid_amount2=%d\n" RESET,
+                    feats_slam.size(), amount_to_add, valid_amount, amount_to_add2, valid_amount2);
+    }
+  }
 
   // Separate our SLAM features into new ones, and old ones
   std::vector<std::shared_ptr<Feature>> feats_slam_DELAYED, feats_slam_UPDATE;
@@ -511,13 +1039,19 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   // NOTE: this should only really be used if you want to track a lot of features, or have limited computational resources
   if ((int)featsup_MSCKF.size() > state->_options.max_msckf_in_update)
     featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end() - state->_options.max_msckf_in_update);
+  size_t msckf_features_used = featsup_MSCKF.size();
+  size_t msckf_features_outliers = 0;
   updaterMSCKF->update(state, featsup_MSCKF);
-  rT4 = boost::posix_time::microsec_clock::local_time();
+  msckf_features_outliers = msckf_features_used - featsup_MSCKF.size();
+  msckf_features_used = featsup_MSCKF.size();
+  c->rT4 = std::chrono::high_resolution_clock::now();
 
   // Perform SLAM delay init and update
   // NOTE: that we provide the option here to do a *sequential* update
   // NOTE: this will be a lot faster but won't be as accurate.
   std::vector<std::shared_ptr<Feature>> feats_slam_UPDATE_TEMP;
+  size_t slam_features_used = feats_slam_UPDATE.size();
+  size_t slam_features_outliers = 0;
   while (!feats_slam_UPDATE.empty()) {
     // Get sub vector of the features we will update with
     std::vector<std::shared_ptr<Feature>> featsup_TEMP;
@@ -530,9 +1064,16 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     feats_slam_UPDATE_TEMP.insert(feats_slam_UPDATE_TEMP.end(), featsup_TEMP.begin(), featsup_TEMP.end());
   }
   feats_slam_UPDATE = feats_slam_UPDATE_TEMP;
-  rT5 = boost::posix_time::microsec_clock::local_time();
+  slam_features_outliers = slam_features_used - feats_slam_UPDATE.size();
+  slam_features_used = feats_slam_UPDATE.size();
+  c->rT5 = std::chrono::high_resolution_clock::now();
+
+  size_t delayed_features_used = feats_slam_DELAYED.size();
+  size_t delayed_features_outliers = 0;
   updaterSLAM->delayed_init(state, feats_slam_DELAYED);
-  rT6 = boost::posix_time::microsec_clock::local_time();
+  delayed_features_outliers = delayed_features_used - feats_slam_DELAYED.size();
+  delayed_features_used = feats_slam_DELAYED.size();
+  c->rT6 = std::chrono::high_resolution_clock::now();
 
   //===================================================================================
   // Update our visualization feature set, and clean up the old features
@@ -548,11 +1089,13 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     // Thus we should be able to visualize the other unique camera stream
     // MSCKF features as they will also be appended to the vector
     good_features_MSCKF.clear();
+    good_feature_ids_MSCKF.clear();
   }
 
   // Save all the MSCKF features used in the update
   for (auto const &feat : featsup_MSCKF) {
     good_features_MSCKF.push_back(feat->p_FinG);
+    good_feature_ids_MSCKF.push_back(feat->featid);
     feat->to_delete = true;
   }
 
@@ -581,23 +1124,35 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
 
   // Finally marginalize the oldest clone if needed
   StateHelper::marginalize_old_clone(state);
-  rT7 = boost::posix_time::microsec_clock::local_time();
+  c->rT7 = std::chrono::high_resolution_clock::now();
 
   //===================================================================================
   // Debug info, and stats tracking
   //===================================================================================
 
   // Get timing statitics information
-  double time_track = (rT2 - rT1).total_microseconds() * 1e-6;
-  double time_prop = (rT3 - rT2).total_microseconds() * 1e-6;
-  double time_msckf = (rT4 - rT3).total_microseconds() * 1e-6;
-  double time_slam_update = (rT5 - rT4).total_microseconds() * 1e-6;
-  double time_slam_delay = (rT6 - rT5).total_microseconds() * 1e-6;
-  double time_marg = (rT7 - rT6).total_microseconds() * 1e-6;
-  double time_total = (rT7 - rT1).total_microseconds() * 1e-6;
+  double time_track = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT2 - c->rT1).count();
+  double time_switch_thread = std::chrono::duration_cast<std::chrono::duration<double>>(tmp_rT2 - c->rT2).count();
+  double time_prop = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT3 - tmp_rT2).count();
+  double time_msckf = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT4 - c->rT3).count();
+  double time_slam_update = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT5 - c->rT4).count();
+  double time_slam_delay = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT6 - c->rT5).count();
+  double time_marg = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT7 - c->rT6).count();
+  double time_total = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT7 - c->rT1).count();
 
   // Timing information
+  PRINT_INFO(BLUE "[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f), total(%d + %d, %.4f), timestampe: %.6f\n" RESET,
+                    msckf_features_used, msckf_features_outliers, time_msckf,
+                    slam_features_used, slam_features_outliers, time_slam_update,
+                    delayed_features_used, delayed_features_outliers, time_slam_delay,
+                    msckf_features_used + slam_features_used + delayed_features_used,
+                    msckf_features_outliers + slam_features_outliers + delayed_features_outliers,
+                    time_msckf + time_slam_update + time_slam_delay,
+                    message.timestamp
+                    );
+
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for tracking\n" RESET, time_track);
+  PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for switch thread\n" RESET, time_switch_thread);
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for propagation\n" RESET, time_prop);
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for MSCKF update (%d feats)\n" RESET, time_msckf, (int)featsup_MSCKF.size());
   if (state->_options.max_slam_features > 0) {
@@ -614,21 +1169,21 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   ss << ")" << std::endl;
   PRINT_DEBUG(BLUE "%s" RESET, ss.str().c_str());
 
-  // Finally if we are saving stats to file, lets save it to file
-  if (params.record_timing_information && of_statistics.is_open()) {
-    // We want to publish in the IMU clock frame
-    // The timestamp in the state will be the last camera time
-    double t_ItoC = state->_calib_dt_CAMtoIMU->value()(0);
-    double timestamp_inI = state->_timestamp + t_ItoC;
-    // Append to the file
-    of_statistics << std::fixed << std::setprecision(15) << timestamp_inI << "," << std::fixed << std::setprecision(5) << time_track << ","
-                  << time_prop << "," << time_msckf << ",";
-    if (state->_options.max_slam_features > 0) {
-      of_statistics << time_slam_update << "," << time_slam_delay << ",";
-    }
-    of_statistics << time_marg << "," << time_total << std::endl;
-    of_statistics.flush();
-  }
+  // // Finally if we are saving stats to file, lets save it to file
+  // if (params.record_timing_information && of_statistics.is_open()) {
+  //   // We want to publish in the IMU clock frame
+  //   // The timestamp in the state will be the last camera time
+  //   double t_ItoC = state->_calib_dt_CAMtoIMU->value()(0);
+  //   double timestamp_inI = state->_timestamp + t_ItoC;
+  //   // Append to the file
+  //   of_statistics << std::fixed << std::setprecision(15) << timestamp_inI << "," << std::fixed << std::setprecision(5) << time_track << ","
+  //                 << time_prop << "," << time_msckf << ",";
+  //   if (state->_options.max_slam_features > 0) {
+  //     of_statistics << time_slam_update << "," << time_slam_delay << ",";
+  //   }
+  //   of_statistics << time_marg << "," << time_total << std::endl;
+  //   of_statistics.flush();
+  // }
 
   // Update our distance traveled
   if (timelastupdate != -1 && state->_clones_IMU.find(timelastupdate) != state->_clones_IMU.end()) {
@@ -666,4 +1221,139 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
                  calib->quat()(3), calib->pos()(0), calib->pos()(1), calib->pos()(2));
     }
   }
+}
+
+void VioManager::clear_old_gyro_integrated_rotations(double time) {
+  const double window_time = 1.5;  // seconds
+  auto it = gyro_integrated_rotations_window.begin();
+  while (it != gyro_integrated_rotations_window.end() && it->first < time) {
+    it = gyro_integrated_rotations_window.erase(it);
+  }
+}
+
+void VioManager::update_gyro_integrated_rotations(double time, const Eigen::Matrix3d& new_rotation) {
+  if (time <= cur_gyro_integrated_time) {
+    return;
+  }
+  cur_gyro_integrated_rotation = cur_gyro_integrated_rotation * new_rotation;
+  gyro_integrated_rotations_window[time] = cur_gyro_integrated_rotation;
+}
+
+double VioManager::compute_disparity_square(
+    std::shared_ptr<ov_core::Feature> feat, const std::vector<double>& cloned_times,
+    const std::vector<Eigen::Matrix3d>& R_Cold_in_Ccurs, size_t cam_id) {
+
+  if (!params.camera_extrinsics.count(cam_id)) {
+    return 0.0;
+  }
+
+  std::vector<double> feat_times;
+  std::vector<Eigen::VectorXf> feat_uvs_norm;
+  std::vector<Eigen::VectorXf> feat_uvs;
+  {
+    std::unique_lock<std::mutex> lck(trackFEATS->get_feature_database()->get_mutex());
+    if (!feat->timestamps.count(cam_id)) {
+      return 0.0;
+    }
+    // only compute disparities for features with 3 or more observations.
+    if (feat->timestamps.at(cam_id).size() < 3) {
+      return 0.0;
+    }
+
+    feat_times = feat->timestamps.at(cam_id);
+    feat_uvs_norm = feat->uvs_norm.at(cam_id);
+    if (params.vio_manager_high_frequency_log) {
+      feat_uvs = feat->uvs.at(cam_id);
+    }
+  }
+  assert(!feat_times.empty());
+
+  std::vector<int> indices(cloned_times.size());
+  int j = 0;
+  for (size_t i=0; i<cloned_times.size(); i++) {
+    const auto& clone_time = cloned_times[i];
+    while (j < feat_times.size() && feat_times[j] < clone_time) {
+      j ++;
+    }
+    assert(j < feat_times.size());  // "j >= feat_times.size()" shouldn't happen.
+    if (feat_times[j] > clone_time) {
+      indices[i] = -1;
+    } else {
+      // assert(feat_times[j] == clone_time);
+      indices[i] = j;
+    }
+  }
+
+  assert(indices.back() >= 0);
+  assert(feat_times[indices.back()] == cloned_times.back());
+
+  double cur_time = feat_times[indices.back()];
+  Eigen::Vector2f cur_uv_norm = feat_uvs_norm[indices.back()];
+  Eigen::Vector3d cur_homo(cur_uv_norm.x(), cur_uv_norm.y(), 1.0);
+  double cur_homo_square = cur_homo.dot(cur_homo);
+  double max_disparity_square = 0.0;
+
+  // for debug
+  Eigen::Vector2f cur_uv;  // = feat_uvs[indices.back()];
+  Eigen::Vector2f best_old_uv;
+  Eigen::Vector2f best_old_uv_norm;
+  Eigen::Vector2f best_predict_uv_norm;
+  Eigen::Matrix3d best_R_Cold_in_Ccur;
+  double best_old_time;
+
+  for (size_t i=0; i<cloned_times.size() - 1; i++) {
+    // otherwise, feat_times[j] == clone_time
+    int j = indices[i];
+    if (j < 0) {
+      continue;
+    }
+    assert(cloned_times[i] == feat_times[j]);
+    const Eigen::Vector2f& old_uv_norm = feat_uvs_norm[j];
+    const Eigen::Matrix3d& R_Cold_in_Ccur = R_Cold_in_Ccurs[i];
+    Eigen::Vector3d old_homo(old_uv_norm.x(), old_uv_norm.y(), 1.0);
+    Eigen::Vector3d predict_homo = R_Cold_in_Ccur * old_homo;
+
+#if 0  // bad performance.
+    Eigen::Vector2f predict_uv_norm(predict_homo.x() / predict_homo.z(), predict_homo.y() / predict_homo.z());
+    Eigen::Vector2f uv_norm_diff = cur_uv_norm - predict_uv_norm;
+    double disparity_square = uv_norm_diff.dot(uv_norm_diff);
+#else
+    double predict_homo_square = predict_homo.dot(predict_homo);
+    double dot = predict_homo.dot(cur_homo);
+    double disparity_square = 1 - (dot * dot) / (predict_homo_square * cur_homo_square);
+#endif
+
+    if (disparity_square > max_disparity_square) {
+      max_disparity_square = disparity_square;
+      if (params.vio_manager_high_frequency_log) {
+        best_old_uv_norm = old_uv_norm;
+        best_R_Cold_in_Ccur = R_Cold_in_Ccur;
+        best_old_uv = feat_uvs[j];
+        best_predict_uv_norm = Eigen::Vector2f(predict_homo.x() / predict_homo.z(), predict_homo.y() / predict_homo.z());
+        best_old_time = feat_times[j];
+      }
+    }
+  }
+
+  if (params.vio_manager_high_frequency_log) {
+    std::ostringstream oss;
+    cur_uv = feat_uvs[indices.back()];
+    Eigen::Vector2f predict_uv = params.camera_intrinsics.at(cam_id)->distort_f(Eigen::Vector2f(best_predict_uv_norm.x(), best_predict_uv_norm.y()));
+    double raw_uv_norm_diff = (best_old_uv_norm - cur_uv_norm).norm();
+    double raw_uv_diff = (best_old_uv - cur_uv).norm();
+    double predict_uv_norm_diff = (best_predict_uv_norm - cur_uv_norm).norm();
+    double predict_uv_diff = (predict_uv - cur_uv).norm();
+    oss << "DEBUG compute_disparity_square: , max_disparity = " << sqrt(max_disparity_square)
+        << ",  old_time = " << int64_t((best_old_time - cur_time) * 1000) << "[ms]"
+        << ",  raw_uv_diff = " << raw_uv_diff
+        << ",  predict_uv_diff = " << predict_uv_diff
+        << ",  raw_uv_norm_diff = " << raw_uv_norm_diff
+        << ",  predict_uv_norm_diff = " << predict_uv_norm_diff
+        << ",  cur_uv_norm = " << cur_uv_norm.transpose()
+        << ",  R_Cold_in_Ccur = " << std::endl;
+    oss << best_R_Cold_in_Ccur << std::endl;
+    PRINT_ALL(YELLOW "%s" RESET, oss.str().c_str());
+  }
+
+  return max_disparity_square;
 }

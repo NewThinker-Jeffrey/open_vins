@@ -107,14 +107,14 @@ ROS1Visualizer::ROS1Visualizer(std::shared_ptr<ros::NodeHandle> nh, std::shared_
     nh->param<std::string>("filepath_gt", filepath_gt, "state_groundtruth.txt");
 
     // If it exists, then delete it
-    if (boost::filesystem::exists(filepath_est))
-      boost::filesystem::remove(filepath_est);
-    if (boost::filesystem::exists(filepath_std))
-      boost::filesystem::remove(filepath_std);
+    if (std::filesystem::exists(filepath_est))
+      std::filesystem::remove(filepath_est);
+    if (std::filesystem::exists(filepath_std))
+      std::filesystem::remove(filepath_std);
 
     // Create folder path to this location if not exists
-    boost::filesystem::create_directories(boost::filesystem::path(filepath_est.c_str()).parent_path());
-    boost::filesystem::create_directories(boost::filesystem::path(filepath_std.c_str()).parent_path());
+    std::filesystem::create_directories(std::filesystem::path(filepath_est.c_str()).parent_path());
+    std::filesystem::create_directories(std::filesystem::path(filepath_std.c_str()).parent_path());
 
     // Open the files
     of_state_est.open(filepath_est.c_str());
@@ -124,9 +124,9 @@ ROS1Visualizer::ROS1Visualizer(std::shared_ptr<ros::NodeHandle> nh, std::shared_
 
     // Groundtruth if we are simulating
     if (_sim != nullptr) {
-      if (boost::filesystem::exists(filepath_gt))
-        boost::filesystem::remove(filepath_gt);
-      boost::filesystem::create_directories(boost::filesystem::path(filepath_gt.c_str()).parent_path());
+      if (std::filesystem::exists(filepath_gt))
+        std::filesystem::remove(filepath_gt);
+      std::filesystem::create_directories(std::filesystem::path(filepath_gt.c_str()).parent_path());
       of_state_gt.open(filepath_gt.c_str());
       of_state_gt << "# timestamp(s) q p v bg ba cam_imu_dt num_cam cam0_k cam0_d cam0_rot cam0_trans .... etc" << std::endl;
     }
@@ -170,7 +170,7 @@ void ROS1Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
     auto image_sub0 = std::make_shared<message_filters::Subscriber<sensor_msgs::Image>>(*_nh, cam_topic0, 1);
     auto image_sub1 = std::make_shared<message_filters::Subscriber<sensor_msgs::Image>>(*_nh, cam_topic1, 1);
     auto sync = std::make_shared<message_filters::Synchronizer<sync_pol>>(sync_pol(10), *image_sub0, *image_sub1);
-    sync->registerCallback(boost::bind(&ROS1Visualizer::callback_stereo, this, _1, _2, 0, 1));
+    sync->registerCallback(std::bind(&ROS1Visualizer::callback_stereo, this, _1, _2, 0, 1));
     // Append to our vector of subscribers
     sync_cam.push_back(sync);
     sync_subs_cam.push_back(image_sub0);
@@ -199,8 +199,8 @@ void ROS1Visualizer::visualize() {
   last_visualization_timestamp = _app->get_state()->_timestamp;
 
   // Start timing
-  // boost::posix_time::ptime rT0_1, rT0_2;
-  // rT0_1 = boost::posix_time::microsec_clock::local_time();
+  // std::chrono::high_resolution_clock::time_point rT0_1, rT0_2;
+  // rT0_1 = std::chrono::high_resolution_clock::now();
 
   // publish current image (only if not multi-threaded)
   if (!_app->get_params().use_multi_threading_pubs)
@@ -212,7 +212,7 @@ void ROS1Visualizer::visualize() {
 
   // Save the start time of this dataset
   if (!start_time_set) {
-    rT1 = boost::posix_time::microsec_clock::local_time();
+    rT1 = std::chrono::high_resolution_clock::now();
     start_time_set = true;
   }
 
@@ -234,8 +234,8 @@ void ROS1Visualizer::visualize() {
   }
 
   // Print how much time it took to publish / displaying things
-  // rT0_2 = boost::posix_time::microsec_clock::local_time();
-  // double time_total = (rT0_2 - rT0_1).total_microseconds() * 1e-6;
+  // rT0_2 = std::chrono::high_resolution_clock::now();
+  // double time_total = std::chrono::duration_cast<std::chrono::duration<double>>(rT0_2 - rT0_1).count();
   // PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for visualization\n" RESET, time_total);
 }
 
@@ -366,8 +366,8 @@ void ROS1Visualizer::visualize_final() {
   }
 
   // Print the total time
-  rT2 = boost::posix_time::microsec_clock::local_time();
-  PRINT_INFO(REDPURPLE "TIME: %.3f seconds\n\n" RESET, (rT2 - rT1).total_microseconds() * 1e-6);
+  rT2 = std::chrono::high_resolution_clock::now();
+  PRINT_INFO(REDPURPLE "TIME: %.3f seconds\n\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(rT2 - rT1).count());
 }
 
 void ROS1Visualizer::callback_inertial(const sensor_msgs::Imu::ConstPtr &msg) {
@@ -408,13 +408,13 @@ void ROS1Visualizer::callback_inertial(const sensor_msgs::Imu::ConstPtr &msg) {
       // We are able to process if we have at least one IMU measurement greater than the camera time
       double timestamp_imu_inC = message.timestamp - _app->get_state()->_calib_dt_CAMtoIMU->value()(0);
       while (!camera_queue.empty() && camera_queue.at(0).timestamp < timestamp_imu_inC) {
-        auto rT0_1 = boost::posix_time::microsec_clock::local_time();
+        auto rT0_1 = std::chrono::high_resolution_clock::now();
         double update_dt = 100.0 * (timestamp_imu_inC - camera_queue.at(0).timestamp);
         _app->feed_measurement_camera(camera_queue.at(0));
         visualize();
         camera_queue.pop_front();
-        auto rT0_2 = boost::posix_time::microsec_clock::local_time();
-        double time_total = (rT0_2 - rT0_1).total_microseconds() * 1e-6;
+        auto rT0_2 = std::chrono::high_resolution_clock::now();
+        double time_total = std::chrono::duration_cast<std::chrono::duration<double>>(rT0_2 - rT0_1).count();
         PRINT_INFO(BLUE "[TIME]: %.4f seconds total (%.1f hz, %.2f ms behind)\n" RESET, time_total, 1.0 / time_total, update_dt);
       }
     }

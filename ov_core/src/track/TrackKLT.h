@@ -52,9 +52,12 @@ public:
    * @param minpxdist features need to be at least this number pixels away from each other
    */
   explicit TrackKLT(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
-                    HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist)
-      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
-        min_px_dist(minpxdist) {}
+                    HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist,
+                    std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>(),
+                    bool leftmajor_stereo=true, bool strictstereo=false, bool use_fundamental_check=false,
+                    bool keypoint_predict = true, bool high_frequency_log = false)
+      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod, camera_extrinsics, keypoint_predict, high_frequency_log), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
+        min_px_dist(minpxdist), left_major_stereo(leftmajor_stereo), strict_stereo(strictstereo), force_fundamental(use_fundamental_check) {}
 
   /**
    * @brief Process a new image
@@ -77,6 +80,7 @@ protected:
    * @param msg_id_right second image index in message data vector
    */
   void feed_stereo(const CameraData &message, size_t msg_id_left, size_t msg_id_right);
+  void feed_stereo2(const CameraData &message, size_t msg_id_left, size_t msg_id_right);
 
   /**
    * @brief Detects new features in the current image
@@ -114,6 +118,10 @@ protected:
                                 const cv::Mat &mask1, size_t cam_id_left, size_t cam_id_right, std::vector<cv::KeyPoint> &pts0,
                                 std::vector<cv::KeyPoint> &pts1, std::vector<size_t> &ids0, std::vector<size_t> &ids1);
 
+  void perform_detection_stereo2(const std::vector<cv::Mat> &img0pyr, const std::vector<cv::Mat> &img1pyr, const cv::Mat &mask0,
+                                 const cv::Mat &mask1, size_t cam_id_left, size_t cam_id_right, std::vector<cv::KeyPoint> &pts0,
+                                 std::vector<cv::KeyPoint> &pts1, std::vector<size_t> &ids0, std::vector<size_t> &ids1);
+
   /**
    * @brief KLT track between two images, and do RANSAC afterwards
    * @param img0pyr starting image pyramid
@@ -129,12 +137,17 @@ protected:
    * If the second vector is non-empty, it will be used as an initial guess of where the keypoints are in the second image.
    */
   void perform_matching(const std::vector<cv::Mat> &img0pyr, const std::vector<cv::Mat> &img1pyr, std::vector<cv::KeyPoint> &pts0,
-                        std::vector<cv::KeyPoint> &pts1, size_t id0, size_t id1, std::vector<uchar> &mask_out);
+                        std::vector<cv::KeyPoint> &pts1, size_t id0, size_t id1, std::vector<uchar> &mask_out,
+                        const Eigen::Matrix3d* R_0_in_1 = nullptr,
+                        const Eigen::Vector3d* t_0_in_1 = nullptr);
 
   // Parameters for our FAST grid detector
   int threshold;
   int grid_x;
   int grid_y;
+  bool left_major_stereo;
+  bool strict_stereo;
+  bool force_fundamental;
 
   // Minimum pixel distance to be "far away enough" to be a different extracted feature
   int min_px_dist;

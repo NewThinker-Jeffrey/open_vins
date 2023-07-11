@@ -2,16 +2,22 @@
 
 verbosity: "INFO" # ALL, DEBUG, INFO, WARNING, ERROR, SILENT
 
+async_img_process: true # whethre to run feature tracking and state update in separate threads.
+
 use_fej: true # if first-estimate Jacobians should be used (enable for good consistency)
 use_imuavg: true # if using discrete integration, if we should average sequential IMU measurements to "smooth" it
 use_rk4int: true # if rk4 integration should be used (overrides imu averaging)
 
 use_stereo: true # if we have more than 1 camera, if we should try to track stereo constraints between pairs
-max_cameras: 2 # how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)
+max_cameras: 1 # how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)
 
 calib_cam_extrinsics: true # if the transform between camera and IMU should be optimized R_ItoC, p_CinI
 calib_cam_intrinsics: true # if camera intrinsics should be optimized (focal, center, distortion)
 calib_cam_timeoffset: true # if timeoffset between camera and IMU should be optimized
+
+vio_manager_high_frequency_log: false
+choose_new_landmark_by_disparity: true
+enable_early_landmark: true
 
 max_clones: 11 # how many clones in the sliding window
 max_slam: 50 # number of features in our state vector
@@ -62,7 +68,7 @@ init_dyn_bias_a: [ 0.0, 0.0, 0.0 ] # initial accelerometer bias guess
 # ==================================================================
 # ==================================================================
 
-record_timing_information: false # if we want to record timing information of the method
+record_timing_information: true # if we want to record timing information of the method
 record_timing_filepath: "/tmp/traj_timing.txt" # https://docs.openvins.com/eval-timing.html#eval-ov-timing-flame
 
 # if we want to save the simulation state and its diagional covariance
@@ -84,10 +90,17 @@ grid_x: 5 # extraction sub-grid count for horizontal direction (uniform tracking
 grid_y: 5 # extraction sub-grid count for vertical direction (uniform tracking)
 min_px_dist: 10 # distance between features (features near each other provide less information)
 knn_ratio: 0.70 # descriptor knn threshold for the top two descriptor matches
-track_frequency: 21.0 # frequency we will perform feature tracking at (in frames per second / hertz)
+track_frequency: 11.0 # frequency we will perform feature tracking at (in frames per second / hertz)
 downsample_cameras: false # will downsample image in half if true
 num_opencv_threads: 4 # -1: auto, 0-1: serial, >1: number of threads
 histogram_method: "HISTOGRAM" # NONE, HISTOGRAM, CLAHE
+
+klt_left_major_stereo: true
+klt_strict_stereo: false
+klt_force_fundamental: true
+feattrack_high_frequency_log: false
+feattrack_predict_keypoints: true
+
 
 # aruco tag tracker for the system
 # DICT_6X6_1000 from https://chev.me/arucogen/

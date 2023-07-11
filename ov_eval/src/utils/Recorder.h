@@ -27,7 +27,7 @@
 #include <string>
 
 #include <Eigen/Eigen>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
@@ -54,15 +54,15 @@ public:
    */
   Recorder(std::string filename) {
     // Create folder path to this location if not exists
-    boost::filesystem::path dir(filename.c_str());
-    if (boost::filesystem::create_directories(dir.parent_path())) {
+    std::filesystem::path dir(filename.c_str());
+    if (std::filesystem::create_directories(dir.parent_path())) {
       ROS_INFO("Created folder path to output file.");
       ROS_INFO("Path: %s", dir.parent_path().c_str());
     }
     // If it exists, then delete it
-    if (boost::filesystem::exists(filename)) {
+    if (std::filesystem::exists(filename)) {
       ROS_WARN("Output file exists, deleting old file....");
-      boost::filesystem::remove(filename);
+      std::filesystem::remove(filename);
     }
     // Open this file we want to write to
     outfile.open(filename.c_str());

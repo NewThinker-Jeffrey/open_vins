@@ -143,10 +143,65 @@ bool StaticInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarianc
   // Create base covariance and its covariance ordering
   order.clear();
   order.push_back(t_imu);
-  covariance = std::pow(0.02, 2) * Eigen::MatrixXd::Identity(t_imu->size(), t_imu->size());
-  covariance.block(0, 0, 3, 3) = std::pow(0.02, 2) * Eigen::Matrix3d::Identity(); // q
-  covariance.block(3, 3, 3, 3) = std::pow(0.05, 2) * Eigen::Matrix3d::Identity(); // p
-  covariance.block(6, 6, 3, 3) = std::pow(0.01, 2) * Eigen::Matrix3d::Identity(); // v (static)
+
+  // bool opt_cov = true;
+  bool opt_cov = false;
+  if (opt_cov) {
+    double ba_var = 0.05 * 0.05;
+    Eigen::Matrix3d normalized_acc_bias_cov;
+    normalized_acc_bias_cov << ba_var,     0.0,    0.0,
+                               0.0,     ba_var,    0.0,
+                               0.0,        0.0,    0.0;
+
+    // Eigen::Vector3d x_axis, y_axis;
+    // std::vector<double> abs_coord = {std::abs(z_axis.x()), std::abs(z_axis.y()), std::abs(z_axis.z())};
+    // auto iter = std::min_element(abs_coord.begin(), abs_coord.end());
+    // int min_coord = iter - abs_coord.begin();
+    // switch(min_coord) {
+    //   case 0:  x_axis = Eigen::Vector3d(1,0,0); break;
+    //   case 1:  x_axis = Eigen::Vector3d(0,1,0); break;
+    //   case 2:  x_axis = Eigen::Vector3d(0,0,1); break;
+    // }
+    // x_axis = x_axis - x_axis.dot(z_axis) * z_axis;
+    // x_axis.normalize();
+    // y_axis = z_axis.cross(x_axis);
+    // Eigen::Matrix3d G_mat;
+    // G_mat << x_axis, y_axis, z_axis;
+    // Eigen::Matrix3d R_GtoI = quat_2_Rot(q_GtoI);
+
+    Eigen::Matrix3d R_GtoI = Ro;
+    Eigen::Matrix3d G_mat = Ro;
+    Eigen::Matrix3d skew_z = skew_x(z_axis);
+    Eigen::Matrix3d cov_ba_ba = G_mat * normalized_acc_bias_cov * G_mat.transpose();
+
+    Eigen::Matrix3d cov_q_q = - R_GtoI.transpose() * skew_z * cov_ba_ba * skew_z * R_GtoI / std::pow(params.gravity_mag, 2);
+    Eigen::Matrix3d cov_ba_q = params.gravity_mag * skew_z * R_GtoI * cov_q_q;
+
+    covariance = Eigen::MatrixXd::Zero(t_imu->size(), t_imu->size());
+    covariance.block(0, 0, 3, 3) = cov_q_q;
+    covariance.block(3, 3, 3, 3) = Eigen::Matrix3d::Zero(); // std::pow(0.05, 2) * Eigen::Matrix3d::Identity();  //
+    covariance.block(6, 6, 3, 3) = std::pow(0.05, 2) * Eigen::Matrix3d::Identity(); // v (static)
+    covariance.block(9, 9, 3, 3) = std::pow(0.02, 2) * Eigen::Matrix3d::Identity(); // bg (static)
+    covariance.block(12, 12, 3, 3) = cov_ba_ba + (ba_var / 100.0) * Eigen::Matrix3d::Identity();  // ba (static)
+    covariance.block(12, 0, 3, 3) = cov_ba_q;
+    covariance.block(0, 12, 3, 3) = cov_ba_q.transpose();
+  } else {
+    covariance = std::pow(0.02, 2) * Eigen::MatrixXd::Identity(t_imu->size(), t_imu->size());
+    covariance.block(0, 0, 3, 3) = std::pow(0.02, 2) * Eigen::Matrix3d::Identity(); // q
+    covariance.block(3, 3, 3, 3) = std::pow(0.05, 2) * Eigen::Matrix3d::Identity(); // p
+    covariance.block(6, 6, 3, 3) = std::pow(0.01, 2) * Eigen::Matrix3d::Identity(); // v (static)
+  }
+
+
+
+
+
+
+  // covariance.block(0, 0, 3, 3) = std::pow(0.05, 2) * Eigen::Matrix3d::Identity(); // q
+  // covariance.block(3, 3, 3, 3) = std::pow(0.05, 2) * Eigen::Matrix3d::Identity(); // p
+  // covariance.block(6, 6, 3, 3) = std::pow(0.05, 2) * Eigen::Matrix3d::Identity(); // v (static)
+  // covariance.block(12, 12, 3, 3) = std::pow(0.02, 2) * Eigen::Matrix3d::Identity(); // bg (static)
+  // covariance.block(12, 12, 3, 3) = std::pow(1.0, 2) * Eigen::Matrix3d::Identity(); // ba (static)
 
   // A VIO system has 4dof unobservable directions which can be arbitrarily picked.
   // This means that on startup, we can fix the yaw and position to be 100 percent known.

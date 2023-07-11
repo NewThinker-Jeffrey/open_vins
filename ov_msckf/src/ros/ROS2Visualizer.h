@@ -25,7 +25,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
-#include <image_transport/image_transport.h>
+#include <image_transport/image_transport.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/time_synchronizer.h>
@@ -51,9 +51,14 @@
 #include <mutex>
 
 #include <Eigen/Eigen>
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/filesystem.hpp>
+#include <chrono>
+#include <filesystem>
 #include <cv_bridge/cv_bridge.h>
+
+#include "no_ros/Viewer.h"
+
+
+#include "core/VioManager.h"
 
 namespace ov_core {
 class YamlParser;
@@ -62,7 +67,6 @@ struct CameraData;
 
 namespace ov_msckf {
 
-class VioManager;
 class Simulator;
 
 /**
@@ -84,7 +88,14 @@ public:
    * @param app Core estimator manager
    * @param sim Simulator if we are simulating
    */
-  ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_ptr<VioManager> app, std::shared_ptr<Simulator> sim = nullptr);
+  ROS2Visualizer(
+    std::shared_ptr<rclcpp::Node> node, 
+    std::shared_ptr<VioManager> app, 
+    std::shared_ptr<Simulator> sim = nullptr,
+    std::shared_ptr<Viewer> gl_viewer = nullptr,
+    const std::string& output_dir = "",
+    bool save_feature_images = false,
+    bool save_total_state = true);
 
   /**
    * @brief Will setup ROS subscribers and callbacks
@@ -119,12 +130,15 @@ public:
   void callback_stereo(const sensor_msgs::msg::Image::ConstSharedPtr msg0, const sensor_msgs::msg::Image::ConstSharedPtr msg1, int cam_id0,
                        int cam_id1);
 
+  void stop_visualization_thread();
+
 protected:
   /// Publish the current state
   void publish_state();
 
   /// Publish the active tracking image
   void publish_images();
+  void save_feature_image(double timestamp, const cv::Mat& feature_image);
 
   /// Publish current features
   void publish_features();
@@ -176,7 +190,7 @@ protected:
 
   // Start and end timestamps
   bool start_time_set = false;
-  boost::posix_time::ptime rT1, rT2;
+  std::chrono::high_resolution_clock::time_point rT1, rT2;
 
   // Thread atomics
   std::atomic<bool> thread_update_running;
@@ -194,6 +208,7 @@ protected:
   // Last timestamp we visualized at
   double last_visualization_timestamp = 0;
   double last_visualization_timestamp_image = 0;
+  double last_visualization_timestamp_odom = 0;
 
   // Our groundtruth states
   std::map<double, Eigen::Matrix<double, 17, 1>> gt_states;
@@ -206,6 +221,17 @@ protected:
   // Files and if we should save total state
   bool save_total_state = false;
   std::ofstream of_state_est, of_state_std, of_state_gt;
+
+  bool save_feature_images = false;
+  std::string feature_image_save_dir = "";
+
+  std::string output_dir = "";
+
+  std::shared_ptr<std::thread> _vis_thread;
+  std::shared_ptr<VioManager::Output> _vis_output;
+  std::atomic<bool> stop_viz_request_;
+
+  std::shared_ptr<Viewer> gl_viewer;
 };
 
 } // namespace ov_msckf

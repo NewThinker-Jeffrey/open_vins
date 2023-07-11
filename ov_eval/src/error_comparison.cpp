@@ -21,7 +21,7 @@
 
 #include <Eigen/Eigen>
 #include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
@@ -54,8 +54,8 @@ int main(int argc, char **argv) {
 
   // List the groundtruth files in this folder
   std::string path_gts(argv[2]);
-  std::vector<boost::filesystem::path> path_groundtruths;
-  for (const auto &p : boost::filesystem::recursive_directory_iterator(path_gts)) {
+  std::vector<std::filesystem::path> path_groundtruths;
+  for (const auto &p : std::filesystem::recursive_directory_iterator(path_gts)) {
     if (p.path().extension() == ".txt") {
       path_groundtruths.push_back(p.path());
     }
@@ -77,9 +77,9 @@ int main(int argc, char **argv) {
   // Get the algorithms we will process
   // Also create empty statistic objects for each of our datasets
   std::string path_algos(argv[3]);
-  std::vector<boost::filesystem::path> path_algorithms;
-  for (const auto &entry : boost::filesystem::directory_iterator(path_algos)) {
-    if (boost::filesystem::is_directory(entry)) {
+  std::vector<std::filesystem::path> path_algorithms;
+  for (const auto &entry : std::filesystem::directory_iterator(path_algos)) {
+    if (std::filesystem::is_directory(entry)) {
       path_algorithms.push_back(entry.path());
     }
   }
@@ -128,9 +128,9 @@ int main(int argc, char **argv) {
     PRINT_DEBUG("[COMP]: processing %s algorithm\n", path_algorithms.at(i).filename().c_str());
 
     // Get the list of datasets this algorithm records
-    std::map<std::string, boost::filesystem::path> path_algo_datasets;
-    for (auto &entry : boost::filesystem::directory_iterator(path_algorithms.at(i))) {
-      if (boost::filesystem::is_directory(entry)) {
+    std::map<std::string, std::filesystem::path> path_algo_datasets;
+    for (auto &entry : std::filesystem::directory_iterator(path_algorithms.at(i))) {
+      if (std::filesystem::is_directory(entry)) {
         path_algo_datasets.insert({entry.path().filename().string(), entry.path()});
       }
     }
@@ -159,7 +159,7 @@ int main(int argc, char **argv) {
 
       // Loop though the different runs for this dataset
       std::vector<std::string> file_paths;
-      for (auto &entry : boost::filesystem::directory_iterator(path_algo_datasets.at(path_groundtruths.at(j).stem().string()))) {
+      for (auto &entry : std::filesystem::directory_iterator(path_algo_datasets.at(path_groundtruths.at(j).stem().string()))) {
         if (entry.path().extension() != ".txt")
           continue;
         file_paths.push_back(entry.path().string());

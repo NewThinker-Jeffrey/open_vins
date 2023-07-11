@@ -31,9 +31,10 @@
 #include "utils/colors.h"
 #include "utils/print.h"
 #include "utils/quat_ops.h"
+#include "utils/chi_square/chi_squared_quantile_table_0_95.h"
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/math/distributions/chi_squared.hpp>
+#include <chrono>
+// #include <boost/math/distributions/chi_squared.hpp>
 
 using namespace ov_core;
 using namespace ov_type;
@@ -56,10 +57,10 @@ UpdaterZeroVelocity::UpdaterZeroVelocity(UpdaterOptions &options, NoiseManager &
 
   // Initialize the chi squared test table with confidence level 0.95
   // https://github.com/KumarRobotics/msckf_vio/blob/050c50defa5a7fd9a04c1eed5687b405f02919b5/src/msckf_vio.cpp#L215-L221
-  for (int i = 1; i < 1000; i++) {
-    boost::math::chi_squared chi_squared_dist(i);
-    chi_squared_table[i] = boost::math::quantile(chi_squared_dist, 0.95);
-  }
+  // for (int i = 1; i < 1000; i++) {
+  //   boost::math::chi_squared chi_squared_dist(i);
+  //   chi_squared_table[i] = boost::math::quantile(chi_squared_dist, 0.95);
+  // }
 }
 
 bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timestamp) {
@@ -94,7 +95,7 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   double time1 = timestamp + t_off_new;
 
   // Select bounding inertial measurements
-  std::vector<ov_core::ImuData> imu_recent = Propagator::select_imu_readings(imu_data, time0, time1);
+  std::vector<ov_core::ImuData> imu_recent = ov_core::ImuData::select_imu_readings(imu_data, time0, time1);
 
   // Move forward in time
   last_prop_time_offset = t_off_new;
@@ -202,13 +203,14 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
 
   // Get our threshold (we precompute up to 1000 but handle the case that it is more)
   double chi2_check;
-  if (res.rows() < 1000) {
-    chi2_check = chi_squared_table[res.rows()];
-  } else {
-    boost::math::chi_squared chi_squared_dist(res.rows());
-    chi2_check = boost::math::quantile(chi_squared_dist, 0.95);
-    PRINT_WARNING(YELLOW "[ZUPT]: chi2_check over the residual limit - %d\n" RESET, (int)res.rows());
-  }
+  // if (res.rows() < 1000) {
+  //   chi2_check = chi_squared_table[res.rows()];
+  // } else {
+  //   boost::math::chi_squared chi_squared_dist(res.rows());
+  //   chi2_check = boost::math::quantile(chi_squared_dist, 0.95);
+  //   PRINT_WARNING(YELLOW "[ZUPT]: chi2_check over the residual limit - %d\n" RESET, (int)res.rows());
+  // }
+  chi2_check = ::chi_squared_quantile_table_0_95[res.rows()];
 
   // Check if the image disparity
   bool disparity_passed = false;

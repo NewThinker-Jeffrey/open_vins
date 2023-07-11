@@ -52,7 +52,7 @@ public:
    * @brief Default Constructor (will initialize variables to defaults)
    * @param options_ Options structure containing filter options
    */
-  State(StateOptions &options_);
+  State(const StateOptions &options_);
 
   ~State() {}
 
@@ -62,7 +62,7 @@ public:
    * But if you wanted to do a keyframe system, you could selectively marginalize clones.
    * @return timestep of clone we will marginalize
    */
-  double margtimestep() {
+  double margtimestep() const {
     double time = INFINITY;
     for (const auto &clone_imu : _clones_IMU) {
       if (clone_imu.first < time) {
@@ -76,7 +76,60 @@ public:
    * @brief Calculates the current max size of the covariance
    * @return Size of the current covariance matrix
    */
-  int max_covariance_size() { return (int)_Cov.rows(); }
+  int max_covariance_size() const { return (int)_Cov.rows(); }
+
+
+  std::shared_ptr<State> clone() const {
+    auto clone = std::make_shared<State>(_options);
+    clone->_timestamp = _timestamp;
+    clone->_Cov = _Cov;
+
+    // clone _cam_intrinsics_cameras
+    clone->_cam_intrinsics_cameras.clear();
+    for (auto& pair : _cam_intrinsics_cameras) {
+      clone->_cam_intrinsics_cameras[pair.first] = pair.second->clone();
+    }
+
+    // clone _variables, and record the old_to_new map
+    std::map<std::shared_ptr<ov_type::Type>, std::shared_ptr<ov_type::Type>> old_to_new;
+    clone->_variables.clear();
+    for (auto& variable : _variables) {
+      auto new_variable = variable->clone();
+      new_variable->set_local_id(variable->id());
+      clone->_variables.push_back(new_variable);
+      old_to_new[variable] = new_variable;
+    }
+
+    // _imu and _clones_IMU
+    clone->_imu = std::dynamic_pointer_cast<ov_type::IMU>(old_to_new[_imu]);
+    clone->_clones_IMU.clear();
+    for (auto& pair : _clones_IMU) {
+      clone->_clones_IMU[pair.first] = std::dynamic_pointer_cast<ov_type::PoseJPL>(old_to_new[pair.second]);
+    }
+
+    // _features_SLAM
+    clone->_features_SLAM.clear();
+    for (auto& pair : _features_SLAM) {
+      clone->_features_SLAM[pair.first] = std::dynamic_pointer_cast<ov_type::Landmark>(old_to_new[pair.second]);
+    }
+
+    // _calib_dt_CAMtoIMU
+    clone->_calib_dt_CAMtoIMU = std::dynamic_pointer_cast<ov_type::Vec>(old_to_new[_calib_dt_CAMtoIMU]);
+
+    // _calib_IMUtoCAM
+    clone->_calib_IMUtoCAM.clear();
+    for (auto& pair : _calib_IMUtoCAM) {
+      clone->_calib_IMUtoCAM[pair.first] = std::dynamic_pointer_cast<ov_type::PoseJPL>(old_to_new[pair.second]);
+    }
+
+    // _cam_intrinsics
+    clone->_cam_intrinsics.clear();
+    for (auto& pair : _cam_intrinsics) {
+      clone->_cam_intrinsics[pair.first] = std::dynamic_pointer_cast<ov_type::Vec>(old_to_new[pair.second]);
+    }
+
+    return clone;
+  }
 
   /// Current timestamp (should be the last update time!)
   double _timestamp = -1;

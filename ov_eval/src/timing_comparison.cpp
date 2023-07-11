@@ -21,7 +21,7 @@
 
 #include <Eigen/Eigen>
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/foreach.hpp>
 #include <fstream>
 #include <iostream>
@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
   for (int z = 1; z < argc; z++) {
 
     // Parse the name of this timing
-    boost::filesystem::path path(argv[z]);
+    std::filesystem::path path(argv[z]);
     std::string name = path.stem().string();
     PRINT_INFO("[TIME]: loading data for %s\n", name.c_str());
 

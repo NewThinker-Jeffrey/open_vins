@@ -74,11 +74,24 @@ struct VioManagerOptions {
   /// Our state initialization options (e.g. window size, num features, if we should get the calibration)
   ov_init::InertialInitializerOptions init_options;
 
+  /// If false, feature tracking and state update will run in the same thread sequentially.
+  /// Otherwise, a separate thread will be created for feature tracking and state update each.
+  bool async_img_process = true;
+
+  // /// our output. save nothing if not set.
+  // std::string output_dir = "";
+
   /// Delay, in seconds, that we should wait from init before we start estimating SLAM features
   double dt_slam_delay = 2.0;
 
   /// If we should try to use zero velocity update
   bool try_zupt = false;
+
+  bool vio_manager_high_frequency_log = false;
+
+  bool choose_new_landmark_by_disparity = true;  // better, but more computation
+
+  bool enable_early_landmark = true;
 
   /// Max velocity we will consider to try to do a zupt (i.e. if above this, don't do zupt)
   double zupt_max_velocity = 1.0;
@@ -92,11 +105,11 @@ struct VioManagerOptions {
   /// If we should only use the zupt at the very beginning static initialization phase
   bool zupt_only_at_beginning = false;
 
-  /// If we should record the timing performance to file
-  bool record_timing_information = false;
+  // /// If we should record the timing performance to file
+  // bool record_timing_information = false;
 
-  /// The path to the file we will record the timing information into
-  std::string record_timing_filepath = "ov_msckf_timing.txt";
+  // /// The path to the file we will record the timing information into
+  // std::string record_timing_filepath = "ov_msckf_timing.txt";
 
   /**
    * @brief This function will load print out all estimator settings loaded.
@@ -111,21 +124,31 @@ struct VioManagerOptions {
     if (parser != nullptr) {
       parser->parse_config("dt_slam_delay", dt_slam_delay);
       parser->parse_config("try_zupt", try_zupt);
+      parser->parse_config("vio_manager_high_frequency_log", vio_manager_high_frequency_log, false);
+      parser->parse_config("choose_new_landmark_by_disparity", choose_new_landmark_by_disparity, false);
+      parser->parse_config("enable_early_landmark", enable_early_landmark, false);
       parser->parse_config("zupt_max_velocity", zupt_max_velocity);
       parser->parse_config("zupt_noise_multiplier", zupt_noise_multiplier);
       parser->parse_config("zupt_max_disparity", zupt_max_disparity);
       parser->parse_config("zupt_only_at_beginning", zupt_only_at_beginning);
-      parser->parse_config("record_timing_information", record_timing_information);
-      parser->parse_config("record_timing_filepath", record_timing_filepath);
+      parser->parse_config("async_img_process", async_img_process);
+      // parser->parse_config("record_timing_information", record_timing_information);
+      // parser->parse_config("record_timing_filepath", record_timing_filepath);
+      // parser->parse_config("output_dir", output_dir, false);
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
+    PRINT_DEBUG("  - vio_manager_high_frequency_log: %d\n", vio_manager_high_frequency_log);
+    PRINT_DEBUG("  - choose_new_landmark_by_disparity: %d\n", choose_new_landmark_by_disparity);
+    PRINT_DEBUG("  - enable_early_landmark: %d\n", enable_early_landmark);
     PRINT_DEBUG("  - zupt_max_velocity: %.2f\n", zupt_max_velocity);
     PRINT_DEBUG("  - zupt_noise_multiplier: %.2f\n", zupt_noise_multiplier);
     PRINT_DEBUG("  - zupt_max_disparity: %.4f\n", zupt_max_disparity);
     PRINT_DEBUG("  - zupt_only_at_beginning?: %d\n", zupt_only_at_beginning);
-    PRINT_DEBUG("  - record timing?: %d\n", (int)record_timing_information);
-    PRINT_DEBUG("  - record timing filepath: %s\n", record_timing_filepath.c_str());
+    PRINT_DEBUG("  - async_img_process: %d\n", async_img_process);
+    // PRINT_DEBUG("  - record timing?: %d\n", (int)record_timing_information);
+    // PRINT_DEBUG("  - record timing filepath: %s\n", record_timing_filepath.c_str());
+    // PRINT_DEBUG("  - output_dir: %d\n", output_dir);
   }
 
   // NOISE / CHI2 ============================
@@ -275,7 +298,7 @@ struct VioManagerOptions {
           std::string mask_node = "mask" + std::to_string(i);
           parser->parse_config(mask_node, mask_path);
           std::string total_mask_path = parser->get_config_folder() + mask_path;
-          if (!boost::filesystem::exists(total_mask_path)) {
+          if (!std::filesystem::exists(total_mask_path)) {
             PRINT_ERROR(RED "VioManager(): invalid mask path:\n" RESET);
             PRINT_ERROR(RED "\t- mask%d - %s\n" RESET, i, total_mask_path.c_str());
             std::exit(EXIT_FAILURE);
@@ -322,6 +345,16 @@ struct VioManagerOptions {
 
   /// If we should use KLT tracking, or descriptor matcher
   bool use_klt = true;
+
+  bool klt_left_major_stereo = true;
+
+  bool klt_strict_stereo = false;
+
+  bool klt_force_fundamental = true;
+
+  bool feattrack_high_frequency_log = false;
+
+  bool feattrack_predict_keypoints = true;
 
   /// If should extract aruco tags and estimate them
   bool use_aruco = true;
@@ -378,6 +411,11 @@ struct VioManagerOptions {
     if (parser != nullptr) {
       parser->parse_config("use_stereo", use_stereo);
       parser->parse_config("use_klt", use_klt);
+      parser->parse_config("klt_left_major_stereo", klt_left_major_stereo, false);
+      parser->parse_config("klt_strict_stereo", klt_strict_stereo, false);
+      parser->parse_config("klt_force_fundamental", klt_force_fundamental, false);
+      parser->parse_config("feattrack_high_frequency_log", feattrack_high_frequency_log, false);      
+      parser->parse_config("feattrack_predict_keypoints", feattrack_predict_keypoints, false);      
       parser->parse_config("use_aruco", use_aruco);
       parser->parse_config("downsize_aruco", downsize_aruco);
       parser->parse_config("downsample_cameras", downsample_cameras);
@@ -410,6 +448,11 @@ struct VioManagerOptions {
     PRINT_DEBUG("FEATURE TRACKING PARAMETERS:\n");
     PRINT_DEBUG("  - use_stereo: %d\n", use_stereo);
     PRINT_DEBUG("  - use_klt: %d\n", use_klt);
+    PRINT_DEBUG("  - klt_left_major_stereo: %d\n", klt_left_major_stereo);
+    PRINT_DEBUG("  - klt_strict_stereo: %d\n", klt_strict_stereo);
+    PRINT_DEBUG("  - klt_force_fundamental: %d\n", klt_force_fundamental);
+    PRINT_DEBUG("  - feattrack_high_frequency_log: %d\n", feattrack_high_frequency_log);
+    PRINT_DEBUG("  - feattrack_predict_keypoints: %d\n", feattrack_predict_keypoints);
     PRINT_DEBUG("  - use_aruco: %d\n", use_aruco);
     PRINT_DEBUG("  - downsize aruco: %d\n", downsize_aruco);
     PRINT_DEBUG("  - downsize cameras: %d\n", downsample_cameras);

@@ -93,12 +93,18 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
 
   // Run the initialization in a second thread so it can go as slow as it desires
   thread_init_running = true;
-  std::thread thread([&] {
+  if (initialization_thread_ && initialization_thread_->joinable()) {
+    initialization_thread_->join();
+    initialization_thread_.reset();
+  }
+  initialization_thread_ = std::make_shared<std::thread>([&] {
+    pthread_setname_np(pthread_self(), "ov_init");
+
     // Returns from our initializer
     double timestamp;
     Eigen::MatrixXd covariance;
     std::vector<std::shared_ptr<ov_type::Type>> order;
-    auto init_rT1 = boost::posix_time::microsec_clock::local_time();
+    auto init_rT1 = std::chrono::high_resolution_clock::now();
 
     // Try to initialize the system
     // We will wait for a jerk if we do not have the zero velocity update enabled
@@ -121,7 +127,9 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
       // Also increase the number of features to the desired amount during estimation
       // NOTE: we will split the total number of features over all cameras uniformly
       trackFEATS->get_feature_database()->cleanup_measurements(state->_timestamp);
-      trackFEATS->set_num_features(std::floor((double)params.num_pts / (double)params.state_options.num_cameras));
+      //// NOTE(isaac): we don't split the number of features.
+      // trackFEATS->set_num_features(std::floor((double)params.num_pts / (double)params.state_options.num_cameras));
+      trackFEATS->set_num_features(params.num_pts);
       if (trackARUCO != nullptr) {
         trackARUCO->get_feature_database()->cleanup_measurements(state->_timestamp);
       }
@@ -132,8 +140,8 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
       }
 
       // Else we are good to go, print out our stats
-      auto init_rT2 = boost::posix_time::microsec_clock::local_time();
-      PRINT_INFO(GREEN "[init]: successful initialization in %.4f seconds\n" RESET, (init_rT2 - init_rT1).total_microseconds() * 1e-6);
+      auto init_rT2 = std::chrono::high_resolution_clock::now();
+      PRINT_INFO(GREEN "[init]: successful initialization in %.4f seconds\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(init_rT2 - init_rT1).count());
       PRINT_INFO(GREEN "[init]: orientation = %.4f, %.4f, %.4f, %.4f\n" RESET, state->_imu->quat()(0), state->_imu->quat()(1),
                  state->_imu->quat()(2), state->_imu->quat()(3));
       PRINT_INFO(GREEN "[init]: bias gyro = %.4f, %.4f, %.4f\n" RESET, state->_imu->bias_g()(0), state->_imu->bias_g()(1),
@@ -166,8 +174,8 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
       camera_queue_init.clear();
 
     } else {
-      auto init_rT2 = boost::posix_time::microsec_clock::local_time();
-      PRINT_DEBUG(YELLOW "[init]: failed initialization in %.4f seconds\n" RESET, (init_rT2 - init_rT1).total_microseconds() * 1e-6);
+      auto init_rT2 = std::chrono::high_resolution_clock::now();
+      PRINT_DEBUG(YELLOW "[init]: failed initialization in %.4f seconds\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(init_rT2 - init_rT1).count());
       thread_init_success = false;
       std::lock_guard<std::mutex> lck(camera_queue_init_mtx);
       camera_queue_init.clear();
@@ -180,9 +188,7 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
   // If we are single threaded, then run single threaded
   // Otherwise detach this thread so it runs in the background!
   if (!params.use_multi_threading_subs) {
-    thread.join();
-  } else {
-    thread.detach();
+    initialization_thread_->join();
   }
   return false;
 }
@@ -190,24 +196,24 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
 void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message) {
 
   // Start timing
-  boost::posix_time::ptime retri_rT1, retri_rT2, retri_rT3;
-  retri_rT1 = boost::posix_time::microsec_clock::local_time();
+  std::chrono::high_resolution_clock::time_point retri_rT1, retri_rT2, retri_rT3;
+  retri_rT1 = std::chrono::high_resolution_clock::now();
 
   // Clear old active track data
   assert(state->_clones_IMU.find(message.timestamp) != state->_clones_IMU.end());
   active_tracks_time = message.timestamp;
   active_image = cv::Mat();
-  trackFEATS->display_active(active_image, 255, 255, 255, 255, 255, 255, " ");
-  if (!active_image.empty()) {
-    active_image = active_image(cv::Rect(0, 0, message.images.at(0).cols, message.images.at(0).rows));
-  }
+  // trackFEATS->display_active(active_image, 255, 255, 255, 255, 255, 255, " ");
+  // if (!active_image.empty()) {
+  //   active_image = active_image(cv::Rect(0, 0, message.images.at(0).cols, message.images.at(0).rows));
+  // }
   active_tracks_posinG.clear();
   active_tracks_uvd.clear();
 
   // Current active tracks in our frontend
   // TODO: should probably assert here that these are at the message time...
-  auto last_obs = trackFEATS->get_last_obs();
-  auto last_ids = trackFEATS->get_last_ids();
+  auto last_obs = trackFEATS->get_last_obs(message.timestamp);
+  auto last_ids = trackFEATS->get_last_ids(message.timestamp);
 
   // New set of linear systems that only contain the latest track info
   std::map<size_t, Eigen::Matrix3d> active_feat_linsys_A_new;
@@ -301,7 +307,7 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
   active_feat_linsys_b = active_feat_linsys_b_new;
   active_feat_linsys_count = active_feat_linsys_count_new;
   active_tracks_posinG = active_tracks_posinG_new;
-  retri_rT2 = boost::posix_time::microsec_clock::local_time();
+  retri_rT2 = std::chrono::high_resolution_clock::now();
 
   // Return if no features
   if (active_tracks_posinG.empty() && state->_features_SLAM.empty())
@@ -377,16 +383,16 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
     uvd << uv_dist, depth;
     active_tracks_uvd.insert({feat.first, uvd});
   }
-  retri_rT3 = boost::posix_time::microsec_clock::local_time();
+  retri_rT3 = std::chrono::high_resolution_clock::now();
 
   // Timing information
   PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds for triangulation (%zu tri of %zu active)\n" RESET,
-            (retri_rT2 - retri_rT1).total_microseconds() * 1e-6, total_triangulated, active_feat_linsys_A.size());
-  PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds for re-projection into current\n" RESET, (retri_rT3 - retri_rT2).total_microseconds() * 1e-6);
-  PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds total\n" RESET, (retri_rT3 - retri_rT1).total_microseconds() * 1e-6);
+            std::chrono::duration_cast<std::chrono::duration<double>>(retri_rT2 - retri_rT1).count(), total_triangulated, active_feat_linsys_A.size());
+  PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds for re-projection into current\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(retri_rT3 - retri_rT2).count());
+  PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds total\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(retri_rT3 - retri_rT1).count());
 }
 
-cv::Mat VioManager::get_historical_viz_image() {
+cv::Mat VioManager::get_historical_viz_image(std::shared_ptr<Output> output) {
 
   // Return if not ready yet
   if (state == nullptr || trackFEATS == nullptr)
@@ -394,9 +400,11 @@ cv::Mat VioManager::get_historical_viz_image() {
 
   // Build an id-list of what features we should highlight (i.e. SLAM)
   std::vector<size_t> highlighted_ids;
-  for (const auto &feat : state->_features_SLAM) {
+  for (const auto &feat : output->state_clone->_features_SLAM) {
     highlighted_ids.push_back(feat.first);
   }
+  auto & good_feature_ids_MSCKF = output->visualization.good_feature_ids_MSCKF;
+  highlighted_ids.insert(highlighted_ids.end(), good_feature_ids_MSCKF.begin(), good_feature_ids_MSCKF.end());
 
   // Text we will overlay if needed
   std::string overlay = (did_zupt_update) ? "zvupt" : "";
@@ -404,9 +412,17 @@ cv::Mat VioManager::get_historical_viz_image() {
 
   // Get the current active tracks
   cv::Mat img_history;
-  trackFEATS->display_history(img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
+  // double img_timestamp = output->status.timestamp;
+  double img_timestamp = output->status.prev_timestamp;  // we need the 'prev_timestamp' so that msckf points can be visulized  
+  if (img_timestamp <= 0) {
+    img_timestamp = output->status.timestamp;
+  }
+
+  // std::cout << "prev_timestamp: " << output->status.prev_timestamp << ", cur_timestamp: " << output->status.timestamp << ", img_timestamp" << img_timestamp << std::endl;
+
+  trackFEATS->display_history(img_timestamp, img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
   if (trackARUCO != nullptr) {
-    trackARUCO->display_history(img_history, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay);
+    trackARUCO->display_history(img_timestamp, img_history, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay);
     // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay);
   }
 
@@ -437,6 +453,17 @@ std::vector<Eigen::Vector3d> VioManager::get_features_SLAM() {
   return slam_feats;
 }
 
+std::vector<size_t> VioManager::get_feature_ids_SLAM() {
+  std::vector<size_t> feat_ids;
+  for (auto &f : state->_features_SLAM) {
+    if ((int)f.first <= 4 * state->_options.max_aruco_features)
+      continue;
+    feat_ids.push_back(f.second->_featid);
+  }
+  return feat_ids;
+}
+
+
 std::vector<Eigen::Vector3d> VioManager::get_features_ARUCO() {
   std::vector<Eigen::Vector3d> aruco_feats;
   for (auto &f : state->_features_SLAM) {
@@ -458,4 +485,14 @@ std::vector<Eigen::Vector3d> VioManager::get_features_ARUCO() {
     }
   }
   return aruco_feats;
+}
+
+std::vector<size_t> VioManager::get_feature_ids_ARUCO() {
+  std::vector<size_t> feat_ids;
+  for (auto &f : state->_features_SLAM) {
+    if ((int)f.first > 4 * state->_options.max_aruco_features)
+      continue;
+    feat_ids.push_back(f.second->_featid);
+  }
+  return feat_ids;
 }

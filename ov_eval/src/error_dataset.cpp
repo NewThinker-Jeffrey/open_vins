@@ -21,7 +21,7 @@
 
 #include <Eigen/Eigen>
 #include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <string>
 
 #include "calc/ResultTrajectory.h"
@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
   }
 
   // Load it!
-  boost::filesystem::path path_gt(argv[2]);
+  std::filesystem::path path_gt(argv[2]);
   std::vector<double> times;
   std::vector<Eigen::Matrix<double, 7, 1>> poses;
   std::vector<Eigen::Matrix3d> cov_ori, cov_pos;
@@ -65,9 +65,9 @@ int main(int argc, char **argv) {
   // Get the algorithms we will process
   // Also create empty statistic objects for each of our datasets
   std::string path_algos(argv[3]);
-  std::vector<boost::filesystem::path> path_algorithms;
-  for (const auto &entry : boost::filesystem::directory_iterator(path_algos)) {
-    if (boost::filesystem::is_directory(entry)) {
+  std::vector<std::filesystem::path> path_algorithms;
+  for (const auto &entry : std::filesystem::directory_iterator(path_algos)) {
+    if (std::filesystem::is_directory(entry)) {
       path_algorithms.push_back(entry.path());
     }
   }
@@ -114,9 +114,9 @@ int main(int argc, char **argv) {
     PRINT_DEBUG("[COMP]: processing %s algorithm\n", path_algorithms.at(i).filename().c_str());
 
     // Get the list of datasets this algorithm records
-    std::map<std::string, boost::filesystem::path> path_algo_datasets;
-    for (auto &entry : boost::filesystem::directory_iterator(path_algorithms.at(i))) {
-      if (boost::filesystem::is_directory(entry)) {
+    std::map<std::string, std::filesystem::path> path_algo_datasets;
+    for (auto &entry : std::filesystem::directory_iterator(path_algorithms.at(i))) {
+      if (std::filesystem::is_directory(entry)) {
         path_algo_datasets.insert({entry.path().filename().string(), entry.path()});
       }
     }
@@ -141,7 +141,7 @@ int main(int argc, char **argv) {
 
     // Loop though the different runs for this dataset
     std::vector<std::string> file_paths;
-    for (auto &entry : boost::filesystem::directory_iterator(path_algo_datasets.at(path_gt.stem().string()))) {
+    for (auto &entry : std::filesystem::directory_iterator(path_algo_datasets.at(path_gt.stem().string()))) {
       if (entry.path().extension() != ".txt")
         continue;
       file_paths.push_back(entry.path().string());

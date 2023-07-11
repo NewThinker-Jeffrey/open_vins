@@ -8,9 +8,11 @@ find_package(OpenCV 3 QUIET)
 if (NOT OpenCV_FOUND)
     find_package(OpenCV 4 REQUIRED)
 endif ()
-find_package(Boost REQUIRED COMPONENTS system filesystem thread date_time)
 find_package(Ceres REQUIRED)
-message(STATUS "OPENCV: " ${OpenCV_VERSION} " | BOOST: " ${Boost_VERSION} " | CERES: " ${Ceres_VERSION})
+
+message(STATUS "OPENCV: " ${OpenCV_VERSION} " | CERES: " ${Ceres_VERSION})
+# find_package(Boost REQUIRED COMPONENTS system filesystem thread date_time)
+# message(STATUS "BOOST: " ${Boost_VERSION})
 
 # If we will compile with aruco support
 option(ENABLE_ARUCO_TAGS "Enable or disable aruco tag (disable if no contrib modules)" ON)
@@ -21,9 +23,20 @@ else ()
     add_definitions(-DENABLE_ARUCO_TAGS=1)
 endif ()
 
+
+option(ENABLE_PANGOLIN "Enable or disable Pangolin viewer" ON)
+if (NOT ENABLE_PANGOLIN)
+    add_definitions(-DENABLE_PANGOLIN=0)
+    message(WARNING "Disable Pangolin viewer!")
+else ()
+    find_package(Pangolin REQUIRED)
+    message(STATUS "Pangolin: " ${Pangolin_FOUND})
+    add_definitions(-DENABLE_PANGOLIN=1)
+endif ()
+
 # We need c++14 for ROS2, thus just require it for everybody
 # NOTE: To future self, hope this isn't an issue...
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)  # use c++ 17
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 

@@ -27,8 +27,8 @@
 #include <unistd.h>
 #include <vector>
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/filesystem.hpp>
+#include <chrono>
+#include <filesystem>
 
 #if ROS_AVAILABLE == 1
 #include <ros/ros.h>
@@ -60,9 +60,9 @@ int main(int argc, char **argv) {
 
   // Load the config
   auto parser = std::make_shared<ov_core::YamlParser>(config_path);
-#if ROS_AVAILABLE == 1
-  parser->set_node_handler(nh);
-#endif
+// #if ROS_AVAILABLE == 1
+//   parser->set_node_handler(nh);
+// #endif
 
   // Verbosity
   std::string verbosity = "INFO";

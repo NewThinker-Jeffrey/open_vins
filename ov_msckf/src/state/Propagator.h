@@ -103,7 +103,7 @@ public:
    * @param state Pointer to state
    * @param timestamp Time to propagate to and clone at (CAM clock frame)
    */
-  void propagate_and_clone(std::shared_ptr<State> state, double timestamp);
+  void propagate_and_clone(std::shared_ptr<State> state, double timestamp, Eigen::Matrix3d* output_rotation=nullptr);
 
   /**
    * @brief Gets what the state and its covariance will be at a given timestamp
@@ -113,29 +113,13 @@ public:
    * This is typically used to provide high frequency pose estimates between updates.
    *
    * @param state Pointer to state
-   * @param timestamp Time to propagate to (IMU clock frame)
+   * @param timestamp Time to propagate to (IMU clock frame). (<0 for the latest imu time)
    * @param state_plus The propagated state (q_GtoI, p_IinG, v_IinI, w_IinI)
    * @param covariance The propagated covariance (q_GtoI, p_IinG, v_IinI, w_IinI)
    * @return True if we were able to propagate the state to the current timestep
    */
   bool fast_state_propagate(std::shared_ptr<State> state, double timestamp, Eigen::Matrix<double, 13, 1> &state_plus,
-                            Eigen::Matrix<double, 12, 12> &covariance);
-
-  /**
-   * @brief Helper function that given current imu data, will select imu readings between the two times.
-   *
-   * This will create measurements that we will integrate with, and an extra measurement at the end.
-   * We use the @ref interpolate_data() function to "cut" the imu readings at the begining and end of the integration.
-   * The timestamps passed should already take into account the time offset values.
-   *
-   * @param imu_data IMU data we will select measurements from
-   * @param time0 Start timestamp
-   * @param time1 End timestamp
-   * @param warn If we should warn if we don't have enough IMU to propagate with (e.g. fast prop will get warnings otherwise)
-   * @return Vector of measurements (if we could compute them)
-   */
-  static std::vector<ov_core::ImuData> select_imu_readings(const std::vector<ov_core::ImuData> &imu_data, double time0, double time1,
-                                                           bool warn = true);
+                            Eigen::Matrix<double, 12, 12> &covariance, double* output_timestamp = nullptr);
 
   /**
    * @brief Nice helper function that will linearly interpolate between two imu messages.

@@ -29,8 +29,8 @@
 
 #include <ceres/ceres.h>
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/filesystem.hpp>
+#include <chrono>
+#include <filesystem>
 
 #if ROS_AVAILABLE == 1
 #include <nav_msgs/Path.h>
@@ -86,9 +86,9 @@ int main(int argc, char **argv) {
 
   // Load the config
   auto parser = std::make_shared<ov_core::YamlParser>(config_path);
-#if ROS_AVAILABLE == 1
-  parser->set_node_handler(nh);
-#endif
+// #if ROS_AVAILABLE == 1
+//   parser->set_node_handler(nh);
+// #endif
 
   // Verbosity
   std::string verbosity = "INFO";
@@ -231,7 +231,7 @@ int main(int argc, char **argv) {
           // TODO: estimate the timeoffset? don't use the true?
           double time0 = timestamp_k + sim.get_true_parameters().calib_camimu_dt;
           double time1 = timestamp_k1 + sim.get_true_parameters().calib_camimu_dt;
-          auto readings = InitializerHelper::select_imu_readings(*imu_readings, time0, time1);
+          auto readings = ov_core::ImuData::select_imu_readings(*imu_readings, time0, time1);
           cpi = std::make_shared<ov_core::CpiV1>(params.sigma_w, params.sigma_wb, params.sigma_a, params.sigma_ab, false);
           cpi->setLinearizationPoints(bias_g_k, bias_a_k, quat_k, gravity);
           for (size_t k = 0; k < readings.size() - 1; k++) {

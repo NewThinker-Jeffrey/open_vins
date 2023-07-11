@@ -21,7 +21,7 @@
 
 #include <Eigen/Eigen>
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -42,7 +42,7 @@ void process_csv(std::string infile) {
   std::ifstream file1;
   std::string line;
   file1.open(infile);
-  PRINT_INFO("Opening file %s\n", boost::filesystem::path(infile).filename().c_str());
+  PRINT_INFO("Opening file %s\n", std::filesystem::path(infile).filename().c_str());
 
   // Check that it was successful
   if (!file1) {
@@ -98,7 +98,7 @@ void process_csv(std::string infile) {
 
   // If file exists already then crash
   std::string outfile = infile.substr(0, infile.find_last_of('.')) + ".txt";
-  if (boost::filesystem::exists(outfile)) {
+  if (std::filesystem::exists(outfile)) {
     PRINT_ERROR(RED "\t- ERROR: Output file already exists, please delete and re-run this script!!\n" RESET);
     PRINT_ERROR(RED "\t- ERROR: %s\n" RESET, outfile.c_str());
     return;
@@ -123,7 +123,7 @@ void process_csv(std::string infile) {
     file2 << traj_data.at(i)(1) << " " << traj_data.at(i)(2) << " " << traj_data.at(i)(3) << " " << traj_data.at(i)(5) << " "
           << traj_data.at(i)(6) << " " << traj_data.at(i)(7) << " " << traj_data.at(i)(4) << std::endl;
   }
-  PRINT_INFO("\t- Saved to file %s\n", boost::filesystem::path(outfile).filename().c_str());
+  PRINT_INFO("\t- Saved to file %s\n", std::filesystem::path(outfile).filename().c_str());
 
   // Finally close the file
   file2.close();
@@ -148,8 +148,8 @@ int main(int argc, char **argv) {
   } else {
 
     // Loop through this directory
-    boost::filesystem::path infolder(argv[1]);
-    for (auto &p : boost::filesystem::recursive_directory_iterator(infolder)) {
+    std::filesystem::path infolder(argv[1]);
+    for (auto &p : std::filesystem::recursive_directory_iterator(infolder)) {
       if (p.path().extension() == ".csv") {
         process_csv(p.path().string());
       }
