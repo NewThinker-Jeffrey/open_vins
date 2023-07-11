@@ -152,11 +152,16 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
   double t_off = state->_calib_dt_CAMtoIMU->value()(0);
 
   // First lets construct an IMU vector of measurements we need
-  double time0 = state_time + t_off;
-  double time1 = timestamp + t_off;
   std::vector<ov_core::ImuData> prop_data;
   {
+    double time0 = state_time + t_off;
     std::lock_guard<std::mutex> lck(imu_data_mtx);
+    double time1;
+    if (timestamp < 0) {
+      time1 = imu_data.back().timestamp;
+    } else {
+      time1 = timestamp + t_off;
+    }
     prop_data = ov_core::ImuData::select_imu_readings(imu_data, time0, time1, false);
   }
   if (prop_data.size() < 2)

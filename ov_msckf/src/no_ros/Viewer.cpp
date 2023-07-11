@@ -100,7 +100,7 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   Eigen::Isometry3f imu_pose(output->state_clone->_imu->Rot().inverse().cast<float>());
   imu_pose.translation() = new_pos;
 #else
-  auto loc = _app->Localization();
+  auto loc = _app->Localization(false);
   const double* q = loc.q;
   const double* p = loc.p;
   Eigen::Vector3f new_pos(p[0], p[1], p[2]);
@@ -118,8 +118,8 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
     Twi.m[4*i+3] = imu_pose_mat(3,i);
   }
 
-  // s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
-  // // s_cam->Follow(Twi);
+  s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
+  // s_cam->Follow(Twi);
 
   pangolin::Display("cam1").Activate(*s_cam);
   // pangolin::glDrawColouredCube();
@@ -229,6 +229,31 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   glEnd();
   glPopMatrix();
 
+  const bool draw_imu_predict = true;
+  if (draw_imu_predict) {
+    auto loc = _app->Localization(true);
+    const double* q = loc.q;
+    const double* p = loc.p;
+    Eigen::Quaternionf quat(q[3], q[0], q[1], q[2]);
+    Eigen::Isometry3f predicted_imu_pose(quat);
+    predicted_imu_pose.translation() = Eigen::Vector3f(p[0], p[1], p[2]);
+    Eigen::Matrix4f predicted_imu_pose_mat = predicted_imu_pose.matrix();  // column major
+
+    // draw imu frame
+    glPushMatrix();
+    glMultMatrixf(predicted_imu_pose_mat.data());
+
+    glLineWidth(4.0);
+    glColor4f(1.0f, 0.0f, 1.0f, 0.3f);
+    glBegin(GL_LINE_LOOP);
+    half_w *= 1.3;
+    l *= 1.3;
+    glVertex3f(-half_w, 0, -l);
+    glVertex3f( half_w, 0, -l);
+    glVertex3f(      0, 0,  0);
+    glEnd();
+    glPopMatrix();
+  }
 
   pangolin::FinishFrame();
 }

@@ -113,7 +113,7 @@ public:
    * This is typically used to provide high frequency pose estimates between updates.
    *
    * @param state Pointer to state
-   * @param timestamp Time to propagate to (IMU clock frame)
+   * @param timestamp Time to propagate to (IMU clock frame). (<0 for the latest imu time)
    * @param state_plus The propagated state (q_GtoI, p_IinG, v_IinI, w_IinI)
    * @param covariance The propagated covariance (q_GtoI, p_IinG, v_IinI, w_IinI)
    * @return True if we were able to propagate the state to the current timestep

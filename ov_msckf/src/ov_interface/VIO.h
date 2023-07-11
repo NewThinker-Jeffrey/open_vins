@@ -15,7 +15,7 @@ public:
   void ReceiveImu(const IMU_MSG &imu_msg);
   void ReceiveCamera(const IMG_MSG &img_msg);
   void ReceiveStereoCamera(const STEREO_IMG_MSG &img_msg);
-  LOC_MSG Localization();
+  LOC_MSG Localization(bool predict_with_imu = true);
   void Reset();
   void Shutdown();
 

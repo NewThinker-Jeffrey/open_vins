@@ -159,18 +159,8 @@ void VIO::ReceiveStereoCamera(const STEREO_IMG_MSG &img_msg) {
 }
 
 
-//#define PREDICT_LOCALIZATION_WITH_IMU 
-#ifdef PREDICT_LOCALIZATION_WITH_IMU
 
-// struct LOC_MSG {
-//   double timestamp;
-//   double q[4];  // in Hamilton convention. memory order = xyzw (consistent with Eigen::Quaterniond::coeffs()) 
-//   double p[3];
-//   double cov[36];
-//   int64_t err;
-// };
-
-LOC_MSG VIO::Localization(double timestamp) {
+LOC_MSG VIO::Localization(bool predict_with_imu) {
   LOC_MSG loc;
   loc.timestamp = -1.0;
   loc.err = 0;
@@ -180,10 +170,7 @@ LOC_MSG VIO::Localization(double timestamp) {
     return loc;
   }
 
-  bool predict_with_imu = true;
-
-  if (!predict_with_imu || timestamp < 0 || timestamp < output->status.timestamp) {
-
+  if (!predict_with_imu) {
     // Eigen::Isometry3d imu_pose(output->state_clone->_imu->Rot().inverse());
     // imu_pose.translation() = output->state_clone->_imu->pos();
     // loc.pose = imu_pose;
@@ -213,7 +200,7 @@ LOC_MSG VIO::Localization(double timestamp) {
     Eigen::Matrix<double, 12, 12> covariance;
     double output_time;
     bool propagate_ok = impl_->internal_->get_propagator()->fast_state_propagate(
-        output->state_clone, timestamp, state_plus, covariance, &output_time);
+        output->state_clone, -1.0, state_plus, covariance, &output_time);
     if (propagate_ok) {
       Eigen::Matrix<double, 4, 1> jpl_q = state_plus.block(0, 0, 4, 1);
       Eigen::Vector3d pos = state_plus.block(4, 0, 3, 1);
@@ -242,58 +229,6 @@ LOC_MSG VIO::Localization(double timestamp) {
   return loc;
 }
 
-#else
-
-LOC_MSG VIO::Localization() {
-  LOC_MSG loc;
-  loc.timestamp = -1.0;
-  loc.err = 0;
-  auto output = impl_->internal_->getLastOutput(true, false);
-  if (!output->status.initialized) {
-    // vio has not been initilized yet.
-    return loc;
-  }
-
-  // Eigen::Isometry3d imu_pose(output->state_clone->_imu->Rot().inverse());
-  // imu_pose.translation() = output->state_clone->_imu->pos();
-  // loc.pose = imu_pose;
-  auto jpl_q = output->state_clone->_imu->quat();
-  auto pos = output->state_clone->_imu->pos();
-  auto vel = output->state_clone->_imu->vel();
-  auto b_g = output->state_clone->_imu->bias_g();
-  auto b_a = output->state_clone->_imu->bias_a();
-
-  // loc.q[0] = -jpl_q[0];
-  // loc.q[1] = -jpl_q[1];
-  // loc.q[2] = -jpl_q[2];
-  loc.q[0] =  jpl_q[0];
-  loc.q[1] =  jpl_q[1];
-  loc.q[2] =  jpl_q[2];
-  loc.q[3] =  jpl_q[3];
-
-  loc.p[0] = pos[0];
-  loc.p[1] = pos[1];
-  loc.p[2] = pos[2];
-  loc.v[0] = vel[0];
-  loc.v[1] = vel[1];
-  loc.v[2] = vel[2];
-  loc.b_g[0] = b_g[0];
-  loc.b_g[1] = b_g[1];
-  loc.b_g[2] = b_g[2];
-  loc.b_a[0] = b_a[0];
-  loc.b_a[1] = b_a[1];
-  loc.b_a[2] = b_a[2];
-
-  std::vector<std::shared_ptr<ov_type::Type>> variables;
-  variables.push_back(output->state_clone->_imu);
-  auto cov = ov_msckf::StateHelper::get_marginal_covariance(output->state_clone, variables);
-
-  loc.timestamp = output->status.timestamp;
-  memcpy(loc.cov, cov.data(), sizeof(loc.cov));
-
-  return loc;
-}
-#endif
 
 void VIO::Reset() {
   Shutdown();
