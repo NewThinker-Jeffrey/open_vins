@@ -19,17 +19,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef HEISENBERG_FolderBasedDataset_H
-#define HEISENBERG_FolderBasedDataset_H
+#ifndef FolderBasedDataset_H
+#define FolderBasedDataset_H
 
-#include "HeisenbergSensor.h"
+#include "ov_interface/Sensor.h"
 #include <atomic>
 #include <chrono>
 #include <memory>
 #include <thread>
 #include <functional>
 
-namespace heisenberg_algo {
+namespace ov_interface {
 
 class FolderBasedDataset {
 
@@ -84,4 +84,4 @@ protected:
 
 } // namespace ov_msckf
 
-#endif // HEISENBERG_FolderBasedDataset_H
+#endif // FolderBasedDataset_H

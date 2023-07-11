@@ -231,18 +231,6 @@ protected:
   std::shared_ptr<VioManager::Output> _vis_output;
   std::atomic<bool> stop_viz_request_;
 
-
-  struct HeisenbergImgFile {
-    int64_t ts;
-    std::string full_path;
-  };
-  using HeisenbergImgFileQueue = std::deque<HeisenbergImgFile>;
-  std::map<std::string, HeisenbergImgFileQueue> camera_name_to_img_queue;
-  std::map<std::string, image_transport::Publisher> camera_name_to_img_publisher;
-  HeisenbergImgFileQueue load_heisenberg_img_queue(const std::string& img_folder);
-  void load_heisenberg_img_queues(const std::string& dataset);
-  void heisenberg_imu_hook_for_img_publishing(const sensor_msgs::msg::Imu::SharedPtr msg);
-
   std::shared_ptr<Viewer> gl_viewer;
 };
 

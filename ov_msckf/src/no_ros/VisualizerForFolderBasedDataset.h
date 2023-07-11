@@ -27,8 +27,8 @@
 #include <memory>
 #include <thread>
 
-#include "interface/FolderBasedDataset.h"
-#include "interface/HeisenbergVIO.h"
+#include "no_ros/FolderBasedDataset.h"
+#include "ov_interface/VIO.h"
 #include "core/VioManager.h"
 
 namespace ov_msckf {
@@ -56,7 +56,7 @@ public:
    * @param sim Simulator if we are simulating
    */
   VisualizerForFolderBasedDataset(
-    std::shared_ptr<heisenberg_algo::VIO> app,
+    std::shared_ptr<ov_interface::VIO> app,
     std::shared_ptr<Viewer> gl_viewer = nullptr,
     const std::string& output_dir = "",
     bool save_feature_images = false,
@@ -92,8 +92,8 @@ protected:
 
   double last_visualization_timestamp = 0;
 
-  std::shared_ptr<heisenberg_algo::FolderBasedDataset> dataset_;
-  std::shared_ptr<heisenberg_algo::VIO> sys_;
+  std::shared_ptr<ov_interface::FolderBasedDataset> dataset_;
+  std::shared_ptr<ov_interface::VIO> sys_;
   std::shared_ptr<Viewer> gl_viewer_;
 };
 

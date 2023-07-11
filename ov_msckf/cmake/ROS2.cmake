@@ -82,11 +82,11 @@ list(APPEND LIBRARY_SOURCES
         src/update/UpdaterMSCKF.cpp
         src/update/UpdaterSLAM.cpp
         src/update/UpdaterZeroVelocity.cpp
-        src/interface/HeisenbergVIO.cpp
-        src/interface/FolderBasedDataset.cpp
+        src/ov_interface/VIO.cpp
+        src/no_ros/FolderBasedDataset.cpp
 )
 # list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROS2VisualizerForFolderBasedDataset.cpp src/ros/ROSVisualizerHelper.cpp src/no_ros/Viewer.cpp)
-file(GLOB_RECURSE LIBRARY_HEADERS "src/core/*.h" "src/interface/*.h" "src/state/*.h" "src/update/*.h" "src/utils/*.h" "src/sim/*.h")
+file(GLOB_RECURSE LIBRARY_HEADERS "src/core/*.h" "src/ov_interface/*.h" "src/state/*.h" "src/update/*.h" "src/utils/*.h" "src/sim/*.h")
 add_library(ov_msckf_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
 # ament_target_dependencies(ov_msckf_lib ${ament_libraries} ov_core ov_init)
 ament_target_dependencies(ov_msckf_lib ov_core ov_init)
@@ -156,13 +156,6 @@ if (ENABLE_ROS)
         ament_target_dependencies(run_subscribe_msckf ${ament_libraries} ov_core ov_init)
         target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
         install(TARGETS run_subscribe_msckf DESTINATION lib/${PROJECT_NAME})
-
-
-        add_executable(heisenberg_export_imu src/heisenberg_export_imu.cpp)
-        ament_target_dependencies(heisenberg_export_imu ${ament_libraries} ov_core ov_init)
-        target_link_libraries(heisenberg_export_imu ov_msckf_lib ${thirdparty_libraries})
-        install(TARGETS heisenberg_export_imu DESTINATION lib/${PROJECT_NAME})
-        
         
         add_executable(run_simulation 
                         src/run_simulation.cpp

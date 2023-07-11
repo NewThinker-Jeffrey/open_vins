@@ -146,11 +146,7 @@ ROS2Visualizer::ROS2Visualizer(
   stop_viz_request_ = false;
   _vis_thread = std::make_shared<std::thread>([&] {
     pthread_setname_np(pthread_self(), "ov_visualize");
-#if ! OPENVINS_FOR_TROS
     gl_viewer->init();
-#else
-
-#endif
 
     // use a high rate to ensure the _vis_output to update in time (which is also needed in visualize_odometry()).
     // rclcpp::Rate loop_rate(20);
@@ -175,12 +171,6 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
 
   // We need a valid parser
   assert(parser != nullptr);
-
-  if (_node->has_parameter("heisenberg_dataset")) {
-    std::string heisenberg_dataset;
-    _node->get_parameter<std::string>("heisenberg_dataset", heisenberg_dataset);
-    load_heisenberg_img_queues(heisenberg_dataset);
-  }
 
   // Create imu subscriber (handle legacy ros param info)
   std::string topic_imu;
@@ -254,14 +244,9 @@ void ROS2Visualizer::visualize() {
   // publish current image
   publish_images();
 
-#if ! OPENVINS_FOR_TROS
   if (gl_viewer) {
     gl_viewer->show(_vis_output);
   }
-#else
-
-#endif
-
 
   _app->clear_older_tracking_cache(_vis_output->status.prev_timestamp);  // clear tracking cache at the prev timestamp after images are published
 
@@ -442,8 +427,6 @@ void ROS2Visualizer::visualize_final() {
 
 void ROS2Visualizer::callback_inertial(const sensor_msgs::msg::Imu::SharedPtr msg) {
 
-  heisenberg_imu_hook_for_img_publishing(msg);
-  
   // convert into correct format
   ov_core::ImuData message;
   message.timestamp = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
@@ -952,83 +935,5 @@ void ROS2Visualizer::publish_loopclosure_information() {
     header.frame_id = "cam0";
     sensor_msgs::msg::Image::SharedPtr exl_msg2 = cv_bridge::CvImage(header, "bgr8", depthmap_viz).toImageMsg();
     it_pub_loop_img_depth_color.publish(exl_msg2);
-  }
-}
-
-ROS2Visualizer::HeisenbergImgFileQueue
-ROS2Visualizer::load_heisenberg_img_queue(const std::string& img_folder) {
-  ifstream ifs;
-  HeisenbergImgFileQueue file_queue;
-  std::string ts_file = img_folder + ".timestamps.txt";
-  ifs.open(ts_file.c_str());
-
-  while(!ifs.eof())
-  {
-      string line;
-      getline(ifs, line);
-      if(!line.empty())
-      {
-          HeisenbergImgFile img_file;
-          stringstream ss;
-          ss << line;
-          ss >> img_file.ts;
-          
-          // ss << line;
-          img_file.full_path = img_folder + "/" + std::to_string(img_file.ts) + ".jpg";
-          // std::cout << "load_heisenberg_img_queue: " << img_file.ts << ", " << img_file.full_path << std::endl;
-          file_queue.push_back(std::move(img_file));
-      }
-  }
-  return file_queue;
-}
-
-void ROS2Visualizer::load_heisenberg_img_queues(const std::string& dataset) {
-  camera_name_to_img_queue.clear();
-  camera_name_to_img_publisher.clear();
-  image_transport::ImageTransport it(_node);
-  std::string camera_name, topic;
-
-  camera_name = "cam_front";
-  topic = "/cam0/image_raw";
-  camera_name_to_img_queue[camera_name] = load_heisenberg_img_queue(dataset + "/" + camera_name);
-  camera_name_to_img_publisher[camera_name] = it.advertise(topic, 2);
-  PRINT_DEBUG("Publishing: %s\n", camera_name_to_img_publisher[camera_name].getTopic().c_str());
-}
-
-void ROS2Visualizer::heisenberg_imu_hook_for_img_publishing(const sensor_msgs::msg::Imu::SharedPtr msg) {
-  if (!_node->has_parameter("heisenberg_dataset")) {
-    return;
-  }
-  msg->angular_velocity.x *= M_PI / 180.0;
-  msg->angular_velocity.y *= M_PI / 180.0;
-  msg->angular_velocity.z *= M_PI / 180.0;
-  msg->linear_acceleration.x *= 9.8;
-  msg->linear_acceleration.y *= 9.8;
-  msg->linear_acceleration.z *= 9.8;
-
-  int64_t imu_ts = msg->header.stamp.sec;
-  imu_ts = imu_ts * 1000000000 + msg->header.stamp.nanosec;
-  for (auto & item : camera_name_to_img_queue) {
-    const std::string & camera_name = item.first;
-    auto & img_queue = item.second;
-
-    if (!img_queue.empty() && img_queue.front().ts <= imu_ts) {  // publish 1 img at most per imu callback
-    // while (!img_queue.empty() && img_queue.front().ts <= imu_ts) {
-      std::string& img_path = img_queue.front().full_path;
-      cv::Mat img;
-      // img = cv::imread(img_path, cv::IMREAD_UNCHANGED);
-      img = cv::imread(img_path, cv::IMREAD_GRAYSCALE);
-
-      std_msgs::msg::Header header;
-      header.stamp.sec = img_queue.front().ts / 1000000000;
-      header.stamp.nanosec = img_queue.front().ts % 1000000000;
-      header.frame_id = camera_name;
-      // sensor_msgs::msg::Image::SharedPtr img_msg = cv_bridge::CvImage(header, "bgr8", img).toImageMsg();
-      sensor_msgs::msg::Image::SharedPtr img_msg = cv_bridge::CvImage(header, "mono8", img).toImageMsg();
-      camera_name_to_img_publisher[camera_name].publish(img_msg);
-      std::cout << "publish image for " << camera_name << "@" << img_queue.front().ts << std::endl;
-
-      img_queue.pop_front();
-    }
   }
 }

@@ -29,7 +29,7 @@
 #include "core/VioManagerOptions.h"
 #include "no_ros/Viewer.h"
 #include "utils/dataset_reader.h"
-#include "interface/HeisenbergVIO.h"
+#include "ov_interface/VIO.h"
 
 
 #if ROS_AVAILABLE == 2
@@ -54,7 +54,7 @@ DEFINE_bool(save_total_state, false, "save_total_state");
 
 #endif
 
-std::shared_ptr<heisenberg_algo::VIO> sys;
+std::shared_ptr<ov_interface::VIO> sys;
 
 __sighandler_t old_sigint_handler = nullptr;
 void shutdownSigintHandler(int sig) {
@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
   // This must be set after the first NodeHandle is created.
   old_sigint_handler = signal(SIGINT, shutdownSigintHandler);
 
-  sys = std::make_shared<heisenberg_algo::VIO>(config_path.c_str());
+  sys = std::make_shared<ov_interface::VIO>(config_path.c_str());
   sys->Init();
   auto gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
 

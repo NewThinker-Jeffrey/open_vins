@@ -30,7 +30,7 @@
 #include <opencv2/opencv.hpp>
 #include <Eigen/Geometry>
 
-extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(heisenberg_algo::VIO*);
+extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(ov_interface::VIO*);
 
 using namespace ov_core;
 using namespace ov_type;
@@ -38,12 +38,12 @@ using namespace ov_msckf;
 
 const double viewpoint_height = 10.0;
 
-Viewer::Viewer(std::shared_ptr<heisenberg_algo::VIO> app) : _app(app) {
+Viewer::Viewer(std::shared_ptr<ov_interface::VIO> app) : _app(app) {
   std::cout << "Viewer::Viewer():  Use Pangolin!" << std::endl;
 }
 
 void Viewer::init() {
-  pangolin::CreateWindowAndBind("Heisenberg Robotics VIO Demo",1024,768);
+  pangolin::CreateWindowAndBind("VIO Demo",1024,768);
 #if 0
   pangolin::CreatePanel("menu").SetBounds(0.0,1.0,0.0,pangolin::Attach::Pix(175));
   pangolin::Var<bool> menuFollowCamera("menu.Follow Camera",false,true);
@@ -118,8 +118,8 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
     Twi.m[4*i+3] = imu_pose_mat(3,i);
   }
 
-  s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
-  // s_cam->Follow(Twi);
+  // s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
+  // // s_cam->Follow(Twi);
 
   pangolin::Display("cam1").Activate(*s_cam);
   // pangolin::glDrawColouredCube();

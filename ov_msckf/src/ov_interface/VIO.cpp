@@ -1,5 +1,5 @@
 
-#include "HeisenbergVIO.h"
+#include "VIO.h"
 
 #include <memory>
 #include <string>
@@ -19,30 +19,23 @@
 // #endif
 
 
-struct heisenberg_algo::VIO::Impl {
+struct ov_interface::VIO::Impl {
   Impl(const std::string& config_file) : config_file_(config_file) {
-    latest_imu_msg_.valid = false;
-    latest_imu_msg_.timestamp = -1;
-    memset(latest_imu_msg_.angle_velocity, 0, sizeof(latest_imu_msg_.angle_velocity));
-    memset(latest_imu_msg_.linear_acceleration, 0, sizeof(latest_imu_msg_.linear_acceleration));
   }
 
   std::string config_file_;
   ov_msckf::VioManagerOptions params_;
   std::shared_ptr<ov_msckf::VioManager> internal_;
-
-  std::mutex latest_imu_msg_mutex_;
-  IMU_MSG latest_imu_msg_;
 };
 
-// extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(heisenberg_algo::VIO*);
-std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(heisenberg_algo::VIO* vio) {
+// extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(ov_interface::VIO*);
+std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(ov_interface::VIO* vio) {
   // return std::dynamic_pointer_cast<ov_msckf::VioManager>(vio->impl());
   return vio->impl()->internal_;
 }
 
 
-namespace heisenberg_algo {
+namespace ov_interface {
 
 VIO::VIO(const char* config_file) : impl_(new Impl(config_file)) {
   
@@ -85,11 +78,6 @@ bool VIO::Init() {
 }
 
 void VIO::ReceiveImu(const IMU_MSG &imu_msg) {
-  {
-    std::unique_lock<std::mutex> locker(impl_->latest_imu_msg_mutex_);
-    impl_->latest_imu_msg_ = imu_msg;
-  }
-
   if (!imu_msg.valid) {
     return;
   }
@@ -101,19 +89,6 @@ void VIO::ReceiveImu(const IMU_MSG &imu_msg) {
   message.wm = Eigen::Vector3d(w[0], w[1], w[2]);
   message.am = Eigen::Vector3d(a[0], a[1], a[2]);
   impl_->internal_->feed_measurement_imu(message);
-}
-
-IMU_MSG VIO::GetLatestIMU() {
-  std::unique_lock<std::mutex> locker(impl_->latest_imu_msg_mutex_);
-  return impl_->latest_imu_msg_;
-}
-
-void VIO::ReceiveWheel(const WHEEL_MSG &wheel_msg) {
-
-}
-
-void VIO::ReceiveGnss(const GNSS_MSG &gnss_msg) {
-
 }
 
 void VIO::ReceiveCamera(const IMG_MSG &img_msg) {
