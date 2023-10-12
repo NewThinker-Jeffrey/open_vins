@@ -3,7 +3,14 @@
 
 #include <stdint.h>
 
+#define USE_INTERNAL_MSG_TYPE
+#ifdef USE_INTERNAL_MSG_TYPE
+#include "utils/sensor_data.h"
+#endif
+
 namespace ov_interface {
+
+#ifndef USE_INTERNAL_MSG_TYPE
 
 const int kMaxImageSize = 1000 * 1000 * 3;
 
@@ -39,6 +46,14 @@ struct STEREO_IMG_MSG {
     char data_r[kMaxImageSize];
     bool valid;
 };
+
+#else
+
+using IMU_MSG = ov_core::ImuData;
+using IMG_MSG = ov_core::CameraData;
+using STEREO_IMG_MSG = ov_core::CameraData;
+
+#endif
 
 struct LOC_MSG {
   double timestamp;

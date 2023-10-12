@@ -78,6 +78,7 @@ bool VIO::Init() {
 }
 
 void VIO::ReceiveImu(const IMU_MSG &imu_msg) {
+#ifndef USE_INTERNAL_MSG_TYPE
   if (!imu_msg.valid) {
     return;
   }
@@ -89,9 +90,13 @@ void VIO::ReceiveImu(const IMU_MSG &imu_msg) {
   message.wm = Eigen::Vector3d(w[0], w[1], w[2]);
   message.am = Eigen::Vector3d(a[0], a[1], a[2]);
   impl_->internal_->feed_measurement_imu(message);
+#else
+  impl_->internal_->feed_measurement_imu(imu_msg);
+#endif
 }
 
 void VIO::ReceiveCamera(const IMG_MSG &img_msg) {
+#ifndef USE_INTERNAL_MSG_TYPE  
   if (!img_msg.valid) {
     return;
   }
@@ -118,9 +123,13 @@ void VIO::ReceiveCamera(const IMG_MSG &img_msg) {
   }
 
   impl_->internal_->feed_measurement_camera(std::move(message));  // todo: run this in another thread?
+#else
+  impl_->internal_->feed_measurement_camera(img_msg);  // todo: run this in another thread?
+#endif
 }
 
 void VIO::ReceiveStereoCamera(const STEREO_IMG_MSG &img_msg) {
+#ifndef USE_INTERNAL_MSG_TYPE
   if (!img_msg.valid) {
     return;
   }
@@ -156,6 +165,9 @@ void VIO::ReceiveStereoCamera(const STEREO_IMG_MSG &img_msg) {
   }
 
   impl_->internal_->feed_measurement_camera(std::move(message));  // todo: run this in another thread?
+#else
+  impl_->internal_->feed_measurement_camera(img_msg);  // todo: run this in another thread?
+#endif
 }
 
 

@@ -121,7 +121,13 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
       dt_summed += prop_data.at(i + 1).timestamp - prop_data.at(i).timestamp;
     }
   }
-  assert(std::abs((time1 - time0) - dt_summed) < 1e-4);
+
+  if (std::abs((time1 - time0) - dt_summed) < 1e-4) {
+    std::cout << "time1 - time0 = " << time1 - time0 << ",  dt_summed = " << dt_summed << ", " << "a-b= " << (time1 - time0) - dt_summed << std::endl;
+    std::cout << "prop_data.size() = " << prop_data.size() << ",  prop_data_dt = " << prop_data.back().timestamp - prop_data.front().timestamp << std::endl;
+    assert(std::abs((time1 - time0) - dt_summed) < 1e-4);
+  }
+
 
   // Last angular velocity (used for cloning when estimating time offset)
   Eigen::Matrix<double, 3, 1> last_w = Eigen::Matrix<double, 3, 1>::Zero();
