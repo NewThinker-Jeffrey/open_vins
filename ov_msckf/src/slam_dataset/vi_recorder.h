@@ -17,17 +17,23 @@ public:
 
   using VisualSensorType = ViCapture::VisualSensorType;
 
-  ViRecorder(VisualSensorType type,
-             bool record_imu)
-            :
-            vsensor_type_(type),
-            record_imu_(record_imu) {}
+  ViRecorder() : vsensor_type_(VisualSensorType::NONE),
+                 record_imu_(true), c_(nullptr) {}
 
   virtual ~ViRecorder() {}
 
-  bool startRecord(const std::string& save_folder = "");
+  // If `capture` is not set, you should manually call the "feedXXX()"
+  // methods (see beblow) to record the data frames.
+  bool startRecord(
+      ViCapture* capture = nullptr, const std::string& save_folder = "",
+       // when `capture` is not set, manually specify sensor settings
+      VisualSensorType type = VisualSensorType::NONE, bool record_imu = true,
+      const std::string& thread_name="slam_record");
+      // thread_name should consist of less than 15 characters
 
   void stopRecord();
+
+public:
 
   void feedCameraData(CameraData cam);
 
@@ -35,9 +41,9 @@ public:
 
 protected:
 
-  const VisualSensorType vsensor_type_;
+  VisualSensorType vsensor_type_;
 
-  const bool record_imu_;
+  bool record_imu_;
 
   struct Context;
 

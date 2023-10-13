@@ -22,10 +22,10 @@ class RsCapture : public ViCapture {
 
 public:
 
-  RsCapture(VisualSensorType type,
-            bool capture_imu,
-            std::function<void(int image_idx, CameraData msg)> image_cb,
-            std::function<void(int imu_idx, ImuData msg)> imu_cb)
+  RsCapture(VisualSensorType type = VisualSensorType::STEREO,
+            bool capture_imu = true,
+            CameraCallback image_cb = nullptr,
+            ImuCallback imu_cb = nullptr)
             // const std::string& device_name = "",
             // const std::string& config_file = "");
               :

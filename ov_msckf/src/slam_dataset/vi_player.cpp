@@ -49,7 +49,9 @@ bool ViPlayer::startStreaming() {
   data_play_thread_.reset(new std::thread([this](){
     pthread_setname_np(pthread_self(), "slam_play");
     dataPlay();
+    is_streaming_ = false;
   }));
+  is_streaming_ = true;
   return true;
 }
 
@@ -59,14 +61,11 @@ void ViPlayer::stopStreaming() {
     data_play_thread_->join();
     data_play_thread_.reset();
   }
+  is_streaming_ = false;
 }
 
 bool ViPlayer::isStreaming() const {
-  if (data_play_thread_) {
-    return true;
-  } else {
-    return false;
-  }
+  return is_streaming_;
 }
 
 void ViPlayer::loadDataset() {
@@ -196,23 +195,18 @@ void ViPlayer::dataPlay() {
         cam.masks.push_back(cv::Mat::zeros(rows, cols, CV_8UC1));
       }
 
-      if (image_cb_) {
-        image_cb_(image_idx, std::move(cam));
-      }
-
+      runImageCallbacks(image_idx, std::move(cam));
       image_idx ++;
     }
 
     if (imu_idx < imu_data_.size() && imu_data_[imu_idx].timestamp <= next_sensor_time) {
       auto& imu = imu_data_[imu_idx];
-      if (imu_cb_) {
-        imu_cb_(imu_idx, std::move(imu));
-      }
-
+      runImuCallbacks(imu_idx, std::move(imu));
       imu_idx ++;
     }
   }
-  std::cout << "**** play over! *****" << std::endl;
+
+  std::cout << "**** ViPlayer: play over! *****" << std::endl;
 }
 
 

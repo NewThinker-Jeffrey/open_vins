@@ -32,6 +32,7 @@
 #include "ov_interface/VIO.h"
 #include "slam_dataset/vi_capture.h"
 #include "slam_dataset/vi_player.h"
+#include "slam_dataset/vi_recorder.h"
 #include "slam_dataset/rs/rs_capture.h"
 
 
@@ -59,12 +60,16 @@ DEFINE_bool(save_total_state, false, "save_total_state");
 
 std::shared_ptr<ov_interface::VIO> sys;
 std::shared_ptr<slam_dataset::ViCapture> capture;
+std::shared_ptr<slam_dataset::ViRecorder> recorder;
 
 __sighandler_t old_sigint_handler = nullptr;
 void shutdownSigintHandler(int sig) {
   std::cout << "Stop Requested ... " << std::endl;
   if (capture) {
     capture->stopStreaming();
+  }
+  if (recorder) {
+    recorder->stopRecord();
   }
   if (old_sigint_handler) {
     old_sigint_handler(sig);
@@ -165,13 +170,14 @@ int main(int argc, char **argv) {
   if (dataset.empty()) {
     PRINT_WARNING(YELLOW "dataset is not set! use live streaming ...\n" RESET);
     capture = std::make_shared<slam_dataset::RsCapture>(
-        slam_dataset::ViCapture::VisualSensorType::STEREO,
+        slam_dataset::ViCapture::VisualSensorType::NONE,
         true, nullptr, nullptr);
+    recorder = std::make_shared<slam_dataset::ViRecorder>();
   } else {
     capture = std::make_shared<slam_dataset::ViPlayer>(
-        dataset,
-        slam_dataset::ViCapture::VisualSensorType::STEREO,
-        true, nullptr, nullptr, play_rate);
+        dataset, play_rate,
+        slam_dataset::ViCapture::VisualSensorType::NONE,
+        true, nullptr, nullptr);
   }
 
   // Override the default sigint handler.
@@ -190,6 +196,10 @@ int main(int argc, char **argv) {
 #elif ROS_AVAILABLE == 0
   viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
 #endif
+
+  if (recorder) {
+    recorder->startRecord(capture.get());
+  }
 
   if (! capture->startStreaming()) {
     PRINT_ERROR(RED "Failed to startStreaming!!\n" RESET);

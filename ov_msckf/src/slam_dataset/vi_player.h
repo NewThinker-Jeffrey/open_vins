@@ -18,15 +18,16 @@ public:
   using VisualSensorType = ViCapture::VisualSensorType;
 
   ViPlayer(const std::string& dataset,
-           VisualSensorType type,
-           bool capture_imu,
-           std::function<void(int image_idx, CameraData msg)> image_cb,
-           std::function<void(int imu_idx, ImuData msg)> imu_cb,
-           double play_rate = 1.0) 
+           double play_rate = 1.0,
+           VisualSensorType type = VisualSensorType::STEREO,
+           bool capture_imu = true,
+           CameraCallback image_cb = nullptr,
+           ImuCallback imu_cb = nullptr)
              :
            ViCapture(type, capture_imu, image_cb, imu_cb),
            dataset_(dataset),
-           play_rate_(play_rate)
+           play_rate_(play_rate),
+           is_streaming_(false)
            {}
 
   virtual ~ViPlayer();
@@ -37,13 +38,18 @@ public:
 
   virtual bool isStreaming() const;
 
-  // double sensorStartTime() {
-  //   return sensor_start_time_;
-  // }
+public:
 
-  // std::chrono::high_resolution_clock::time_point playStartTime() {
-  //   return play_start_time_;
-  // }
+  // Methods to change settings.
+  // Note these methods shouldn't be used anymore after the streaming is started.
+
+  void changeDataset(const std::string& dataset) {
+    dataset_ = dataset;
+  }
+
+  void changePlayRate(double play_rate) {
+    play_rate_ = play_rate;
+  }
 
 protected:
 
@@ -65,6 +71,7 @@ protected:
 
   std::shared_ptr<std::thread> data_play_thread_;
   std::atomic<bool> stop_request_;
+  std::atomic<bool> is_streaming_;
 
   double sensor_start_time_;
   std::chrono::high_resolution_clock::time_point play_start_time_;

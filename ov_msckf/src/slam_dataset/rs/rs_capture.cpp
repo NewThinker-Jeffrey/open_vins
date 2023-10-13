@@ -124,13 +124,12 @@ bool RsCapture::startStreaming() {
     imu.timestamp = gyro_time;
     imu.wm = Eigen::Vector3d(gyro_data.x, gyro_data.y, gyro_data.z);
     imu.am = Eigen::Vector3d(interp_acc.x, interp_acc.y, interp_acc.z);
-    if (imu_cb_) {
-      imu_cb_(rs.imu_count - 1, std::move(imu));
-    }
+    runImuCallbacks(rs.imu_count - 1, std::move(imu));
   };
 
   rs.image_process_thread_stop_request = false;
   rs.image_process_thread = std::make_shared<std::thread> ([this]() {
+    pthread_setname_np(pthread_self(), "rs_img_cvt");
     RsHelper& rs = *rs_;
     while(!rs.image_process_thread_stop_request) {
       std::shared_ptr<rs2::frameset> fs;
@@ -228,16 +227,21 @@ bool RsCapture::startStreaming() {
         continue;
       }
 
-      if (image_cb_) {
-        image_cb_(image_index, std::move(cam));
-      }
+      runImageCallbacks(image_index, std::move(cam));
     }
   });
 
   auto frame_callback = [this, publish_imu_sync](const rs2::frame& frame) {
     RsHelper& rs = *rs_;
     std::unique_lock<std::mutex> lock(rs.frame_mutex);
+    if (rs.imu_count + rs.image_count == 0) {
+      pthread_setname_np(pthread_self(), "rs_frm_cb");
+    }
+
     if(rs2::frameset fs = frame.as<rs2::frameset>()) {
+      if (rs.image_count % 100 == 0) {
+        std::cout << "realsense_image_callback_thread: " << pthread_self() << std::endl;
+      }
       rs.count_im_buffer++;
       rs.image_count ++;
 
@@ -265,6 +269,9 @@ bool RsCapture::startStreaming() {
       rs.image_ready = true;
       rs.cond_image_rec.notify_all();
     } else if (rs2::motion_frame m_frame = frame.as<rs2::motion_frame>()) {
+      if (rs.imu_count % 1000 == 0) {
+        std::cout << "realsense_imu_callback_thread: " << pthread_self() << std::endl;
+      }
       if (m_frame.get_profile().stream_name() == "Gyro") {
         rs.imu_count ++;
         double gyro_time = m_frame.get_timestamp() * 1e-3;

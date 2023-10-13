@@ -83,13 +83,13 @@ ROS2VisualizerForViCapture::ROS2VisualizerForViCapture(
 
   auto internal_sys = getVioManagerFromVioInterface(sys_.get());
   bool stereo = (internal_sys->get_params().state_options.num_cameras == 2);
-  capture->setImageCallback(cam_data_cb);
-  capture->setImuCallback(imu_data_cb);
+  capture->registerImageCallback(cam_data_cb);
+  capture->registerImuCallback(imu_data_cb);
   if (stereo) {
-    capture->setVisualSensorType(
+    capture->changeVisualSensorType(
         slam_dataset::ViCapture::VisualSensorType::STEREO);
   } else {
-    capture->setVisualSensorType(
+    capture->changeVisualSensorType(
         slam_dataset::ViCapture::VisualSensorType::MONO);
   }
 }
