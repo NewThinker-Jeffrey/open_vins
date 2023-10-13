@@ -606,7 +606,7 @@ void VioManager::clear_older_tracking_cache(double timestamp) {
   }  
 }
 
-void VioManager::feed_measurement_camera(ov_core::CameraData &&message) {
+void VioManager::feed_measurement_camera(ov_core::CameraData message) {
   if (stop_request_) {
     PRINT_WARNING(YELLOW "VioManager::feed_measurement_camera called after the stop_request!\n" RESET);
     return;

@@ -1,5 +1,10 @@
 #include "vi_recorder.h"
 
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <condition_variable>
+
 namespace {
 
 void runcmd(const std::string& cmd) {
@@ -36,7 +41,7 @@ bool ViRecorder::startRecord(const std::string& save_folder) {
     return false;
   }
 
-  c_ = new Context();
+  c_.reset(new Context());
   c_->save_folder = save_folder;
 
   runcmd("mkdir -p " + save_folder);
@@ -73,7 +78,7 @@ bool ViRecorder::startRecord(const std::string& save_folder) {
 
   
   c_->stop_request = false;
-  c_->io_thread = new std::thread([this](){
+  c_->io_thread = std::make_shared<std::thread> ([this](){
     bool stop = false;
     while(!stop) {
       std::deque<CameraData> cam_queue;
@@ -81,7 +86,7 @@ bool ViRecorder::startRecord(const std::string& save_folder) {
       {
         std::unique_lock<std::mutex> lock(c_->io_mutex);
         if(c_->cam_queue.empty() && c_->imu_queue.empty()) {
-          rs.cond_image_rec.wait(lk);
+          c_->io_cond.wait(lock);
         }
         if (c_->stop_request) {
           stop = true;

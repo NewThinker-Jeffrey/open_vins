@@ -1,4 +1,7 @@
-#include "vi_recorder.h"
+#include "vi_player.h"
+
+#include <mutex>
+#include <condition_variable>
 
 namespace slam_dataset {
 
@@ -8,6 +11,11 @@ bool checkFileExistence(const std::string& path);
 
 void loadIMU(const std::string &imu_path,
              std::vector<ImuData>& imu_data);
+
+void loadImages(const std::vector<std::string>& img_folders,
+                const std::string &img_time_path,
+                std::vector< std::vector<std::string>* > img_files,
+                std::vector<double>* timestamps);
 
 void readImg(const std::string& img_path,
              CameraData& message);
@@ -30,11 +38,11 @@ ViPlayer::~ViPlayer() {
   stopStreaming();
 }
 
-void ViPlayer::startStreaming() {
+bool ViPlayer::startStreaming() {
   std::cout << "ViPlayer::startPlay(): "
             << "dataset='" << dataset_ << "', "
-            << "vsensor_type_=" << vsensor_type_ << ", "
-            << "play_rate=" << play_rate << std::endl;
+            << "vsensor_type_=" << int64_t(vsensor_type_) << ", "
+            << "play_rate=" << play_rate_ << std::endl;
   
   loadDataset();
   stop_request_ = false;
@@ -42,6 +50,7 @@ void ViPlayer::startStreaming() {
     pthread_setname_np(pthread_self(), "slam_play");
     dataPlay();
   }));
+  return true;
 }
 
 void ViPlayer::stopStreaming() {
@@ -280,13 +289,12 @@ void loadImages(const std::vector<std::string>& img_folders,
             }
           }
         }
+        img_files[i]->push_back(img_folders[i] + "/" + ss.str() + pic_suffix[i]);
       }
-      img_files[i]->push_back(img_folders[i] + "/" + ss.str() + pic_suffix[i]);
+      double t;
+      ss >> t;
+      timestamps->push_back(t/1e9);
     }
-
-    double t;
-    ss >> t;
-    timestamps->push_back(t/1e9);
   }
 }
 

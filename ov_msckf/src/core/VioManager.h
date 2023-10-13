@@ -142,7 +142,7 @@ public:
    * @brief Feed function for camera measurements
    * @param message Contains our timestamp, images, and camera ids
    */
-  void feed_measurement_camera(ov_core::CameraData &&message);
+  void feed_measurement_camera(ov_core::CameraData message);
 
   /**
    * @brief Feed function for a synchronized simulated cameras

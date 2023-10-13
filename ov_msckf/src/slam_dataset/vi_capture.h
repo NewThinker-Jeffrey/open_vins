@@ -12,7 +12,7 @@ namespace slam_dataset {
 
 constexpr int LEFT_CAM_ID = 0;
 constexpr int RIGHT_CAM_ID = 1;
-constexpr int DEPTH_CAM_ID = 2
+constexpr int DEPTH_CAM_ID = 2;
 constexpr int COLOR_CAM_ID = 3;
 
 /**
@@ -52,7 +52,7 @@ public:
 
   virtual bool isStreaming() const = 0;
 
-  void waitStreamingOver(double polling_period_ms = 500);
+  void waitStreamingOver(int polling_period_ms = 500);
 
   void setImageCallback(
       std::function<void(int image_idx, CameraData msg)> image_cb) {
@@ -70,9 +70,9 @@ public:
 
 protected:
 
-  const VisualSensorType vsensor_type_;
+  VisualSensorType vsensor_type_;
 
-  const bool capture_imu_;
+  bool capture_imu_;
 
   std::function<void(int image_idx, CameraData msg)> image_cb_;
 

@@ -1,7 +1,13 @@
 #ifndef SLAM_DATASET_RS_HELPER_H
 #define SLAM_DATASET_RS_HELPER_H
 
+#include <memory>
+#include <deque>
 #include <thread>
+#include <mutex>
+#include <atomic>
+#include <condition_variable>
+
 #include <Eigen/Geometry>
 #include <librealsense2/rs.hpp>
 #include <librealsense2/rsutil.h>
@@ -61,7 +67,7 @@ struct RsHelper {
 
   static Eigen::Isometry3d getExtrinsics(
       rs2::stream_profile& from_stream,
-      rs2::stream_profile& rs2_stream to_stream);    
+      rs2::stream_profile& to_stream);
 
   static rs2_intrinsics getCameraIntrinsics(
       rs2::pipeline_profile& pipe_profile,

@@ -86,16 +86,12 @@ list(APPEND LIBRARY_SOURCES
         src/update/UpdaterSLAM.cpp
         src/update/UpdaterZeroVelocity.cpp
         src/ov_interface/VIO.cpp
+        src/slam_dataset/vi_capture.cpp
         src/slam_dataset/vi_player.cpp
-        # src/slam_dataset/vi_recorder.cpp
+        src/slam_dataset/vi_recorder.cpp
         # src/no_ros/FolderBasedDataset.cpp
         )
 
-if(realsense2_FOUND)    
-    target_link_libraries(${PROJECT_NAME}
-    ${realsense2_LIBRARY}
-    )
-endif()
 
 if(realsense2_FOUND)    
     include_directories(${realsense_INCLUDE_DIR})
@@ -131,36 +127,32 @@ ament_export_libraries(ov_msckf_lib)
 # Make binary files!
 ##################################################
 
-list(APPEND folder_based_msckf_SOURCES
-                src/run_folder_based_msckf.cpp
-                src/no_ros/VisualizerHelper.cpp
-                src/no_ros/VisualizerHelper.h
-                src/no_ros/Viewer.cpp
-                src/no_ros/Viewer.h
-                src/no_ros/VisualizerForFolderBasedDataset.cpp
-                src/no_ros/VisualizerForFolderBasedDataset.h
-                )
+# list(APPEND folder_based_msckf_SOURCES
+#                 src/run_folder_based_msckf.cpp
+#                 src/no_ros/VisualizerHelper.cpp
+#                 src/no_ros/VisualizerHelper.h
+#                 src/no_ros/Viewer.cpp
+#                 src/no_ros/Viewer.h
+#                 src/no_ros/VisualizerForFolderBasedDataset.cpp
+#                 src/no_ros/VisualizerForFolderBasedDataset.h
+#                 )
 
-if (ENABLE_ROS)
-        # ROS_AVAILABLE=2
-        list(APPEND folder_based_msckf_SOURCES
-                src/ros/ROS2Visualizer.cpp
-                src/ros/ROS2Visualizer.h
-                src/ros/ROSVisualizerHelper.cpp
-                src/ros/ROSVisualizerHelper.h
-                src/ros/ROS2VisualizerForFolderBasedDataset.cpp
-                src/ros/ROS2VisualizerForFolderBasedDataset.h
-                )
-endif()
+# if (ENABLE_ROS)
+#         # ROS_AVAILABLE=2
+#         list(APPEND folder_based_msckf_SOURCES
+#                 src/ros/ROS2Visualizer.cpp
+#                 src/ros/ROS2Visualizer.h
+#                 src/ros/ROSVisualizerHelper.cpp
+#                 src/ros/ROSVisualizerHelper.h
+#                 src/ros/ROS2VisualizerForFolderBasedDataset.cpp
+#                 src/ros/ROS2VisualizerForFolderBasedDataset.h
+#                 )
+# endif()
 
 # add_executable(run_folder_based_msckf 
 #                ${folder_based_msckf_SOURCES}
 #                )
                
-# ament_target_dependencies(run_folder_based_msckf ${ament_libraries} ov_core ov_init)
-# target_link_libraries(run_folder_based_msckf ov_msckf_lib ${thirdparty_libraries})
-# install(TARGETS run_folder_based_msckf DESTINATION lib/${PROJECT_NAME})
-
 # ament_target_dependencies(run_folder_based_msckf ${ament_libraries} ov_core ov_init)
 # target_link_libraries(run_folder_based_msckf ov_msckf_lib ${thirdparty_libraries})
 # install(TARGETS run_folder_based_msckf DESTINATION lib/${PROJECT_NAME})
@@ -192,9 +184,9 @@ add_executable(run_vicapture_msckf
                ${vicapture_msckf_SOURCES}
                )
                
-# ament_target_dependencies(run_vicapture_msckf ${ament_libraries} ov_core ov_init)
-# target_link_libraries(run_vicapture_msckf ov_msckf_lib ${thirdparty_libraries})
-# install(TARGETS run_vicapture_msckf DESTINATION lib/${PROJECT_NAME})
+ament_target_dependencies(run_vicapture_msckf ${ament_libraries} ov_core ov_init)
+target_link_libraries(run_vicapture_msckf ov_msckf_lib ${thirdparty_libraries})
+install(TARGETS run_vicapture_msckf DESTINATION lib/${PROJECT_NAME})
 
 if (ENABLE_ROS)
         # ROS_AVAILABLE=2

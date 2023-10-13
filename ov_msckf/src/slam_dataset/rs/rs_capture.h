@@ -44,7 +44,7 @@ protected:
 
   virtual bool init_sersors();
 
-  RsHelper* rs_;
+  std::shared_ptr<RsHelper> rs_;
 };
 
 } // namespace slam_dataset

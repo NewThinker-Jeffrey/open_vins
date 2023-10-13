@@ -41,7 +41,7 @@ protected:
 
   struct Context;
 
-  Context* c_;
+  std::shared_ptr<Context> c_;
 };
 
 } // namespace slam_dataset

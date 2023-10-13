@@ -44,7 +44,6 @@ std::shared_ptr<ov_msckf::ROS2VisualizerForViCapture> viz;
 #elif ROS_AVAILABLE == 0
 #include "no_ros/VisualizerForViCapture.h"
 std::shared_ptr<ov_msckf::VisualizerForViCapture> viz;
-std::shared_ptr<slam_dataset::ViCapture> capture;
 
 // #define USE_GFLAGS
 #ifdef USE_GFLAGS
@@ -59,6 +58,7 @@ DEFINE_bool(save_total_state, false, "save_total_state");
 #endif
 
 std::shared_ptr<ov_interface::VIO> sys;
+std::shared_ptr<slam_dataset::ViCapture> capture;
 
 __sighandler_t old_sigint_handler = nullptr;
 void shutdownSigintHandler(int sig) {
@@ -184,9 +184,9 @@ int main(int argc, char **argv) {
 
 
 #if ROS_AVAILABLE == 2
-  viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, gl_viewer, capture, output_dir, save_feature_images, save_total_state);
+  viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
 #elif ROS_AVAILABLE == 0
-  viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, gl_viewer, capture, output_dir, save_feature_images, save_total_state);
+  viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
 #endif
 
   capture->waitStreamingOver();

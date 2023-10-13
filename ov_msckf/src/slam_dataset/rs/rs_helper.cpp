@@ -1,5 +1,7 @@
 #include "rs_helper.h"
 
+#include <iostream>
+
 namespace slam_dataset {
 
 rs2_option RsHelper::getSensorOption(const rs2::sensor& sensor) {
@@ -132,13 +134,13 @@ Eigen::Isometry3d RsHelper::getExtrinsics(
 
 Eigen::Isometry3d RsHelper::getExtrinsics(
     rs2::stream_profile& from_stream,
-    rs2::stream_profile& rs2_stream to_stream) {
+    rs2::stream_profile& to_stream) {
 
-  Eigen::Isometry3f ext_f = Eigen::Isometry3d::Identity();
+  Eigen::Isometry3f ext_f = Eigen::Isometry3f::Identity();
 
   float* R = from_stream.get_extrinsics_to(to_stream).rotation;
   float* t = from_stream.get_extrinsics_to(to_stream).translation;
-  ext_f.linear() = Eigen::Map<Eigen::Matrix<float, 3, 3, RowMajor>>(R);
+  ext_f.linear() = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(R);
   ext_f.translation() = Eigen::Map<Eigen::Matrix<float, 3, 1>>(t);
   Eigen::Isometry3d ext = ext_f.cast<double>();
   std::cout << "Tbc = " << std::endl;
@@ -156,7 +158,7 @@ rs2_intrinsics RsHelper::getCameraIntrinsics(
     rs2::pipeline_profile& pipe_profile,
     rs2_stream cam) {
   auto cam_stream = pipe_profile.get_stream(cam);
-  return cam_stream(cam_stream);
+  return getCameraIntrinsics(cam_stream);
 }
 
 rs2_intrinsics RsHelper::getCameraIntrinsics(rs2::stream_profile& cam_stream) {

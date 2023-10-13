@@ -52,7 +52,6 @@ ROS2VisualizerForViCapture::ROS2VisualizerForViCapture(
     bool save_feature_images,
     bool save_total_state) :
   ROS2Visualizer(node, getVioManagerFromVioInterface(app.get()), nullptr, gl_viewer, output_dir, save_feature_images, save_total_state),
-  capture_(capture),
   sys_(app) {
   
   auto print_queue = [this](int image_idx, double image_timestamp) {
@@ -61,8 +60,8 @@ ROS2VisualizerForViCapture::ROS2VisualizerForViCapture(
               << "(camera_sync = " << internal_sys->get_camera_sync_queue_size()
               << ", feature_tracking = " << internal_sys->get_feature_tracking_queue_size()
               << ", state_update = " << internal_sys->get_state_update_queue_size() << ")"
-              // << ", sensor dt = " << image_timestamp - capture_->sensor_start_time() << ", play dt = " 
-              // << (std::chrono::high_resolution_clock::now() - capture_->play_start_time()).count() / 1e9
+              // << ", sensor dt = " << image_timestamp - capture->sensor_start_time() << ", play dt = " 
+              // << (std::chrono::high_resolution_clock::now() - capture->play_start_time()).count() / 1e9
               << std::endl;
   };
 
@@ -84,13 +83,13 @@ ROS2VisualizerForViCapture::ROS2VisualizerForViCapture(
 
   auto internal_sys = getVioManagerFromVioInterface(sys_.get());
   bool stereo = (internal_sys->get_params().state_options.num_cameras == 2);
-  capture_->setImageCallback(cam_data_cb);
-  capture_->setImuCallback(imu_data_cb);
+  capture->setImageCallback(cam_data_cb);
+  capture->setImuCallback(imu_data_cb);
   if (stereo) {
-    capture_->setVisualSensorType(
+    capture->setVisualSensorType(
         slam_dataset::ViCapture::VisualSensorType::STEREO);
   } else {
-    capture_->setVisualSensorType(
+    capture->setVisualSensorType(
         slam_dataset::ViCapture::VisualSensorType::MONO);
   }
 }

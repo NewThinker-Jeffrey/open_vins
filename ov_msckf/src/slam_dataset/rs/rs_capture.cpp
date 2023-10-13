@@ -28,7 +28,7 @@ bool RsCapture::init_sersors() {
       ++index;
       std::cout << " ************************** " << std::endl;
       std::cout << "  " << index << " : " << sensor.get_info(RS2_CAMERA_INFO_NAME) << std::endl;
-      // get_sensor_option(sensor);
+      // RsHelper::getSensorOption(sensor);
       if (index == 1) {
         sensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1);
         // sensor.set_option(RS2_OPTION_AUTO_EXPOSURE_LIMIT,5000);  // D455 doesn't support this option.
@@ -45,7 +45,7 @@ bool RsCapture::init_sersors() {
       } else if (index == 3){
         sensor.set_option(RS2_OPTION_ENABLE_MOTION_CORRECTION,0);
       }
-      get_sensor_option(sensor);
+      RsHelper::getSensorOption(sensor);
     }
   }
   std::cout << " ************************** " << std::endl;
@@ -64,7 +64,7 @@ bool RsCapture::startStreaming() {
     return false;
   }
 
-  rs_ = new RsHelper();
+  rs_.reset(new RsHelper());
   RsHelper& rs = *rs_;
   rs2::config default_cofig;
   rs.cfg = default_cofig;
@@ -110,28 +110,28 @@ bool RsCapture::startStreaming() {
     // Create a rs2::align object.
     // rs2::align allows us to perform alignment of depth frames to others frames
     //The "align_to" is the stream type to which we plan to align depth frames.
-    rs.align = std::make_shared<rs2::align>(align_to);
+    rs.align = std::make_shared<rs2::align>(rs.align_to);
   }
 
   auto publish_imu_sync = [this](double gyro_time, rs2_vector gyro_data) {
     RsHelper& rs = *rs_;
     rs2_vector interp_acc = RsHelper::interpolateMeasure(
         gyro_time,
-        rs.acc_list.back().second, acc_list.back().first,
-        rs.acc_list.front().second, acc_list.front().first);
+        rs.acc_list.back().second, rs.acc_list.back().first,
+        rs.acc_list.front().second, rs.acc_list.front().first);
     ImuData imu;
     imu.timestamp = gyro_time;
     imu.wm = Eigen::Vector3d(gyro_data.x, gyro_data.y, gyro_data.z);
-    imu.ac = Eigen::Vector3d(interp_acc.x, interp_acc.y, interp_acc.z);
+    imu.am = Eigen::Vector3d(interp_acc.x, interp_acc.y, interp_acc.z);
     if (imu_cb_) {
       imu_cb_(rs.imu_count - 1, std::move(imu));
     }
-  }
+  };
 
   rs.image_process_thread_stop_request = false;
-  rs.image_process_thread = new std::thread([this]() {
+  rs.image_process_thread = std::make_shared<std::thread> ([this]() {
     RsHelper& rs = *rs_;
-    while(!image_process_thread_stop_request) {
+    while(!rs.image_process_thread_stop_request) {
       std::shared_ptr<rs2::frameset> fs;
       rs2_stream align_to;  // only for RGBD
       std::shared_ptr<rs2::align> align;  // only for RGBD
@@ -141,7 +141,7 @@ bool RsCapture::startStreaming() {
         if(!rs.image_ready) {
           rs.cond_image_rec.wait(lk);
         }
-        if (image_process_thread_stop_request) {
+        if (rs.image_process_thread_stop_request) {
           std::cout << "Stop rs.image_process_thread!\n";
           break;
         }
@@ -223,7 +223,7 @@ bool RsCapture::startStreaming() {
         cam.masks.push_back(cv::Mat::zeros(left.rows, left.cols, CV_8UC1));
         cam.images.push_back(std::move(left));
       } else {
-        std::cout << "Unsupported vsensor_type_: " << vsensor_type_ << std::endl;
+        std::cout << "Unsupported vsensor_type_: " << int64_t(vsensor_type_) << std::endl;
         continue;
       }
 
@@ -252,7 +252,7 @@ bool RsCapture::startStreaming() {
             //If the profile was changed, update the align object, and also get the new device's depth scale
             rs.pipe_profile = rs.pipe.get_active_profile();
             rs.align_to = RsHelper::findStreamToAlign(rs.pipe_profile.get_streams());
-            rs.align = std::make_shared<rs2::align>(align_to);
+            rs.align = std::make_shared<rs2::align>(rs.align_to);
         }
       }
 
@@ -293,7 +293,7 @@ bool RsCapture::startStreaming() {
     }
   };
 
-  rs.pipe_profile = rs.pipe.start(cfg, frame_callback);
+  rs.pipe_profile = rs.pipe.start(rs.cfg, frame_callback);
   return true;
 }
 
