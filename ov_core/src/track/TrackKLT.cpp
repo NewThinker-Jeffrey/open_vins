@@ -1183,13 +1183,13 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
     pts1.push_back(kpts1.at(i).pt);
   }
 
-  // If we don't have enough points for ransac just return empty
-  // We set the mask to be all zeros since all points failed RANSAC
-  if (pts0.size() < 10) {
-    for (size_t i = 0; i < pts0.size(); i++)
-      mask_out.push_back((uchar)0);
-    return;
-  }
+  // // If we don't have enough points for ransac just return empty
+  // // We set the mask to be all zeros since all points failed RANSAC
+  // if (pts0.size() < 10) {
+  //   for (size_t i = 0; i < pts0.size(); i++)
+  //     mask_out.push_back((uchar)0);
+  //   return;
+  // }
 
   // Now do KLT tracking to get the valid new points
   std::vector<uchar> mask_klt;

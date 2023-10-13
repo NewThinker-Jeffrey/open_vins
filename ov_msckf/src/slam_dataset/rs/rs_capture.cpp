@@ -1,6 +1,7 @@
 #include "rs_capture.h"
 #include "rs_helper.h"
 
+#include <iostream>
 
 namespace slam_dataset {
 
@@ -8,7 +9,7 @@ RsCapture::~RsCapture() {
   stopStreaming();
 }
 
-bool RsCapture::init_sersors() {
+bool RsCapture::initSersors() {
   rs2::context ctx;
   rs2::device_list devices = ctx.query_devices();
   rs2::device selected_device;
@@ -60,7 +61,7 @@ bool RsCapture::startStreaming() {
     return false;
   }
 
-  if (!init_sersors()) {
+  if (!initSersors()) {
     return false;
   }
 

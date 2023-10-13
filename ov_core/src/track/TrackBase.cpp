@@ -691,6 +691,16 @@ void TrackBase::fundamental_ransac(
     const std::vector<cv::Point2f>& pts1_n,
     const double fundamental_inlier_thr,
     std::vector<uchar> & inliers_mask) {
+
+  // If we don't have enough points for ransac just return empty
+  // We set the mask to be all zeros since all points failed RANSAC
+  if (pts0_n.size() < 15) {  // or < 10 ?
+    for (size_t i = 0; i < pts0_n.size(); i++)
+      inliers_mask.push_back((uchar)0);
+    PRINT_DEBUG("fundamental_ransac: Too few points (%d)\n", pts0_n.size());
+    return;
+  }
+
   cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, fundamental_inlier_thr, 0.999, inliers_mask);
 
   int cnt_inliers = 0;

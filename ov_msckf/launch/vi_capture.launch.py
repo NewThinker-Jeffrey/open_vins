@@ -20,7 +20,7 @@ launch_args = [
     ),
     DeclareLaunchArgument(
         name="dataset",
-        default_value="/home/isaac/Work/datasets/D435_I_converted/D435I_2",
+        default_value="",
         description="path to your dataset",
     ),
     DeclareLaunchArgument(

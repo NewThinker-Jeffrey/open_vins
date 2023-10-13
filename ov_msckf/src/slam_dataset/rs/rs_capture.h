@@ -42,7 +42,7 @@ public:
 
 protected:
 
-  virtual bool init_sersors();
+  virtual bool initSersors();
 
   std::shared_ptr<RsHelper> rs_;
 };

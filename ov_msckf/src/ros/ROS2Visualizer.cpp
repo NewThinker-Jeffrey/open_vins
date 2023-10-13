@@ -146,7 +146,9 @@ ROS2Visualizer::ROS2Visualizer(
   stop_viz_request_ = false;
   _vis_thread = std::make_shared<std::thread>([&] {
     pthread_setname_np(pthread_self(), "ov_visualize");
-    gl_viewer->init();
+    if (gl_viewer) {
+      gl_viewer->init();
+    }
 
     // use a high rate to ensure the _vis_output to update in time (which is also needed in visualize_odometry()).
     // rclcpp::Rate loop_rate(20);

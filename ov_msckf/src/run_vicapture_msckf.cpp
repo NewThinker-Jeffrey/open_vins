@@ -180,7 +180,9 @@ int main(int argc, char **argv) {
 
   sys = std::make_shared<ov_interface::VIO>(config_path.c_str());
   sys->Init();
-  auto gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
+
+  std::shared_ptr<ov_msckf::Viewer> gl_viewer(nullptr);
+  gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
 
 
 #if ROS_AVAILABLE == 2
@@ -189,6 +191,10 @@ int main(int argc, char **argv) {
   viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
 #endif
 
+  if (! capture->startStreaming()) {
+    PRINT_ERROR(RED "Failed to startStreaming!!\n" RESET);
+    return 3;
+  }
   capture->waitStreamingOver();
   std::this_thread::sleep_for(std::chrono::milliseconds(1000));
   sys->Shutdown();
