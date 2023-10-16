@@ -112,6 +112,10 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
 
   // Get our image objects for this image
   cv::Mat img = img_curr.at(cam_id);
+
+  // const cv::Mat& vis_img = img;
+  const cv::Mat& vis_img = message.images.at(msg_id);
+
   std::vector<cv::Mat> imgpyr = img_pyramid_curr.at(cam_id);
   cv::Mat mask = message.masks.at(msg_id);
   rT2 = std::chrono::high_resolution_clock::now();
@@ -163,7 +167,7 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     // If any of our mask is empty, that means we didn't have enough to do ransac, so just return
     if (mask_ll.empty()) {
       std::lock_guard<std::mutex> lckv(mtx_last_vars);
-      img_last[cam_id] = img;
+      img_last[cam_id] = vis_img;
       img_time_last[cam_id] = message.timestamp;
       img_pyramid_last[cam_id] = imgpyr;
       img_mask_last[cam_id] = mask;
@@ -211,7 +215,7 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
     img_time_last[cam_id] = message.timestamp;
-    img_last[cam_id] = img;
+    img_last[cam_id] = vis_img;
     img_pyramid_last[cam_id] = imgpyr;
     img_mask_last[cam_id] = mask;
     pts_last[cam_id] = good_left;
@@ -241,6 +245,12 @@ void TrackKLT::feed_stereo(const CameraData &message, size_t msg_id_left, size_t
   // Get our image objects for this image
   cv::Mat img_left = img_curr.at(cam_id_left);
   cv::Mat img_right = img_curr.at(cam_id_right);
+
+  // const cv::Mat& vis_img_left = img_left;
+  // const cv::Mat& vis_img_right = img_right;
+  const cv::Mat& vis_img_left = message.images.at(msg_id_left);
+  const cv::Mat& vis_img_right = message.images.at(msg_id_right);
+
   std::vector<cv::Mat> imgpyr_left = img_pyramid_curr.at(cam_id_left);
   std::vector<cv::Mat> imgpyr_right = img_pyramid_curr.at(cam_id_right);
   cv::Mat mask_left = message.masks.at(msg_id_left);
@@ -259,8 +269,8 @@ void TrackKLT::feed_stereo(const CameraData &message, size_t msg_id_left, size_t
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
     img_time_last[cam_id_left] = message.timestamp;
     img_time_last[cam_id_right] = message.timestamp;
-    img_last[cam_id_left] = img_left;
-    img_last[cam_id_right] = img_right;
+    img_last[cam_id_left] = vis_img_left;
+    img_last[cam_id_right] = vis_img_right;
     img_pyramid_last[cam_id_left] = imgpyr_left;
     img_pyramid_last[cam_id_right] = imgpyr_right;
     img_mask_last[cam_id_left] = mask_left;
@@ -320,8 +330,8 @@ void TrackKLT::feed_stereo(const CameraData &message, size_t msg_id_left, size_t
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
     img_time_last[cam_id_left] = message.timestamp;
     img_time_last[cam_id_right] = message.timestamp;
-    img_last[cam_id_left] = img_left;
-    img_last[cam_id_right] = img_right;
+    img_last[cam_id_left] = vis_img_left;
+    img_last[cam_id_right] = vis_img_right;
     img_pyramid_last[cam_id_left] = imgpyr_left;
     img_pyramid_last[cam_id_right] = imgpyr_right;
     img_mask_last[cam_id_left] = mask_left;
@@ -407,8 +417,8 @@ void TrackKLT::feed_stereo(const CameraData &message, size_t msg_id_left, size_t
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
     img_time_last[cam_id_left] = message.timestamp;
     img_time_last[cam_id_right] = message.timestamp;
-    img_last[cam_id_left] = img_left;
-    img_last[cam_id_right] = img_right;
+    img_last[cam_id_left] = vis_img_left;
+    img_last[cam_id_right] = vis_img_right;
     img_pyramid_last[cam_id_left] = imgpyr_left;
     img_pyramid_last[cam_id_right] = imgpyr_right;
     img_mask_last[cam_id_left] = mask_left;
@@ -443,6 +453,12 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
   // Get our image objects for this image
   cv::Mat img_left = img_curr.at(cam_id_left);
   cv::Mat img_right = img_curr.at(cam_id_right);
+
+  // const cv::Mat& vis_img_left = img_left;
+  // const cv::Mat& vis_img_right = img_right;
+  const cv::Mat& vis_img_left = message.images.at(msg_id_left);
+  const cv::Mat& vis_img_right = message.images.at(msg_id_right);
+
   std::vector<cv::Mat> imgpyr_left = img_pyramid_curr.at(cam_id_left);
   std::vector<cv::Mat> imgpyr_right = img_pyramid_curr.at(cam_id_right);
   cv::Mat mask_left = message.masks.at(msg_id_left);
@@ -503,8 +519,8 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
       std::lock_guard<std::mutex> lckv(mtx_last_vars);
       img_time_last[cam_id_left] = message.timestamp;
       img_time_last[cam_id_right] = message.timestamp;
-      img_last[cam_id_left] = img_left;
-      img_last[cam_id_right] = img_right;
+      img_last[cam_id_left] = vis_img_left;
+      img_last[cam_id_right] = vis_img_right;
       img_pyramid_last[cam_id_left] = imgpyr_left;
       img_pyramid_last[cam_id_right] = imgpyr_right;
       img_mask_last[cam_id_left] = mask_left;
@@ -695,8 +711,8 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
     img_time_last[cam_id_left] = message.timestamp;
     img_time_last[cam_id_right] = message.timestamp;
-    img_last[cam_id_left] = img_left;
-    img_last[cam_id_right] = img_right;
+    img_last[cam_id_left] = vis_img_left;
+    img_last[cam_id_right] = vis_img_right;
     img_pyramid_last[cam_id_left] = imgpyr_left;
     img_pyramid_last[cam_id_right] = imgpyr_right;
     img_mask_last[cam_id_left] = mask_left;

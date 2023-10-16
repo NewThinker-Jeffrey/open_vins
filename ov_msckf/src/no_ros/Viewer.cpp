@@ -36,7 +36,7 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-const double viewpoint_height = 10.0;
+const double viewpoint_height = 5.0;
 
 Viewer::Viewer(std::shared_ptr<ov_interface::VIO> app) : _app(app) {
   std::cout << "Viewer::Viewer():  Use Pangolin!" << std::endl;
@@ -64,7 +64,8 @@ void Viewer::init() {
   pangolin::OpenGlMatrix proj = pangolin::ProjectionMatrix(640,480,320,320,320,240,0.1,1000);
   // pangolin::OpenGlRenderState s_cam(proj, pangolin::ModelViewLookAt(1,0.5,-2,0,0,0, pangolin::AxisY) );
 std::cout << "Viewer::init(): Before pangolin::OpenGlRenderState" << std::endl;
-  s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY));
+  // s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY));
+  s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height, viewpoint_height, 0, 0, 0, pangolin::AxisY));
 std::cout << "Viewer::init(): After pangolin::OpenGlRenderState" << std::endl;
 
   // Add named OpenGL viewport to window and provide 3D Handler
@@ -110,17 +111,25 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
 #endif
 
   Eigen::Matrix4f imu_pose_mat = imu_pose.matrix();  // column major
-  pangolin::OpenGlMatrix Twi;
+
+  // Eigen::Isometry3f view_anchor_pose = imu_pose;
+  // Eigen::Isometry3f view_anchor_pose = imu_pose * Eigen::AngleAxisf(0.5*M_PI, Eigen::Vector3f::UnitX());
+  // Z is upward for view_anchor_pose.
+
+  Eigen::Isometry3f view_anchor_pose = Eigen::Isometry3f::Identity();  
+  view_anchor_pose.translation() = Eigen::Vector3f(new_pos(0), new_pos(1), 0);
+
+  Eigen::Matrix4f view_anchor_pose_mat = view_anchor_pose.matrix();
+  pangolin::OpenGlMatrix Twa;
   for (int i = 0; i<4; i++) {
-    Twi.m[4*i] = imu_pose_mat(0,i);
-    Twi.m[4*i+1] = imu_pose_mat(1,i);
-    Twi.m[4*i+2] = imu_pose_mat(2,i);
-    Twi.m[4*i+3] = imu_pose_mat(3,i);
+    Twa.m[4*i] = view_anchor_pose_mat(0,i);
+    Twa.m[4*i+1] = view_anchor_pose_mat(1,i);
+    Twa.m[4*i+2] = view_anchor_pose_mat(2,i);
+    Twa.m[4*i+3] = view_anchor_pose_mat(3,i);
   }
 
-  s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
-  // s_cam->Follow(Twi);
-
+  // s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
+  s_cam->Follow(Twa);
   pangolin::Display("cam1").Activate(*s_cam);
   // pangolin::glDrawColouredCube();
 
