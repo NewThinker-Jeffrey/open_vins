@@ -168,7 +168,8 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
     return;
 
   // If the image is "small" thus we shoudl use smaller display codes
-  bool is_small = (std::min(max_width, max_height) < 400);
+  // bool is_small = (std::min(max_width, max_height) < 400);
+  bool is_small = (std::min(max_width, max_height) < 600);
 
   // If the image is "new" then draw the images from scratch
   // Otherwise, we grab the subset of the main image and draw on top of it
@@ -182,6 +183,32 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
   // size_t maxtracks = 50;
   size_t maxtracks = 11;
 
+  // get time_str
+  std::string time_str;
+  {
+    bool use_utc_time = false;  // use local time
+    int64_t ts = int64_t(timestamp*1e9);
+    std::chrono::nanoseconds time_since_epoch(ts);
+    std::chrono::time_point
+        <std::chrono::system_clock, std::chrono::nanoseconds>
+        time_point(time_since_epoch);
+    std::time_t tt = std::chrono::system_clock::to_time_t(time_point);
+    struct tm* ptm;
+    if (use_utc_time) {
+      ptm = gmtime(&tt);
+    } else {
+      ptm = localtime(&tt);
+    }
+    struct tm& tm = *ptm;
+    int64_t sub_seconds_in_nano = ts % 1000000000;
+    char dt[100];
+    sprintf(  // NOLINT
+        dt, "%04d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1,
+        tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    // sprintf(dt, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+    time_str = std::string(dt) + " " + std::to_string(sub_seconds_in_nano/1000000);
+  }
+
   // Loop through each image, and draw
   int index_cam = 0;
   for (auto const &pair : img_last_cache) {
@@ -192,20 +219,35 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
     else
       img_temp = img_out(cv::Rect(max_width * index_cam, 0, max_width, max_height));
     // draw, loop through all keypoints
+    bool highlighted_only = true;
+    bool no_tail = true;
     for (size_t i = 0; i < ids_last_cache[pair.first].size(); i++) {
-      // If a highlighted point, then put a nice box around it
-      if (std::find(highlighted.begin(), highlighted.end(), ids_last_cache[pair.first].at(i)) != highlighted.end()) {
-        cv::Point2f pt_c = pts_last_cache[pair.first].at(i).pt;
-        cv::Point2f pt_l_top = cv::Point2f(pt_c.x - ((is_small) ? 3 : 5), pt_c.y - ((is_small) ? 3 : 5));
-        cv::Point2f pt_l_bot = cv::Point2f(pt_c.x + ((is_small) ? 3 : 5), pt_c.y + ((is_small) ? 3 : 5));
-        cv::rectangle(img_temp, pt_l_top, pt_l_bot, cv::Scalar(0, 255, 0), 1);
-        cv::circle(img_temp, pt_c, (is_small) ? 1 : 2, cv::Scalar(0, 255, 0), cv::FILLED);
-      }
       // Get the feature from the database
       Feature feat;
       if (!database->get_feature_clone(ids_last_cache[pair.first].at(i), feat, true))
         continue;
       feat.clean_future_measurements(timestamp);
+
+      // If a highlighted point, then put a nice box around it
+      if (std::find(highlighted.begin(), highlighted.end(), ids_last_cache[pair.first].at(i)) != highlighted.end()) {
+        cv::Point2f pt_c = pts_last_cache[pair.first].at(i).pt;
+        // cv::Point2f pt_l_top = cv::Point2f(pt_c.x - ((is_small) ? 3 : 5), pt_c.y - ((is_small) ? 3 : 5));
+        // cv::Point2f pt_l_bot = cv::Point2f(pt_c.x + ((is_small) ? 3 : 5), pt_c.y + ((is_small) ? 3 : 5));
+        cv::Point2f pt_l_top = cv::Point2f(pt_c.x - ((is_small) ? 5 : 7), pt_c.y - ((is_small) ? 5 : 7));
+        cv::Point2f pt_l_bot = cv::Point2f(pt_c.x + ((is_small) ? 5 : 7), pt_c.y + ((is_small) ? 5 : 7));
+        bool is_stereo = (feat.uvs.size() > 1);
+        cv::Scalar color = is_stereo ? cv::Scalar(255, 0, 0) : cv::Scalar(0, 255, 0);
+        cv::rectangle(img_temp, pt_l_top, pt_l_bot, color, 1);
+        // cv::circle(img_temp, pt_c, (is_small) ? 1 : 2, color, cv::FILLED);
+        cv::circle(img_temp, pt_c, (is_small) ? 2 : 3, color, cv::FILLED);
+      } else if (highlighted_only) {
+        continue;
+      }
+
+      if (no_tail) {
+        continue;
+      }
+
       // if (feat.uvs.empty() || feat.uvs[pair.first].empty() || feat.to_delete)
       if (feat.uvs.empty() || feat.uvs[pair.first].empty())
         continue;
@@ -236,11 +278,21 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
     }
     // Draw what camera this is
     auto txtpt = (is_small) ? cv::Point(10, 30) : cv::Point(30, 60);
+
+
     if (overlay == "") {
-      cv::putText(img_temp, "CAM:" + std::to_string((int)pair.first), txtpt, cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
-                  cv::Scalar(0, 255, 0), 3);
+      // cv::putText(img_temp, "CAM:" + std::to_string((int)pair.first), txtpt, cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
+      //             cv::Scalar(0, 255, 0), 3);
+      cv::putText(img_temp, time_str, txtpt,
+                  cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
+                  cv::Scalar(0, 255, 0), (is_small) ? 2.0 : 3);
     } else {
-      cv::putText(img_temp, overlay, txtpt, cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0, cv::Scalar(0, 0, 255), 3);
+      cv::putText(img_temp, time_str, txtpt,
+                  cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
+                  cv::Scalar(0, 255, 0), (is_small) ? 2.0 : 3);
+      cv::putText(img_temp, overlay, txtpt + cv::Point(0, (is_small) ? 30 : 60),
+                  cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
+                  cv::Scalar(0, 0, 255), (is_small) ? 2.0 : 3);
     }
     // Overlay the mask
     cv::Mat mask = cv::Mat::zeros(img_mask_last_cache[pair.first].rows, img_mask_last_cache[pair.first].cols, CV_8UC3);

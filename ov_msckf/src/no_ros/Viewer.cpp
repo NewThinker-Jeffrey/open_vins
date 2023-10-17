@@ -76,7 +76,7 @@ std::cout << "Viewer::init(): After pangolin::OpenGlRenderState" << std::endl;
 
   pangolin::View& d_feat_track_img = pangolin::Display("feature_tracking")
     .SetAspect(640.0f/480.0f)
-    .SetBounds(0.0, 1.0, 0.5, 1.0);
+    .SetBounds(0.5, 1.0, 0.5, 1.0);
 }
 
 void Viewer::show(std::shared_ptr<VioManager::Output> output) {
