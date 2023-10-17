@@ -178,8 +178,8 @@ bool RsCapture::startStreaming() {
         std::cout << "Aligning depth takes " << duration.count() * 1e3
                   << " ms" << std::endl;
 
-        cv::Mat color(cv::Size(640, 480), CV_8UC3, (void*)(color_frame.get_data()), cv::Mat::AUTO_STEP);
-        cv::Mat depth(cv::Size(640, 480), CV_16U, (void*)(depth_frame.get_data()), cv::Mat::AUTO_STEP);
+        cv::Mat color = cv::Mat(cv::Size(640, 480), CV_8UC3, (void*)(color_frame.get_data()), cv::Mat::AUTO_STEP).clone();
+        cv::Mat depth = cv::Mat(cv::Size(640, 480), CV_16U, (void*)(depth_frame.get_data()), cv::Mat::AUTO_STEP).clone();
 
         cam.sensor_ids.push_back(COLOR_CAM_ID);
         cam.sensor_ids.push_back(DEPTH_CAM_ID);
@@ -191,12 +191,14 @@ bool RsCapture::startStreaming() {
         cam.images.push_back(std::move(color));
         cam.images.push_back(std::move(depth));
       } else if (vsensor_type_ == VisualSensorType::STEREO) {
-        cv::Mat left(cv::Size(640, 480), CV_8U, 
+        cv::Mat left = cv::Mat(
+                     cv::Size(640, 480), CV_8U, 
                      (void*)(fs->get_infrared_frame(1).get_data()),
-                     cv::Mat::AUTO_STEP);
-        cv::Mat right(cv::Size(640, 480), CV_8U,
+                     cv::Mat::AUTO_STEP).clone();
+        cv::Mat right = cv::Mat(
+                      cv::Size(640, 480), CV_8U,
                       (void*)(fs->get_infrared_frame(2).get_data()),
-                      cv::Mat::AUTO_STEP);
+                      cv::Mat::AUTO_STEP).clone();
         cam.sensor_ids.push_back(LEFT_CAM_ID);
         cam.sensor_ids.push_back(RIGHT_CAM_ID);
 
@@ -208,15 +210,16 @@ bool RsCapture::startStreaming() {
         cam.images.push_back(std::move(right));
       } else if (vsensor_type_ == VisualSensorType::DEPTH) {
         rs2::depth_frame depth_frame = fs->get_depth_frame();
-        cv::Mat depth(cv::Size(640, 480), CV_16U, (void*)(depth_frame.get_data()), cv::Mat::AUTO_STEP);
+        cv::Mat depth = cv::Mat(cv::Size(640, 480), CV_16U, (void*)(depth_frame.get_data()), cv::Mat::AUTO_STEP).clone();
         cam.sensor_ids.push_back(DEPTH_CAM_ID);
         cam.masks.push_back(cv::Mat::zeros(depth.rows, depth.cols, CV_8UC1));
         cam.images.push_back(std::move(depth));
       } else if (vsensor_type_ == VisualSensorType::MONO) {
-        cv::Mat left(cv::Size(640, 480), CV_8U, 
+        cv::Mat left = cv::Mat(
+                     cv::Size(640, 480), CV_8U, 
                      (void*)(fs->get_infrared_frame().get_data()),
                     //  (void*)(fs->get_infrared_frame(1).get_data()),
-                     cv::Mat::AUTO_STEP);
+                     cv::Mat::AUTO_STEP).clone();
         cam.sensor_ids.push_back(LEFT_CAM_ID);
 
         // mask has max value of 255 (white) if it should be removed
