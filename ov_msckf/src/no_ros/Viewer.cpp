@@ -24,11 +24,15 @@
 
 #include "Viewer.h"
 #include <pangolin/pangolin.h>
+#include <pangolin/display/default_font.h>
 
 #include <mutex>
 #include <opencv2/core/core.hpp>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Geometry>
+
+#include "slam_viz/pangolin_helper.h"
+
 
 extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(ov_interface::VIO*);
 
@@ -40,10 +44,14 @@ const double viewpoint_height = 5.0;
 
 Viewer::Viewer(std::shared_ptr<ov_interface::VIO> app) : _app(app) {
   std::cout << "Viewer::Viewer():  Use Pangolin!" << std::endl;
+
+  std::cout << "Viewer::Viewer():  Loading Chinese font ..." << std::endl;
+  slam_viz::pangolin_helper::loadChineseFont();
 }
 
 void Viewer::init() {
-  pangolin::CreateWindowAndBind("VIO Demo",1024,768);
+  pangolin::CreateWindowAndBind("SLAM Demo",1024,768);
+
 #if 0
   pangolin::CreatePanel("menu").SetBounds(0.0,1.0,0.0,pangolin::Attach::Pix(175));
   pangolin::Var<bool> menuFollowCamera("menu.Follow Camera",false,true);
@@ -51,7 +59,7 @@ void Viewer::init() {
   pangolin::View& d_cam = pangolin::CreateDisplay()
           .SetBounds(0.0, 1.0, pangolin::Attach::Pix(175), 1.0, -1024.0f/768.0f)
           .SetHandler(new pangolin::Handler3D(s_cam));
-#endif 
+#endif
 
   // 3D Mouse handler requires depth testing to be enabled
   glEnable(GL_DEPTH_TEST);
@@ -66,6 +74,10 @@ void Viewer::init() {
 std::cout << "Viewer::init(): Before pangolin::OpenGlRenderState" << std::endl;
   // s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY));
   s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height, viewpoint_height, 0, 0, 0, pangolin::AxisY));
+
+
+  // s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height, -viewpoint_height, 0, 0, 0, pangolin::AxisZ));
+
 std::cout << "Viewer::init(): After pangolin::OpenGlRenderState" << std::endl;
 
   // Add named OpenGL viewport to window and provide 3D Handler
@@ -80,6 +92,7 @@ std::cout << "Viewer::init(): After pangolin::OpenGlRenderState" << std::endl;
 }
 
 void Viewer::show(std::shared_ptr<VioManager::Output> output) {
+  using namespace slam_viz::pangolin_helper;
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   auto internal_app = getVioManagerFromVioInterface(_app.get());
@@ -130,6 +143,7 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
 
   // s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
   s_cam->Follow(Twa);
+
   pangolin::Display("cam1").Activate(*s_cam);
   // pangolin::glDrawColouredCube();
 
@@ -149,6 +163,15 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
     glVertex3f(x_begin + n_lines, y_begin + i, 0);
   }
   glEnd();
+
+
+  drawMultiTextLines(
+      {TextLine("起点", false, getChineseFont()),
+       TextLine("0 point", false, getChineseFont())
+       },
+      Eigen::Vector3f(0, 0, 0),
+      Eigen::Matrix3f::Identity(),
+      1.0 / 36.0);
 
   // Return if we have not inited
   if (!output->status.initialized) {
@@ -215,7 +238,7 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   _traj.push_back(new_pos);
 
   glLineWidth(4.0);
-  glColor4f(1.0f, 0.0f, 0.0f, 0.3f);
+  glColor4f(1.0f, 0.0f, 0.0f, 0.5f);
   glBegin(GL_LINE_STRIP);
   for (const auto& p : _traj) {
     glVertex3f(p(0), p(1), p(2));
@@ -236,7 +259,15 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   glVertex3f( half_w, 0, -l);
   glVertex3f(      0, 0,  0);
   glEnd();
+
+
+  drawTextLineFacingScreen(
+      TextLine("Hello Robot", true),
+      Eigen::Vector3f(1.0, 0.0, 0.0),
+      2.0);  // enlarge
+
   glPopMatrix();
+
 
   const bool draw_imu_predict = true;
   if (draw_imu_predict) {
@@ -264,8 +295,20 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
     glPopMatrix();
   }
 
+  // draw text
+  drawMultiTextLinesInViewCoord(
+      {TextLine("IMU time: "), TextLine("TEST line2: "), TextLine("TEST line3: ")},
+      10, -100,
+      1.0);
+
+  drawTextLineInWindowCoord(
+      TextLine("SLAM demo"),
+      10, 30,
+      2.0);  // enlarge
+
   pangolin::FinishFrame();
 }
+
 
 
 #endif

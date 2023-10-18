@@ -88,8 +88,9 @@ list(APPEND LIBRARY_SOURCES
         src/ov_interface/VIO.cpp
         src/slam_dataset/vi_capture.cpp
         src/slam_dataset/vi_player.cpp
-        src/slam_dataset/vi_recorder.cpp
+        src/slam_dataset/vi_recorder.cpp        
         # src/no_ros/FolderBasedDataset.cpp
+        src/slam_viz/pangolin_helper.cpp
         )
 
 

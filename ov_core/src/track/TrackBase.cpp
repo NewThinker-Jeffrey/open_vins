@@ -188,6 +188,7 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
   {
     bool use_utc_time = false;  // use local time
     int64_t ts = int64_t(timestamp*1e9);
+    ts += 8 * 3600 * 1e9;  // add 8 hours
     std::chrono::nanoseconds time_since_epoch(ts);
     std::chrono::time_point
         <std::chrono::system_clock, std::chrono::nanoseconds>
@@ -280,20 +281,17 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
     auto txtpt = (is_small) ? cv::Point(10, 30) : cv::Point(30, 60);
 
 
-    if (overlay == "") {
-      // cv::putText(img_temp, "CAM:" + std::to_string((int)pair.first), txtpt, cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
-      //             cv::Scalar(0, 255, 0), 3);
+    if (index_cam == 0) {
       cv::putText(img_temp, time_str, txtpt,
                   cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
                   cv::Scalar(0, 255, 0), (is_small) ? 2.0 : 3);
-    } else {
-      cv::putText(img_temp, time_str, txtpt,
-                  cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
-                  cv::Scalar(0, 255, 0), (is_small) ? 2.0 : 3);
-      cv::putText(img_temp, overlay, txtpt + cv::Point(0, (is_small) ? 30 : 60),
-                  cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
-                  cv::Scalar(0, 0, 255), (is_small) ? 2.0 : 3);
+      if (overlay != "") {
+        cv::putText(img_temp, overlay, txtpt + cv::Point(0, (is_small) ? 30 : 60),
+                    cv::FONT_HERSHEY_COMPLEX_SMALL, (is_small) ? 1.5 : 3.0,
+                    cv::Scalar(0, 0, 255), (is_small) ? 2.0 : 3);
+      }
     }
+
     // Overlay the mask
     cv::Mat mask = cv::Mat::zeros(img_mask_last_cache[pair.first].rows, img_mask_last_cache[pair.first].cols, CV_8UC3);
     mask.setTo(cv::Scalar(0, 0, 255), img_mask_last_cache[pair.first]);

@@ -1,0 +1,4 @@
+
+Can be downloaded from https://fontesk.com/smiley-sans-font/
+
+(or just install the package from http://ports.ubuntu.com/pool/universe/f/fonts-smiley-sans/fonts-smiley-sans_1.1.1-1_all.deb)
