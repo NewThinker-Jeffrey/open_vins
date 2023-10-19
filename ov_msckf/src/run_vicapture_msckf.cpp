@@ -96,6 +96,7 @@ int main(int argc, char **argv) {
   std::string output_dir = "";
   bool save_feature_images = false;
   bool save_total_state = true;
+  bool run_pangolin_viewer = true;
 
 #if ROS_AVAILABLE == 2
   std::cout << "ROS_AVAILABLE == 2" << std::endl;
@@ -128,6 +129,9 @@ int main(int argc, char **argv) {
   if (node->has_parameter("save_total_state")) {
     node->get_parameter<bool>("save_total_state", save_total_state);
   }  
+  if (node->has_parameter("run_pangolin_viewer")) {
+    node->get_parameter<bool>("run_pangolin_viewer", run_pangolin_viewer);
+  }
 
   // unique_parser_node = node;
 #elif ROS_AVAILABLE == 0
@@ -188,8 +192,9 @@ int main(int argc, char **argv) {
   sys->Init();
 
   std::shared_ptr<ov_msckf::Viewer> gl_viewer(nullptr);
-  gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
-
+  if (run_pangolin_viewer) {
+    gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
+  }
 
 #if ROS_AVAILABLE == 2
   viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
