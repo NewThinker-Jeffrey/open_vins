@@ -19,6 +19,9 @@ launch_args = [
         name="play_rate", default_value="1.0", description="play_rate"
     ),
     DeclareLaunchArgument(
+        name="visualization_rate", default_value="40.0", description="visualization_rate"
+    ),
+    DeclareLaunchArgument(
         name="dataset",
         default_value="",
         description="path to your dataset",
@@ -120,6 +123,7 @@ def launch_setup(context):
     output_dir = LaunchConfiguration("output_dir").perform(context)
     dataset = LaunchConfiguration("dataset").perform(context)
     play_rate = LaunchConfiguration("play_rate").perform(context)
+    visualization_rate = LaunchConfiguration("visualization_rate").perform(context)
     print("dataset: {}".format(dataset))
     if not config_path:
         configs_dir = os.path.join(get_package_share_directory("ov_msckf"), "config")
@@ -172,6 +176,7 @@ def launch_setup(context):
             {"dataset": dataset},
             {"output_dir": output_dir},
             {"play_rate": play_rate},
+            {"visualization_rate": visualization_rate},            
         ],
     )
 

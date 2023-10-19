@@ -142,17 +142,26 @@ ROS2Visualizer::ROS2Visualizer(
         of_state_est, of_state_std, of_state_gt);
   }
 
+  double visualization_rate = 40;
+  if (node->has_parameter("visualization_rate")) {
+    std::string visualization_rate_str;
+    node->get_parameter<std::string>("visualization_rate", visualization_rate_str);
+    visualization_rate = std::stod(visualization_rate_str);
+  }
+  PRINT_INFO("visualization_rate: %f\n", visualization_rate);
+
   // Start thread for the visualizing
   stop_viz_request_ = false;
-  _vis_thread = std::make_shared<std::thread>([&] {
+  _vis_thread = std::make_shared<std::thread>([this, visualization_rate] {
     pthread_setname_np(pthread_self(), "ov_visualize");
     if (gl_viewer) {
       gl_viewer->init();
     }
 
+
     // use a high rate to ensure the _vis_output to update in time (which is also needed in visualize_odometry()).
     // rclcpp::Rate loop_rate(20);
-    rclcpp::Rate loop_rate(40);
+    rclcpp::Rate loop_rate(visualization_rate);
     while (rclcpp::ok() && !stop_viz_request_) {
       visualize();
       loop_rate.sleep();
