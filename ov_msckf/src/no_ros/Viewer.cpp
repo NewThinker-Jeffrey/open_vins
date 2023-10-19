@@ -45,8 +45,8 @@ const double viewpoint_height = 5.0;
 Viewer::Viewer(std::shared_ptr<ov_interface::VIO> app) : _app(app) {
   std::cout << "Viewer::Viewer():  Use Pangolin!" << std::endl;
 
-  std::cout << "Viewer::Viewer():  Loading Chinese font ..." << std::endl;
-  slam_viz::pangolin_helper::loadChineseFont();
+  // std::cout << "Viewer::Viewer():  Loading Chinese font ..." << std::endl;
+  // slam_viz::pangolin_helper::loadChineseFont();
 }
 
 void Viewer::init() {
@@ -58,7 +58,7 @@ void Viewer::init() {
   // Add named OpenGL viewport to window and provide 3D Handler
   pangolin::View& d_cam = pangolin::CreateDisplay()
           .SetBounds(0.0, 1.0, pangolin::Attach::Pix(175), 1.0, -1024.0f/768.0f)
-          .SetHandler(new pangolin::Handler3D(s_cam));
+          .SetHandler(new pangolin::Handler3D(s_cam1));
 #endif
 
   // 3D Mouse handler requires depth testing to be enabled
@@ -70,100 +70,188 @@ void Viewer::init() {
 
   // Define Camera Render Object (for view / scene browsing)
   pangolin::OpenGlMatrix proj = pangolin::ProjectionMatrix(640,480,320,320,320,240,0.1,1000);
-  // pangolin::OpenGlRenderState s_cam(proj, pangolin::ModelViewLookAt(1,0.5,-2,0,0,0, pangolin::AxisY) );
+  // pangolin::OpenGlRenderState s_cam1(proj, pangolin::ModelViewLookAt(1,0.5,-2,0,0,0, pangolin::AxisY) );
 std::cout << "Viewer::init(): Before pangolin::OpenGlRenderState" << std::endl;
-  // s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY));
-  s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height, viewpoint_height, 0, 0, 0, pangolin::AxisY));
 
+  // Keep robot's position and map's orientation  unchanged in the screen
+  // s_cam1 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY));
+  s_cam1 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height, viewpoint_height * 0.85, 0, 0, 0, pangolin::AxisY));
 
-  // s_cam = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height, -viewpoint_height, 0, 0, 0, pangolin::AxisZ));
+  // Keep robot's position and robot's orientation unchanged in the screen
+  s_cam2 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, -viewpoint_height, 0, 0, 0, pangolin::AxisZ));
+
 
 std::cout << "Viewer::init(): After pangolin::OpenGlRenderState" << std::endl;
 
   // Add named OpenGL viewport to window and provide 3D Handler
   pangolin::View& d_cam1 = pangolin::Display("cam1")
     .SetAspect(640.0f/480.0f)
-    .SetHandler(new pangolin::Handler3D(*s_cam))
-    .SetBounds(0.0, 1.0, 0.0, 0.5);
+    .SetHandler(new pangolin::Handler3D(*s_cam1))
+    .SetBounds(0.5, 1.0, 0.0, 0.5);
+
+  pangolin::View& d_cam2 = pangolin::Display("cam2")
+    .SetAspect(640.0f/480.0f)
+    .SetHandler(new pangolin::Handler3D(*s_cam2))
+    .SetBounds(0.5, 1.0, 0.5, 1.0);
 
   pangolin::View& d_feat_track_img = pangolin::Display("feature_tracking")
     .SetAspect(640.0f/480.0f)
-    .SetBounds(0.5, 1.0, 0.5, 1.0);
+    .SetBounds(0.0, 0.5, 0.0, 0.5);
 }
 
 void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   using namespace slam_viz::pangolin_helper;
+
+  classifyPoints(output);
+
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   auto internal_app = getVioManagerFromVioInterface(_app.get());
   cv::Mat img_history = internal_app->get_historical_viz_image(output);
-  cv::Mat flipped_img_history;
-  cv::cvtColor(img_history, flipped_img_history, cv::COLOR_BGR2RGB);
-  cv::flip(flipped_img_history, flipped_img_history, 0);
-  pangolin::GlTexture imageTexture(img_history.cols, img_history.rows, GL_RGB, false, 0, GL_RGB, GL_UNSIGNED_BYTE);
-  imageTexture.Upload(flipped_img_history.ptr<uchar>(), GL_RGB, GL_UNSIGNED_BYTE);
-
-  pangolin::Display("feature_tracking").SetAspect(img_history.cols/(float)img_history.rows);
-  pangolin::Display("feature_tracking").Activate();
-  glColor4f(1.0f,1.0f,1.0f,1.0f);
-  imageTexture.RenderToViewport();
-
-#define USE_INTERFACE_LOC
-#ifndef USE_INTERFACE_LOC
+  drawCvImageOnView(
+      img_history,
+      pangolin::Display("feature_tracking"),
+      true);
+  
+  double image_time = output->status.timestamp;
   Eigen::Vector3f new_pos = output->state_clone->_imu->pos().cast<float>();
-  Eigen::Isometry3f imu_pose(output->state_clone->_imu->Rot().inverse().cast<float>());
-  imu_pose.translation() = new_pos;
-#else
-  auto loc = _app->Localization(false);
-  const double* q = loc.q;
-  const double* p = loc.p;
-  Eigen::Vector3f new_pos(p[0], p[1], p[2]);
-  Eigen::Quaternionf quat(q[3], q[0], q[1], q[2]);
-  Eigen::Isometry3f imu_pose(quat);
-  imu_pose.translation() = new_pos;
-#endif
+  _imu_pose = Eigen::Isometry3f(output->state_clone->_imu->Rot().inverse().cast<float>());
+  _imu_pose.translation() = new_pos;
+  _traj.push_back(new_pos);
 
-  Eigen::Matrix4f imu_pose_mat = imu_pose.matrix();  // column major
-
-  // Eigen::Isometry3f view_anchor_pose = imu_pose;
-  // Eigen::Isometry3f view_anchor_pose = imu_pose * Eigen::AngleAxisf(0.5*M_PI, Eigen::Vector3f::UnitX());
-  // Z is upward for view_anchor_pose.
-
-  Eigen::Isometry3f view_anchor_pose = Eigen::Isometry3f::Identity();  
-  view_anchor_pose.translation() = Eigen::Vector3f(new_pos(0), new_pos(1), 0);
-
-  Eigen::Matrix4f view_anchor_pose_mat = view_anchor_pose.matrix();
-  pangolin::OpenGlMatrix Twa;
-  for (int i = 0; i<4; i++) {
-    Twa.m[4*i] = view_anchor_pose_mat(0,i);
-    Twa.m[4*i+1] = view_anchor_pose_mat(1,i);
-    Twa.m[4*i+2] = view_anchor_pose_mat(2,i);
-    Twa.m[4*i+3] = view_anchor_pose_mat(3,i);
+  double imu_time;
+  {
+    auto loc = _app->Localization(true);
+    const double* q = loc.q;
+    const double* p = loc.p;
+    imu_time = loc.timestamp;
+    Eigen::Quaternionf quat(q[3], q[0], q[1], q[2]);
+    _predicted_imu_pose = Eigen::Isometry3f(quat);
+    _predicted_imu_pose.translation() = Eigen::Vector3f(p[0], p[1], p[2]);
   }
 
-  // s_cam->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
-  s_cam->Follow(Twa);
 
-  pangolin::Display("cam1").Activate(*s_cam);
-  // pangolin::glDrawColouredCube();
 
+  {
+    Eigen::Isometry3f view_anchor_pose = Eigen::Isometry3f::Identity();  
+    view_anchor_pose.translation() = Eigen::Vector3f(new_pos(0), new_pos(1), 0);
+    pangolin::OpenGlMatrix Twa = makeGlMatrix(view_anchor_pose.matrix());
+
+    // s_cam1->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
+    s_cam1->Follow(Twa);
+    pangolin::Display("cam1").Activate(*s_cam1);
+    drawRobotAndMap(output);    
+  }
+
+  {
+    Eigen::Isometry3f view_anchor_pose = _imu_pose;
+    // Eigen::Isometry3f view_anchor_pose = _imu_pose * Eigen::AngleAxisf(0.5*M_PI, Eigen::Vector3f::UnitX());
+    // Z is upward for view_anchor_pose.
+
+    pangolin::OpenGlMatrix Twa = makeGlMatrix(view_anchor_pose.matrix());
+    s_cam2->Follow(Twa);
+    pangolin::Display("cam2").Activate(*s_cam2);
+    drawRobotAndMap(output);
+  }
+
+  pangolin::Display("cam1").Activate();
+
+  // draw text
+  // get latest imu time_str
+
+  auto get_time_str = [](double timestamp) {
+    bool use_utc_time = false;  // use local time
+    int64_t ts = int64_t(timestamp*1e9);
+    ts += 8 * 3600 * 1e9;  // add 8 hours
+    std::chrono::nanoseconds time_since_epoch(ts);
+    std::chrono::time_point
+        <std::chrono::system_clock, std::chrono::nanoseconds>
+        time_point(time_since_epoch);
+    std::time_t tt = std::chrono::system_clock::to_time_t(time_point);
+    struct tm* ptm;
+    if (use_utc_time) {
+      ptm = gmtime(&tt);
+    } else {
+      ptm = localtime(&tt);
+    }
+    struct tm& tm = *ptm;
+    int64_t sub_seconds_in_nano = ts % 1000000000;
+    char dt[100];
+    sprintf(  // NOLINT
+        dt, "%04d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1,
+        tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    // sprintf(dt, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+    return std::string(dt) + " " + std::to_string(sub_seconds_in_nano/1000000);
+  };
+
+  std::string imu_time_str = get_time_str(imu_time);
+  std::string image_time_str = get_time_str(image_time);
+
+  drawMultiTextLinesInViewCoord(
+      { TextLine("IMU time:   " + imu_time_str)
+       ,TextLine("Image time: " + image_time_str)
+       ,TextLine("Image delay: " + (imu_time > 0 ? std::to_string(int64_t((imu_time - image_time) * 1e3)) + " ms" : std::string("unknown")))
+       ,TextLine("Slam points: " + std::to_string(_slam_points.size()))
+       ,TextLine("MSCKF points: " + std::to_string(_msckf_points.size()))
+      },
+      10, -120,
+      1.0);
+
+  drawTextLineInWindowCoord(
+      TextLine("SLAM demo"),
+      10, 30,
+      2.0);  // enlarge
+
+  pangolin::FinishFrame();
+}
+
+void Viewer::classifyPoints(std::shared_ptr<VioManager::Output> output) {
+  std::set<size_t> new_ids;
+  _slam_points.clear();
+  _msckf_points.clear();
+  _old_points.clear();
+  _active_points.clear();
+
+  for (size_t i=0; i<output->visualization.feature_ids_SLAM.size(); i++) {
+    auto id = output->visualization.feature_ids_SLAM[i];
+    const auto& p = output->visualization.features_SLAM[i];
+    _map_points[id] = p;
+    _slam_points.push_back(&p);
+    new_ids.insert(id);
+  }
+  for (size_t i=0; i<output->visualization.good_feature_ids_MSCKF.size(); i++) {
+    auto id = output->visualization.good_feature_ids_MSCKF[i];
+    const auto& p = output->visualization.good_features_MSCKF[i];
+    _map_points[id] = p;
+    _msckf_points.push_back(&p);
+    new_ids.insert(id);
+  }
+
+  for (const auto& item : _map_points) {
+    if (new_ids.count(item.first) == 0) {
+      const Eigen::Vector3d& p = item.second;
+      _old_points.push_back(&p);
+    }
+  }
+
+  for (const auto& item : output->visualization.active_tracks_posinG) {
+    if (new_ids.count(item.first) == 0) {
+      const Eigen::Vector3d& p = item.second;
+      _active_points.push_back(&p);
+    }
+  }
+}
+
+void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
+  using namespace slam_viz::pangolin_helper;
+  Eigen::Vector3f new_pos = _imu_pose.translation();
   // draw grid
-  int x_begin = new_pos(0) - 2 * viewpoint_height;
-  int y_begin = new_pos(1) - 2 * viewpoint_height;
-  int n_lines = 4 * viewpoint_height;
-  glLineWidth(1.0);
-  glColor4f(1.0f, 1.0f, 1.0f, 0.15f);
-  glBegin(GL_LINES);
-  for (int i=0; i<n_lines; i++) {
-    // draw the ith vertical line
-    glVertex3f(x_begin + i, y_begin, 0);
-    glVertex3f(x_begin + i, y_begin + n_lines, 0);
-    // draw the ith horizontal line
-    glVertex3f(x_begin, y_begin + i, 0);
-    glVertex3f(x_begin + n_lines, y_begin + i, 0);
-  }
-  glEnd();
+  drawGrids2D(
+      new_pos(0), new_pos(1),
+      100, 100,
+      Color(255, 255, 255, 40), 1.0f);
 
+  drawFrame(2.0, 10.0, 80);
 
   drawMultiTextLines(
       {TextLine("起点", false, getChineseFont()),
@@ -180,135 +268,50 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   }
 
   // draw points
-  std::set<size_t> new_slam_ids;
-  std::set<size_t> new_msckf_ids;
-  std::set<size_t> new_ids;
-  for (size_t i=0; i<output->visualization.feature_ids_SLAM.size(); i++) {
-    auto id = output->visualization.feature_ids_SLAM[i];
-    auto p = output->visualization.features_SLAM[i];
-    _map_points[id] = p.cast<float>();
-    new_slam_ids.insert(id);
-    new_ids.insert(id);
-  }
-  for (size_t i=0; i<output->visualization.good_feature_ids_MSCKF.size(); i++) {
-    auto id = output->visualization.good_feature_ids_MSCKF[i];
-    auto p = output->visualization.good_features_MSCKF[i];
-    _map_points[id] = p.cast<float>();
-    new_msckf_ids.insert(id);
-    new_ids.insert(id);
-  }
 
-  glPointSize(3.0);
-  glBegin(GL_POINTS);
-  glColor4f(0.5, 0.5, 0.5, 0.3f);
-  for (const auto& item : _map_points) {
-    if (new_ids.count(item.first) == 0) {
-      const Eigen::Vector3f& p = item.second;
-      glVertex3f(p(0), p(1), p(2));
-    }
-  }
-
-  glColor4f(1.0, 1.0, 1.0, 0.3f);
-  for (const auto& item : output->visualization.active_tracks_posinG) {
-    if (new_ids.count(item.first) == 0) {
-      Eigen::Vector3f p = item.second.cast<float>();
-      glVertex3f(p(0), p(1), p(2));
-    }
-  }
-
-  glEnd();
-  glPointSize(5.0);
-  glBegin(GL_POINTS);
-
-  glColor3f(1.0, 0.0, 0.0);
-  for (auto id : new_slam_ids) {
-    Eigen::Vector3f& p = _map_points.at(id);
-    glVertex3f(p(0), p(1), p(2));
-  }
-
-  glColor3f(0.0, 0.0, 1.0);
-  for (auto id : new_msckf_ids) {
-    Eigen::Vector3f& p = _map_points.at(id);
-    glVertex3f(p(0), p(1), p(2));
-  }
-  glEnd();
-
+  // drawPointCloud2(_old_points, Color(127,127,127,80), 3.0);
+  drawPointCloud2(_old_points, Color(200,200,200,80), 3.0);
+  drawPointCloud2(_active_points, Color(255,255,255,150), 3.0);
+  drawPointCloud2(_slam_points, Color(255,0,0,255), 5.0);
+  drawPointCloud2(_msckf_points, Color(0,0,255,255), 5.0);
 
   // draw traj
-  _traj.push_back(new_pos);
+  drawPointTrajectory(_traj, Color(255,0,0,127), 4.0);
 
-  glLineWidth(4.0);
-  glColor4f(1.0f, 0.0f, 0.0f, 0.5f);
-  glBegin(GL_LINE_STRIP);
-  for (const auto& p : _traj) {
-    glVertex3f(p(0), p(1), p(2));
-  }
-  glEnd();
+  // draw IMU / Camera
+  multMatrixfAndDraw(_imu_pose.matrix(), [&](){
+    // drawFrame(0.25);
 
+    // drawCamera(0.5, Color(0,0,255,255), 1.0f);
 
-  // draw imu frame
-  glPushMatrix();
-  glMultMatrixf(imu_pose_mat.data());
+    drawVehicle(
+        0.4, Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(0, -1, 0),
+        Color(255,255,0,80), 4.0f);
 
-  glLineWidth(4.0);
-  glColor4f(1.0f, 1.0f, 0.0f, 0.3f);
-  glBegin(GL_LINE_LOOP);
-  double half_w = 0.15;
-  double l = 0.40;
-  glVertex3f(-half_w, 0, -l);
-  glVertex3f( half_w, 0, -l);
-  glVertex3f(      0, 0,  0);
-  glEnd();
+    // drawTextLineFacingScreen(
+    //     TextLine("Hello Robot", true),
+    //     Eigen::Vector3f(1.0, 0.0, 0.0),
+    //     2.0);  // enlarge    
 
-
-  drawTextLineFacingScreen(
-      TextLine("Hello Robot", true),
-      Eigen::Vector3f(1.0, 0.0, 0.0),
-      2.0);  // enlarge
-
-  glPopMatrix();
-
+    drawTextLine(
+        TextLine("Hello Robot", true),
+        // TextLine("Hello Robot", false, getChineseFont()),
+        Eigen::Vector3f(-1.0, 0.0, -1.0),
+        Eigen::AngleAxisf(0.5*M_PI, Eigen::Vector3f::UnitX()).toRotationMatrix(),
+        // 1.0 / 36.0);
+        1.0 / 54.0);
+        // 1.0 / 72.0);
+  });
 
   const bool draw_imu_predict = true;
   if (draw_imu_predict) {
-    auto loc = _app->Localization(true);
-    const double* q = loc.q;
-    const double* p = loc.p;
-    Eigen::Quaternionf quat(q[3], q[0], q[1], q[2]);
-    Eigen::Isometry3f predicted_imu_pose(quat);
-    predicted_imu_pose.translation() = Eigen::Vector3f(p[0], p[1], p[2]);
-    Eigen::Matrix4f predicted_imu_pose_mat = predicted_imu_pose.matrix();  // column major
-
-    // draw imu frame
-    glPushMatrix();
-    glMultMatrixf(predicted_imu_pose_mat.data());
-
-    glLineWidth(4.0);
-    glColor4f(1.0f, 0.0f, 1.0f, 0.3f);
-    glBegin(GL_LINE_LOOP);
-    half_w *= 1.3;
-    l *= 1.3;
-    glVertex3f(-half_w, 0, -l);
-    glVertex3f( half_w, 0, -l);
-    glVertex3f(      0, 0,  0);
-    glEnd();
-    glPopMatrix();
+    multMatrixfAndDraw(_predicted_imu_pose.matrix(), [&](){
+      drawVehicle(
+          0.4 * 1.3, Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(0, -1, 0),
+          Color(255,0,255,80), 4.0f);
+    });
   }
-
-  // draw text
-  drawMultiTextLinesInViewCoord(
-      {TextLine("IMU time: "), TextLine("TEST line2: "), TextLine("TEST line3: ")},
-      10, -100,
-      1.0);
-
-  drawTextLineInWindowCoord(
-      TextLine("SLAM demo"),
-      10, 30,
-      2.0);  // enlarge
-
-  pangolin::FinishFrame();
 }
-
 
 
 #endif

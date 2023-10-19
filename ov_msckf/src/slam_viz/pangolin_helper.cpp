@@ -31,13 +31,13 @@ bool loadChineseFont(const std::string& font_file) {
 }
 
 void drawTextLine(const TextLine& line) {
-  glColor4ub(line.color[0], line.color[1], line.color[2], line.color[3]);
+  glColor4ub(line.c.r, line.c.g, line.c.b, line.c.a);
   line.font->Text(line.text).Draw();
 }
 
 void drawMultiTextLines(const TextLines& lines) {
   for (const TextLine& line : lines) {
-    glColor4ub(line.color[0], line.color[1], line.color[2], line.color[3]);
+    glColor4ub(line.c.r, line.c.g, line.c.b, line.c.a);
     line.font->Text(line.text).Draw();
     glTranslatef(0, -20.0 /*assuming the default font height is 18.0*/, 0);
   }
@@ -47,21 +47,25 @@ void drawText(std::function<void()> do_draw,
               const Eigen::Vector3f& translation,
               const Eigen::Matrix3f& mult_rotation,
               float scale) {
-  glPushMatrix();
-  Eigen::Matrix4f mult_matrix = Eigen::Matrix4f::Identity();
-  if (scale != 1.0) {
-    mult_matrix.block(0,0,3,3) = scale * mult_rotation;
-  } else {
-    mult_matrix.block(0,0,3,3) = mult_rotation;
-  }
-  mult_matrix.block(0,3,3,1) = translation;
-  glMultMatrixf(mult_matrix.data());
 
-  if (do_draw) {
-    do_draw();
-  }
+  multMatrixfAndDraw(
+      makeMatrixf(translation, mult_rotation, scale), do_draw);
 
-  glPopMatrix();  
+  // glPushMatrix();
+  // Eigen::Matrix4f mult_matrix = Eigen::Matrix4f::Identity();
+  // if (scale != 1.0) {
+  //   mult_matrix.block(0,0,3,3) = scale * mult_rotation;
+  // } else {
+  //   mult_matrix.block(0,0,3,3) = mult_rotation;
+  // }
+  // mult_matrix.block(0,3,3,1) = translation;
+  // glMultMatrixf(mult_matrix.data());
+
+  // if (do_draw) {
+  //   do_draw();
+  // }
+
+  // glPopMatrix();  
 }
 
 
@@ -355,28 +359,17 @@ pangolin::GlFont* getChineseFont() {
 TextLine::TextLine(const std::string& str, bool hightlight, pangolin::GlFont* ifont)
     : text(str), font(ifont) {
   if (hightlight) {
-    color[0] = 255;
-    color[1] = 0;
-    color[2] = 0;
-    color[3] = 255;
+    c = Color(255, 0, 0, 255);
   } else {
-    color[0] = 127;
-    color[1] = 127;
-    color[2] = 127;
-    color[3] = 255;
+    c = Color(127, 127, 127, 255);
   }
 }
 
 TextLine::TextLine(
     const std::string& str,
-    uint8_t r, uint8_t g, uint8_t b, uint8_t a,
+    Color _c,
     pangolin::GlFont* ifont)
-    : text(str), font(ifont) {
-  color[0] = r;
-  color[1] = g;
-  color[2] = b;
-  color[3] = a;
-}
+    : text(str), c(_c), font(ifont) {}
 
 void drawMultiTextLines(
     const TextLines& lines,
@@ -458,8 +451,170 @@ void drawTextLineInWindowCoord(
   }, start_pix_x, start_pix_y, scale);
 }
 
-void drawTrianglePose() {
+
+void drawGrids2D(
+    int center_x, int center_y, int n_x, int n_y,
+    Color c, float line_width) {
+
+  int x_begin = center_x - n_x / 2;
+  int y_begin = center_y - n_y / 2;
+
+  glLineWidth(line_width);
+  glColor4ub(c.r, c.g, c.b, c.a);
+
+  glBegin(GL_LINES);
+  for (int i=0; i<n_x; i++) {
+    // draw the ith vertical line
+    glVertex3f(x_begin + i, y_begin, 0);
+    glVertex3f(x_begin + i, y_begin + n_y, 0);
+  }
+
+  for (int i=0; i<n_y; i++) {
+    // draw the ith horizontal line
+    glVertex3f(x_begin, y_begin + i, 0);
+    glVertex3f(x_begin + n_x, y_begin + i, 0);
+  }
+
+  glEnd();
+}
+
+void drawFrame(float axis_len, float line_width, uint8_t alpha) {
+
+  glLineWidth(line_width);
+
+  glBegin(GL_LINES);
+
+  glColor4ub(255, 0, 0, alpha);
+  glVertex3f(0.0f, 0.0f, 0.0f);
+  glVertex3f(axis_len, 0.0f, 0.0f);
+
+  glColor4ub(0, 255, 0, alpha);
+  glVertex3f(0.0f, 0.0f, 0.0f);
+  glVertex3f(0.0f, axis_len, 0.0f);
+
+  glColor4ub(0, 0, 255, alpha);
+  glVertex3f(0.0f, 0.0f, 0.0f);
+  glVertex3f(0.0f, 0.0f, axis_len);
+
+  glEnd();
+}
+
+void drawCamera(double s, Color c, float line_width) {
+
+  float half_w = 1.0f * s;
+  float half_h = 0.7f * s;
+  float z = 1.0f * s;
+
+  glLineWidth(line_width);
+  glColor4ub(c.r, c.g, c.b, c.a);
+
+  // glBegin(GL_LINE_STRIP);
+  glBegin(GL_LINE_LOOP);
+  glVertex3f(-half_w, -half_h, z);
+  glVertex3f( half_w, -half_h, z);
+  glVertex3f( half_w,  half_h, z);
+  glVertex3f(-half_w,  half_h, z);
+  glEnd();
+
+  glBegin(GL_LINES);
+  glVertex3f(0, 0, 0);
+  glVertex3f(-half_w, -half_h, z);
+  glVertex3f(0, 0, 0);
+  glVertex3f( half_w, -half_h, z);
+  glVertex3f(0, 0, 0);
+  glVertex3f( half_w,  half_h, z);
+  glVertex3f(0, 0, 0);
+  glVertex3f(-half_w,  half_h, z);
+  glEnd();
+}
+
+void drawVehicle(
+    double s,
+    const Eigen::Vector3f& front,
+    const Eigen::Vector3f& up,
+    Color c, float line_width) {
+
+  glLineWidth(line_width);
+  glColor4ub(c.r, c.g, c.b, c.a);
+  glBegin(GL_LINE_LOOP);
+  double half_w = 0.4 * s;
+  double l = 1.0 * s;
+  Eigen::Vector3f left = up.cross(front);
+  Eigen::Vector3f pl =   half_w * left - l * front;
+  Eigen::Vector3f pr = - half_w * left - l * front;
+  glVertex3f(pl.x(), pl.y(), pl.z());
+  glVertex3f(pr.x(), pr.y(), pr.z());
+  glVertex3f(      0, 0,  0);
+  glEnd();
+}
+
+void drawCvImageOnView(
+    const cv::Mat& img_in,
+    pangolin::View& view,
+    bool need_bgr2rgb) {
+  cv::Mat img;
+  if (img_in.channels() == 1) {
+    cv::cvtColor(img_in, img, cv::COLOR_GRAY2RGB);
+  } else if (img_in.channels() == 3) {
+    if (need_bgr2rgb) {
+      cv::cvtColor(img_in, img, cv::COLOR_BGR2RGB);
+    } else {
+      img = img_in.clone();
+    }
+  }
+
+  // cv::flip(img, img, 0);  // this works with RenderToViewport()
+
+  pangolin::GlTexture imageTexture(img.cols, img.rows, GL_RGB, false, 0, GL_RGB, GL_UNSIGNED_BYTE);
+  imageTexture.Upload(img.ptr<uchar>(), GL_RGB, GL_UNSIGNED_BYTE);
+
+  view.SetAspect(img.cols/(float)img.rows);
+  view.Activate();
+  glColor4ub(255, 255, 255, 255);
+
+  // imageTexture.RenderToViewport();  // This needs cv::flip(img, img, 0) before hand
+  imageTexture.RenderToViewportFlipY();
+  // imageTexture.RenderToViewportFlipXFlipY();
+}
+
+
+Eigen::Matrix4f makeMatrixf(
+    const Eigen::Vector3f& translation,
+    const Eigen::Matrix3f& rotation,
+    float scale) {
+  Eigen::Matrix4f matrix = Eigen::Matrix4f::Identity();
+  if (scale != 1.0) {
+    matrix.block(0,0,3,3) = scale * rotation;
+  } else {
+    matrix.block(0,0,3,3) = rotation;
+  }
+  matrix.block(0,3,3,1) = translation;
+  return matrix;
+}
+
+void multMatrixfAndDraw(
+    const Eigen::Matrix4f& matrix,
+    std::function<void()> do_draw) {
   
+  glPushMatrix();
+  glMultMatrixf(matrix.data());
+
+  if (do_draw) {
+    do_draw();
+  }
+  glPopMatrix();
+}
+
+pangolin::OpenGlMatrix
+makeGlMatrix(const Eigen::Matrix4f& eigen_float_mat) {
+  pangolin::OpenGlMatrix ret;
+  for (int i = 0; i<4; i++) {
+    ret.m[4*i] = eigen_float_mat(0,i);
+    ret.m[4*i+1] = eigen_float_mat(1,i);
+    ret.m[4*i+2] = eigen_float_mat(2,i);
+    ret.m[4*i+3] = eigen_float_mat(3,i);
+  }
+  return ret;
 }
 
 } // namespace pangolin_helper

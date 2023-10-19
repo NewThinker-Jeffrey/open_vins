@@ -29,7 +29,8 @@
 
 #if ENABLE_PANGOLIN
 #include <pangolin/pangolin.h>
-
+#include "slam_viz/pangolin_helper_types.h"
+ 
 namespace ov_msckf {
 
 class Viewer {
@@ -40,12 +41,19 @@ public:
 
 private:
 
+  void classifyPoints(std::shared_ptr<VioManager::Output> task);
+
+  void drawRobotAndMap(std::shared_ptr<VioManager::Output> task);
+
+
   /// Core application of the filter system
   std::shared_ptr<ov_interface::VIO> _app;
 
-  std::shared_ptr<pangolin::OpenGlRenderState> s_cam;
+  std::shared_ptr<pangolin::OpenGlRenderState> s_cam1, s_cam2;
   std::deque <Eigen::Vector3f> _traj;
-  std::map<size_t, Eigen::Vector3f> _map_points;
+  std::map<size_t, Eigen::Vector3d> _map_points;
+  slam_viz::pangolin_helper::PointdPtrSet _slam_points, _msckf_points, _old_points, _active_points;
+  Eigen::Isometry3f _imu_pose, _predicted_imu_pose;
 };
 
 
