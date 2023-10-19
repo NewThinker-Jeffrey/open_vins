@@ -186,13 +186,24 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
 
   std::string imu_time_str = get_time_str(imu_time);
   std::string image_time_str = get_time_str(image_time);
+  char tmp_buf[100];
+  sprintf(tmp_buf, "%.3f, %.3f, %.3f", new_pos(0), new_pos(1), new_pos(2));
+  std::string vio_pos_str(tmp_buf);
+  Eigen::Vector3f predict_pos = _predicted_imu_pose.translation();
+  sprintf(tmp_buf, "%.3f, %.3f, %.3f", predict_pos(0), predict_pos(1), predict_pos(2));
+  std::string predict_pos_str(tmp_buf);
+  sprintf(tmp_buf, "%.3f", output->status.distance);
+  std::string distance_str(tmp_buf);
 
   drawMultiTextLinesInViewCoord(
       { TextLine("IMU time:   " + imu_time_str)
        ,TextLine("Image time: " + image_time_str)
        ,TextLine("Image delay: " + (imu_time > 0 ? std::to_string(int64_t((imu_time - image_time) * 1e3)) + " ms" : std::string("unknown")))
-       ,TextLine("Slam points: " + std::to_string(_slam_points.size()))
+       ,TextLine("Slam points:  " + std::to_string(_slam_points.size()))
        ,TextLine("MSCKF points: " + std::to_string(_msckf_points.size()))
+       ,TextLine("vio_pos:     " + vio_pos_str)
+       ,TextLine("predict_pos: " + predict_pos_str)
+       ,TextLine("Traveled distance: " + distance_str)       
       },
       10, -120,
       1.0);
