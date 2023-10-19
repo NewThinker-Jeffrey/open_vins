@@ -45,8 +45,8 @@ const double viewpoint_height = 5.0;
 Viewer::Viewer(std::shared_ptr<ov_interface::VIO> app) : _app(app) {
   std::cout << "Viewer::Viewer():  Use Pangolin!" << std::endl;
 
-  // std::cout << "Viewer::Viewer():  Loading Chinese font ..." << std::endl;
-  // slam_viz::pangolin_helper::loadChineseFont();
+  std::cout << "Viewer::Viewer():  Loading Chinese font ..." << std::endl;
+  slam_viz::pangolin_helper::loadChineseFont();
 }
 
 void Viewer::init() {
@@ -293,9 +293,9 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
     //     Eigen::Vector3f(1.0, 0.0, 0.0),
     //     2.0);  // enlarge    
 
-    drawTextLine(
-        TextLine("Hello Robot", true),
-        // TextLine("Hello Robot", false, getChineseFont()),
+    drawMultiTextLines(
+        {TextLine("Hello Robot", true),
+         TextLine("你好机器人", true, getChineseFont())},
         Eigen::Vector3f(-1.0, 0.0, -1.0),
         Eigen::AngleAxisf(0.5*M_PI, Eigen::Vector3f::UnitX()).toRotationMatrix(),
         // 1.0 / 36.0);
