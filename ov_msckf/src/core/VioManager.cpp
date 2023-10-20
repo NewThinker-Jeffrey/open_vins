@@ -230,7 +230,36 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
     }
   }
 
-  propagator->feed_imu(message, oldest_time);
+  static int imu_count = 0;
+  imu_count ++;
+  if (params.imu_acc_filter_param >= 2.0) {
+    int filter_window = params.imu_acc_filter_param;
+    if (imu_count % 200 == 0) {
+      PRINT_INFO("ImuFilter: filter_window = %d\n", filter_window);
+    }
+    imu_filter_buffer.emplace_back(message);
+    while (imu_filter_buffer.size() > filter_window) {
+      imu_filter_buffer.pop_front();
+    }
+    if (imu_filter_buffer.size() == filter_window) {
+      ov_core::ImuData filtered_msg = message;
+      filtered_msg.am = Eigen::Vector3d(0,0,0);
+      for (const auto & msg : imu_filter_buffer) {
+        filtered_msg.am += msg.am;
+      }
+      filtered_msg.am /= filter_window;
+
+      propagator->feed_imu(filtered_msg, oldest_time);
+    } else {
+      // do not feed anything before the filter buffer is full
+    }
+  } else {
+    if (imu_count % 200 == 0) {
+      PRINT_INFO("ImuFilter: NO_FILTER\n");
+    }
+    propagator->feed_imu(message, oldest_time);
+  }
+
   trackFEATS->feed_imu(message, oldest_time);
   // trackARUCO->feed_imu(message, oldest_time);
 
@@ -935,7 +964,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
       std::vector<std::shared_ptr<Feature>> quick_feats_slam = 
           trackFEATS->get_feature_database()->features_containing(message.timestamp, false, true);
       const double disparity_thr = std::min(
-        1.0 / 180.0 * M_PI,   // 1 degree
+        params.early_landmark_disparity_thr,
         10.0 / ref_focallength  // 10 pixels
       );
       const double disparity_square_thr = disparity_thr * disparity_thr;
@@ -1242,10 +1271,12 @@ void VioManager::update_gyro_integrated_rotations(double time, const Eigen::Matr
 double VioManager::compute_disparity_square(
     std::shared_ptr<ov_core::Feature> feat, const std::vector<double>& cloned_times,
     const std::vector<Eigen::Matrix3d>& R_Cold_in_Ccurs, size_t cam_id) {
-
+  
   if (!params.camera_extrinsics.count(cam_id)) {
     return 0.0;
   }
+
+  bool is_stereo = (feat->uvs.size() > 1);  // todo: process stereo features?
 
   std::vector<double> feat_times;
   std::vector<Eigen::VectorXf> feat_uvs_norm;

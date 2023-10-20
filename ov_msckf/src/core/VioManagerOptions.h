@@ -81,6 +81,9 @@ struct VioManagerOptions {
   // /// our output. save nothing if not set.
   // std::string output_dir = "";
 
+  /// IMU filter param
+  double imu_acc_filter_param = -1.0;
+
   /// Delay, in seconds, that we should wait from init before we start estimating SLAM features
   double dt_slam_delay = 2.0;
 
@@ -92,6 +95,9 @@ struct VioManagerOptions {
   bool choose_new_landmark_by_disparity = true;  // better, but more computation
 
   bool enable_early_landmark = true;
+
+  double early_landmark_disparity_thr = 0.017;  // 1°
+
 
   /// Max velocity we will consider to try to do a zupt (i.e. if above this, don't do zupt)
   double zupt_max_velocity = 1.0;
@@ -128,6 +134,8 @@ struct VioManagerOptions {
       parser->parse_config("choose_new_landmark_by_disparity", choose_new_landmark_by_disparity, false);
       parser->parse_config("enable_early_landmark", enable_early_landmark, false);
       parser->parse_config("zupt_max_velocity", zupt_max_velocity);
+      parser->parse_config("imu_acc_filter_param", imu_acc_filter_param);
+      parser->parse_config("early_landmark_disparity_thr", early_landmark_disparity_thr);      
       parser->parse_config("zupt_noise_multiplier", zupt_noise_multiplier);
       parser->parse_config("zupt_max_disparity", zupt_max_disparity);
       parser->parse_config("zupt_only_at_beginning", zupt_only_at_beginning);
@@ -142,6 +150,8 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - choose_new_landmark_by_disparity: %d\n", choose_new_landmark_by_disparity);
     PRINT_DEBUG("  - enable_early_landmark: %d\n", enable_early_landmark);
     PRINT_DEBUG("  - zupt_max_velocity: %.2f\n", zupt_max_velocity);
+    PRINT_DEBUG("  - imu_acc_filter_param: %.2f\n", imu_acc_filter_param);
+    PRINT_DEBUG("  - early_landmark_disparity_thr: %.2f\n", early_landmark_disparity_thr);    
     PRINT_DEBUG("  - zupt_noise_multiplier: %.2f\n", zupt_noise_multiplier);
     PRINT_DEBUG("  - zupt_max_disparity: %.4f\n", zupt_max_disparity);
     PRINT_DEBUG("  - zupt_only_at_beginning?: %d\n", zupt_only_at_beginning);

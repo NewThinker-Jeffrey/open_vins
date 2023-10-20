@@ -379,6 +379,9 @@ protected:
   double compute_disparity_square(
       std::shared_ptr<ov_core::Feature> feat, const std::vector<double>& cloned_times,
       const std::vector<Eigen::Matrix3d>& R_Cold_in_Ccurs, size_t cam_id);
+
+  // imu filter
+  std::deque<ov_core::ImuData> imu_filter_buffer;
 };
 
 } // namespace ov_msckf

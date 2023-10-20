@@ -31,6 +31,7 @@ feat_rep_msckf: "GLOBAL_3D"
 feat_rep_slam: "ANCHORED_MSCKF_INVERSE_DEPTH"
 feat_rep_aruco: "ANCHORED_MSCKF_INVERSE_DEPTH"
 
+
 # zero velocity update parameters we can use
 # we support either IMU-based or disparity detection.
 try_zupt: true
@@ -127,5 +128,12 @@ relative_config_imu: "kalibr_imu_chain.yaml"
 relative_config_imucam: "kalibr_imucam_chain.yaml"
 
 
+#### testing parameters
+
+# early_landmark_disparity_thr: 0.017  # 1°
+# imu_acc_filter_param: 0.0   # no filter used
+
+early_landmark_disparity_thr: 0.01
+imu_acc_filter_param: 20.0  # acc filter window: 20 (only used by propagator)
 
 
