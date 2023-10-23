@@ -232,6 +232,10 @@ struct VioManagerOptions {
 
   /// Map between camid and camera extrinsics (q_ItoC, p_IinC).
   std::map<size_t, Eigen::VectorXd> camera_extrinsics;
+  std::map<size_t, Eigen::Matrix4d> T_CtoIs;
+
+  /// Map between camid and camera extrinsics (T_C_in_Is: pose of camera in imu).
+  std::map<size_t, Eigen::Isometry3d> T_C_in_Is;
 
   /// If we should try to load a mask and use it to reject invalid features
   bool use_mask = false;
@@ -299,8 +303,17 @@ struct VioManagerOptions {
           camera_intrinsics.insert({i, std::make_shared<ov_core::CamRadtan>(matrix_wh.at(0), matrix_wh.at(1))});
           camera_intrinsics.at(i)->set_value(cam_calib);
         }
+        
+        T_CtoIs.insert({i, T_CtoI});
         camera_extrinsics.insert({i, cam_eigen});
+        {
+          std::ostringstream oss;
+          oss << "DEBUG T_CtoIs: " << i << std::endl;
+          oss << T_CtoI << std::endl;
+          PRINT_INFO("%s", oss.str().c_str());
+        }
       }
+
       parser->parse_config("use_mask", use_mask);
       if (use_mask) {
         for (int i = 0; i < state_options.num_cameras; i++) {

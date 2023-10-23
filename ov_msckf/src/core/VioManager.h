@@ -378,7 +378,8 @@ protected:
   void clear_old_gyro_integrated_rotations(double time);
   double compute_disparity_square(
       std::shared_ptr<ov_core::Feature> feat, const std::vector<double>& cloned_times,
-      const std::vector<Eigen::Matrix3d>& R_Cold_in_Ccurs, size_t cam_id);
+      const std::vector<std::unordered_map<size_t, Eigen::Matrix3d>>& R_Cold_in_Ccurs,
+      size_t ref_cam_id);
 
   // imu filter
   std::deque<ov_core::ImuData> imu_filter_buffer;

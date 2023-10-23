@@ -864,31 +864,32 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   // prepare variables for calculating disparities
   std::map<std::shared_ptr<Feature>, double> feat_to_disparity_square;
   std::vector<double> cloned_times;
-  std::vector<Eigen::Matrix3d> R_Cold_in_Ccurs;
+  std::vector<std::unordered_map<size_t, Eigen::Matrix3d>> R_Cold_in_Ccurs;
   std::set<std::shared_ptr<Feature>> feats_maxtracks_set;
   const auto ref_K = params.camera_intrinsics.at(message.sensor_ids[0])->get_K();
   const double ref_focallength = std::max(ref_K(0, 0), ref_K(1, 1));
 
   Eigen::Matrix3d cur_imu_rotation = gyro_integrated_rotations_window.at(message.timestamp);
-  Eigen::Matrix3d R_C_in_I = Eigen::Matrix3d::Identity();
-  const auto & extrinsic = params.camera_extrinsics.at(message.sensor_ids[0]);
-  R_C_in_I = ov_core::quat_2_Rot(extrinsic.block(0,0,4,1)).transpose();
+  Eigen::Matrix3d R_Cref_in_I = params.T_CtoIs.at(message.sensor_ids[0]).block(0,0,3,3);
+  // const auto & extrinsic = params.camera_extrinsics.at(message.sensor_ids[0]);
+  // R_Cref_in_I = ov_core::quat_2_Rot(extrinsic.block(0,0,4,1)).transpose();
   if (params.vio_manager_high_frequency_log) {
     std::ostringstream oss;
-    oss << R_C_in_I << std::endl;
+    oss << R_Cref_in_I << std::endl;
     PRINT_ALL(YELLOW "%s" RESET, oss.str().c_str());
   }
 
   for (const auto &clone_imu : state->_clones_IMU) {
     cloned_times.push_back(clone_imu.first);
-    if (clone_imu.first == message.timestamp) {
-      R_Cold_in_Ccurs.push_back(Eigen::Matrix3d::Identity());
-      continue;
-    }
     const Eigen::Matrix3d& old_imu_rotation = gyro_integrated_rotations_window.at(clone_imu.first);
     Eigen::Matrix3d R_Iold_in_Icur = cur_imu_rotation.transpose() * old_imu_rotation;
-    Eigen::Matrix3d R_Cold_in_Ccur = R_C_in_I.transpose() * R_Iold_in_Icur * R_C_in_I;
-    R_Cold_in_Ccurs.push_back(R_Cold_in_Ccur);
+
+    std::unordered_map<size_t, Eigen::Matrix3d> camid_to_r;
+    for (const auto& item : params.T_CtoIs) {
+      Eigen::Matrix3d R_C_in_I = item.second.block(0,0,3,3);
+      camid_to_r [item.first] = R_Cref_in_I.transpose() * R_Iold_in_Icur * R_C_in_I;
+    }
+    R_Cold_in_Ccurs.push_back(camid_to_r);
   }
 
   assert(cloned_times.size() == R_Cold_in_Ccurs.size());
@@ -1268,108 +1269,180 @@ void VioManager::update_gyro_integrated_rotations(double time, const Eigen::Matr
   gyro_integrated_rotations_window[time] = cur_gyro_integrated_rotation;
 }
 
+
 double VioManager::compute_disparity_square(
     std::shared_ptr<ov_core::Feature> feat, const std::vector<double>& cloned_times,
-    const std::vector<Eigen::Matrix3d>& R_Cold_in_Ccurs, size_t cam_id) {
-  
-  if (!params.camera_extrinsics.count(cam_id)) {
-    return 0.0;
+    const std::vector<std::unordered_map<size_t, Eigen::Matrix3d>>& R_Cold_in_Ccurs,
+    size_t ref_cam_id) {
+
+  bool is_stereo = false;
+  // bool only_ref_cam = true;
+  bool only_ref_cam = false;
+  if (!only_ref_cam) {
+    is_stereo = (feat->uvs.size() > 1);  // todo: process stereo features?
+                                         // need etrinsics. (only Rotation part)
   }
 
-  bool is_stereo = (feat->uvs.size() > 1);  // todo: process stereo features?
+  int total_obs = 0;
 
-  std::vector<double> feat_times;
-  std::vector<Eigen::VectorXf> feat_uvs_norm;
-  std::vector<Eigen::VectorXf> feat_uvs;
+  std::unordered_map<size_t, std::vector<double>> camid_to_feat_times;
+  std::unordered_map<size_t, std::vector<Eigen::VectorXf>> camid_to_feat_uvs_norm;
+  std::unordered_map<size_t, std::vector<Eigen::VectorXf>> camid_to_feat_uvs;
   {
     std::unique_lock<std::mutex> lck(trackFEATS->get_feature_database()->get_mutex());
-    if (!feat->timestamps.count(cam_id)) {
-      return 0.0;
-    }
-    // only compute disparities for features with 3 or more observations.
-    if (feat->timestamps.at(cam_id).size() < 3) {
+    if (!feat->timestamps.count(ref_cam_id)) {
       return 0.0;
     }
 
-    feat_times = feat->timestamps.at(cam_id);
-    feat_uvs_norm = feat->uvs_norm.at(cam_id);
+    // only compute disparities for stereo features possessing 2 or more observations.
+    if (is_stereo && feat->timestamps.at(ref_cam_id).size() < 2) {
+      return 0.0;
+    }
+
+    // only compute disparities for mono features possessing 3 or more observations.
+    if (!is_stereo && feat->timestamps.at(ref_cam_id).size() < 3) {
+      return 0.0;
+    }
+    
+    // feat_times = feat->timestamps.at(ref_cam_id);
+    // feat_uvs_norm = feat->uvs_norm.at(ref_cam_id);
+    // if (params.vio_manager_high_frequency_log) {
+    //   feat_uvs = feat->uvs.at(ref_cam_id);
+    // }
+    
+    camid_to_feat_times = feat->timestamps;
+    camid_to_feat_uvs_norm = feat->uvs_norm;
     if (params.vio_manager_high_frequency_log) {
-      feat_uvs = feat->uvs.at(cam_id);
+      camid_to_feat_uvs = feat->uvs;
     }
   }
-  assert(!feat_times.empty());
+  assert(!camid_to_feat_times.empty());
+  assert(!camid_to_feat_times.at(ref_cam_id).empty());
 
-  std::vector<int> indices(cloned_times.size());
-  int j = 0;
-  for (size_t i=0; i<cloned_times.size(); i++) {
-    const auto& clone_time = cloned_times[i];
-    while (j < feat_times.size() && feat_times[j] < clone_time) {
-      j ++;
+
+  std::unordered_map<size_t, std::vector<int>> camid_to_indices;
+  Eigen::Vector2f cur_uv_norm;
+  Eigen::Vector2f cur_uv;  // for debug only. = feat_uvs[indices.back()];
+  double cur_time;
+  for (const auto & item : params.T_CtoIs) {
+    const auto & camid = item.first;
+    if (only_ref_cam && camid != ref_cam_id) {
+      continue;
     }
-    assert(j < feat_times.size());  // "j >= feat_times.size()" shouldn't happen.
-    if (feat_times[j] > clone_time) {
-      indices[i] = -1;
-    } else {
-      // assert(feat_times[j] == clone_time);
-      indices[i] = j;
+    if (!camid_to_feat_times.count(camid)) {
+      continue;
+    }
+    const auto & feat_times = camid_to_feat_times.at(camid);
+
+    camid_to_indices[camid] = std::vector<int>(cloned_times.size());    
+    std::vector<int>& indices = camid_to_indices[camid];
+    int j = 0;
+    for (size_t i=0; i<cloned_times.size(); i++) {
+      const auto& clone_time = cloned_times[i];
+      while (j < feat_times.size() && feat_times[j] < clone_time) {
+        j ++;
+      }
+
+      if (camid == ref_cam_id) {
+        assert(j < feat_times.size());  // "j >= feat_times.size()" shouldn't happen for ref_cam.
+      }
+
+      if (j >=  feat_times.size()) {
+        indices[i] = -1;
+      } else if (feat_times[j] > clone_time) {
+        indices[i] = -1;
+      } else {
+        assert(feat_times[j] == clone_time);
+        indices[i] = j;
+      }
+    }
+
+    if (camid == ref_cam_id) {
+      if (indices.empty()) {
+        // assert(indices.back() >= 0);
+        // assert(feat_times[indices.back()] == cloned_times.back());
+        PRINT_WARNING("compute_disparity_square(): indices.empty()!! Might be a bug??");
+        return 0.0;
+      }
+      cur_uv_norm = camid_to_feat_uvs_norm.at(ref_cam_id)[indices.back()];
+      if (params.vio_manager_high_frequency_log) {
+        cur_uv = camid_to_feat_uvs.at(ref_cam_id)[indices.back()];
+        cur_time = feat_times[indices.back()];
+      }
     }
   }
 
-  assert(indices.back() >= 0);
-  assert(feat_times[indices.back()] == cloned_times.back());
 
-  double cur_time = feat_times[indices.back()];
-  Eigen::Vector2f cur_uv_norm = feat_uvs_norm[indices.back()];
   Eigen::Vector3d cur_homo(cur_uv_norm.x(), cur_uv_norm.y(), 1.0);
   double cur_homo_square = cur_homo.dot(cur_homo);
   double max_disparity_square = 0.0;
 
   // for debug
-  Eigen::Vector2f cur_uv;  // = feat_uvs[indices.back()];
+  size_t best_camid;
   Eigen::Vector2f best_old_uv;
   Eigen::Vector2f best_old_uv_norm;
   Eigen::Vector2f best_predict_uv_norm;
   Eigen::Matrix3d best_R_Cold_in_Ccur;
   double best_old_time;
 
-  for (size_t i=0; i<cloned_times.size() - 1; i++) {
-    // otherwise, feat_times[j] == clone_time
-    int j = indices[i];
-    if (j < 0) {
+  for (const auto & item : params.T_CtoIs) {
+    const auto & camid = item.first;
+    if (only_ref_cam && camid != ref_cam_id) {
       continue;
     }
-    assert(cloned_times[i] == feat_times[j]);
-    const Eigen::Vector2f& old_uv_norm = feat_uvs_norm[j];
-    const Eigen::Matrix3d& R_Cold_in_Ccur = R_Cold_in_Ccurs[i];
-    Eigen::Vector3d old_homo(old_uv_norm.x(), old_uv_norm.y(), 1.0);
-    Eigen::Vector3d predict_homo = R_Cold_in_Ccur * old_homo;
+
+    if (!camid_to_feat_times.count(camid) ||
+        !camid_to_feat_uvs_norm.count(camid) ||
+        !camid_to_indices.count(camid)) {
+      continue;
+    }
+
+    const auto & feat_times = camid_to_feat_times.at(camid);
+    const auto & feat_uvs_norm = camid_to_feat_uvs_norm.at(camid);
+    const auto & indices = camid_to_indices.at(camid);
+
+    for (size_t i=0; i<cloned_times.size() - 1; i++) {
+      // otherwise, feat_times[j] == clone_time
+      int j = indices[i];
+      if (j < 0) {
+        continue;
+      }
+      assert(cloned_times[i] == feat_times[j]);
+      const Eigen::Vector2f& old_uv_norm = feat_uvs_norm[j];
+      const Eigen::Matrix3d& R_Cold_in_Ccur = R_Cold_in_Ccurs[i].at(camid);
+      Eigen::Vector3d old_homo(old_uv_norm.x(), old_uv_norm.y(), 1.0);
+      Eigen::Vector3d predict_homo = R_Cold_in_Ccur * old_homo;
 
 #if 0  // bad performance.
-    Eigen::Vector2f predict_uv_norm(predict_homo.x() / predict_homo.z(), predict_homo.y() / predict_homo.z());
-    Eigen::Vector2f uv_norm_diff = cur_uv_norm - predict_uv_norm;
-    double disparity_square = uv_norm_diff.dot(uv_norm_diff);
+      Eigen::Vector2f predict_uv_norm(predict_homo.x() / predict_homo.z(), predict_homo.y() / predict_homo.z());
+      Eigen::Vector2f uv_norm_diff = cur_uv_norm - predict_uv_norm;
+      double disparity_square = uv_norm_diff.dot(uv_norm_diff);
 #else
-    double predict_homo_square = predict_homo.dot(predict_homo);
-    double dot = predict_homo.dot(cur_homo);
-    double disparity_square = 1 - (dot * dot) / (predict_homo_square * cur_homo_square);
+      double predict_homo_square = predict_homo.dot(predict_homo);
+      double dot = predict_homo.dot(cur_homo);
+      double disparity_square = 1 - (dot * dot) / (predict_homo_square * cur_homo_square);
 #endif
-
-    if (disparity_square > max_disparity_square) {
-      max_disparity_square = disparity_square;
-      if (params.vio_manager_high_frequency_log) {
-        best_old_uv_norm = old_uv_norm;
-        best_R_Cold_in_Ccur = R_Cold_in_Ccur;
-        best_old_uv = feat_uvs[j];
-        best_predict_uv_norm = Eigen::Vector2f(predict_homo.x() / predict_homo.z(), predict_homo.y() / predict_homo.z());
-        best_old_time = feat_times[j];
+      total_obs ++;
+      if (disparity_square > max_disparity_square) {
+        max_disparity_square = disparity_square;
+        if (params.vio_manager_high_frequency_log) {
+          const auto & feat_uvs = camid_to_feat_uvs.at(camid);
+          best_camid = camid;
+          best_old_uv_norm = old_uv_norm;
+          best_R_Cold_in_Ccur = R_Cold_in_Ccur;
+          best_old_uv = feat_uvs[j];
+          best_predict_uv_norm = Eigen::Vector2f(predict_homo.x() / predict_homo.z(), predict_homo.y() / predict_homo.z());
+          best_old_time = feat_times[j];
+        }
       }
     }
   }
 
+
   if (params.vio_manager_high_frequency_log) {
     std::ostringstream oss;
-    cur_uv = feat_uvs[indices.back()];
-    Eigen::Vector2f predict_uv = params.camera_intrinsics.at(cam_id)->distort_f(Eigen::Vector2f(best_predict_uv_norm.x(), best_predict_uv_norm.y()));
+    // Eigen::Vector2f predict_uv = params.camera_intrinsics.at(ref_cam_id)->distort_f(Eigen::Vector2f(best_predict_uv_norm.x(), best_predict_uv_norm.y()));
+    Eigen::Vector2f predict_uv = params.camera_intrinsics.at(best_camid)->distort_f(Eigen::Vector2f(best_predict_uv_norm.x(), best_predict_uv_norm.y()));
     double raw_uv_norm_diff = (best_old_uv_norm - cur_uv_norm).norm();
     double raw_uv_diff = (best_old_uv - cur_uv).norm();
     double predict_uv_norm_diff = (best_predict_uv_norm - cur_uv_norm).norm();
@@ -1386,5 +1459,9 @@ double VioManager::compute_disparity_square(
     PRINT_ALL(YELLOW "%s" RESET, oss.str().c_str());
   }
 
+  // Only output non-zero disparities for features with at least three observations.
+  if (total_obs < 3) {
+    return 0.0;
+  }
   return max_disparity_square;
 }
