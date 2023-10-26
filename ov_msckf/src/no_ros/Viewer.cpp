@@ -45,8 +45,8 @@ const double viewpoint_height = 5.0;
 Viewer::Viewer(std::shared_ptr<ov_interface::VIO> app) : _app(app) {
   std::cout << "Viewer::Viewer():  Use Pangolin!" << std::endl;
 
-  std::cout << "Viewer::Viewer():  Loading Chinese font ..." << std::endl;
-  slam_viz::pangolin_helper::loadChineseFont();
+  // std::cout << "Viewer::Viewer():  Loading Chinese font ..." << std::endl;
+  // slam_viz::pangolin_helper::loadChineseFont();
 }
 
 void Viewer::init() {
@@ -79,6 +79,7 @@ std::cout << "Viewer::init(): Before pangolin::OpenGlRenderState" << std::endl;
 
   // Keep robot's position and robot's orientation unchanged in the screen
   s_cam2 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, -viewpoint_height, 0, 0, 0, pangolin::AxisZ));
+  // s_cam2 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, viewpoint_height, 0, 0, 0,   0, 0, -1));
 
 
 std::cout << "Viewer::init(): After pangolin::OpenGlRenderState" << std::endl;
@@ -199,8 +200,8 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
       { TextLine("IMU time:   " + imu_time_str)
        ,TextLine("Image time: " + image_time_str)
        ,TextLine("Image delay: " + (imu_time > 0 ? std::to_string(int64_t((imu_time - image_time) * 1e3)) + " ms" : std::string("unknown")))
-       ,TextLine("Slam points:  " + std::to_string(_slam_points.size()))
-       ,TextLine("MSCKF points: " + std::to_string(_msckf_points.size()))
+       ,TextLine("Stable points:  " + std::to_string(_slam_points.size()))
+       ,TextLine("Short-term points: " + std::to_string(_msckf_points.size()))
        ,TextLine("vio_pos:     " + vio_pos_str)
        ,TextLine("predict_pos: " + predict_pos_str)
        ,TextLine("Traveled distance: " + distance_str)       
@@ -305,7 +306,7 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
     //     2.0);  // enlarge    
 
     drawMultiTextLines(
-        {TextLine("Hello Robot", true),
+        {TextLine("Hello Robot", true, getChineseFont()),
          TextLine("你好机器人", true, getChineseFont())},
         Eigen::Vector3f(-1.0, 0.0, -1.0),
         Eigen::AngleAxisf(0.5*M_PI, Eigen::Vector3f::UnitX()).toRotationMatrix(),
