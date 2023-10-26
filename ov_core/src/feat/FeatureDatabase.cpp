@@ -62,9 +62,12 @@ bool FeatureDatabase::get_feature_clone(size_t id, Feature &feat, bool from_cach
 }
 
 void FeatureDatabase::update_feature(size_t id, double timestamp, size_t cam_id, float u, float v, float u_n, float v_n) {
-
-  // Find this feature using the ID lookup
   std::lock_guard<std::mutex> lck(mtx);
+  update_feature_nolock(id, timestamp, cam_id, u, v, u_n, v_n);
+}
+
+void FeatureDatabase::update_feature_nolock(size_t id, double timestamp, size_t cam_id, float u, float v, float u_n, float v_n) {
+  // Find this feature using the ID lookup
   if (features_idlookup.find(id) != features_idlookup.end()) {
     // Get our feature
     std::shared_ptr<Feature> feat = features_idlookup.at(id);

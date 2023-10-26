@@ -206,9 +206,12 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
 
 
   // Update our feature database, with theses new observations
-  for (size_t i = 0; i < good_left.size(); i++) {
-    cv::Point2f npt_l = camera_calib.at(cam_id)->undistort_cv(good_left.at(i).pt);
-    database->update_feature(good_ids_left.at(i), message.timestamp, cam_id, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x, npt_l.y);
+  {
+    std::unique_lock<std::mutex> lck(database->get_mutex());
+    for (size_t i = 0; i < good_left.size(); i++) {
+      cv::Point2f npt_l = camera_calib.at(cam_id)->undistort_cv(good_left.at(i).pt);
+      database->update_feature_nolock(good_ids_left.at(i), message.timestamp, cam_id, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x, npt_l.y);
+    }
   }
 
   // Move forward in time
@@ -401,15 +404,18 @@ void TrackKLT::feed_stereo(const CameraData &message, size_t msg_id_left, size_t
   }
 
   // Update our feature database, with theses new observations
-  for (size_t i = 0; i < good_left.size(); i++) {
-    cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(good_left.at(i).pt);
-    database->update_feature(good_ids_left.at(i), message.timestamp, cam_id_left, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x,
-                             npt_l.y);
-  }
-  for (size_t i = 0; i < good_right.size(); i++) {
-    cv::Point2f npt_r = camera_calib.at(cam_id_right)->undistort_cv(good_right.at(i).pt);
-    database->update_feature(good_ids_right.at(i), message.timestamp, cam_id_right, good_right.at(i).pt.x, good_right.at(i).pt.y, npt_r.x,
-                             npt_r.y);
+  {
+    std::unique_lock<std::mutex> lck(database->get_mutex());
+    for (size_t i = 0; i < good_left.size(); i++) {
+      cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(good_left.at(i).pt);
+      database->update_feature_nolock(good_ids_left.at(i), message.timestamp, cam_id_left, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x,
+                              npt_l.y);
+    }
+    for (size_t i = 0; i < good_right.size(); i++) {
+      cv::Point2f npt_r = camera_calib.at(cam_id_right)->undistort_cv(good_right.at(i).pt);
+      database->update_feature_nolock(good_ids_right.at(i), message.timestamp, cam_id_right, good_right.at(i).pt.x, good_right.at(i).pt.y, npt_r.x,
+                              npt_r.y);
+    }
   }
 
   // Move forward in time
@@ -667,42 +673,52 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
   //===================================================================================
 
   // Update our feature database, with theses new observations
-  for (size_t i=0; i<pts_last[cam_id_left].size(); i++) {
-    if (strict_stereo && doubly_verified_stereo_ids.count(ids_last[cam_id_left].at(i))
-        && !doubly_verified_stereo_last[cam_id_left].count(ids_last[cam_id_left].at(i))) {
-      // some keypoints (e.g. newly extracted ones) in the last frame had not been marked as doubly_verified,
-      // but now we know they're good, so add them to database now (for the left-camera, only needed when strict_stereo=true).
-      cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(pts_last[cam_id_left].at(i).pt);
-      database->update_feature(ids_last[cam_id_left].at(i), img_time_last[cam_id_left], cam_id_left, 
-                               pts_last[cam_id_left].at(i).pt.x, pts_last[cam_id_left].at(i).pt.y, 
-                               npt_l.x, npt_l.y);
-    }
-  }
+  {
+    std::unique_lock<std::mutex> lck(database->get_mutex());
+    std::set<size_t> left_feat_ids;
 
-  for (size_t i=0; i<pts_last[cam_id_right].size(); i++) {
-    if (doubly_verified_stereo_ids.count(ids_last[cam_id_right].at(i))
-        && !doubly_verified_stereo_last[cam_id_right].count(ids_last[cam_id_right].at(i))) {
-      // some keypoints (e.g. newly extracted ones) in the last frame had not been marked as doubly_verified,
-      // but now we know they're good, so add them to database now.
-      cv::Point2f npt_l = camera_calib.at(cam_id_right)->undistort_cv(pts_last[cam_id_right].at(i).pt);
-      database->update_feature(ids_last[cam_id_right].at(i), img_time_last[cam_id_right], cam_id_right, 
-                               pts_last[cam_id_right].at(i).pt.x, pts_last[cam_id_right].at(i).pt.y, 
-                               npt_l.x, npt_l.y);
+    for (size_t i=0; i<pts_last[cam_id_left].size(); i++) {
+      if (strict_stereo && doubly_verified_stereo_ids.count(ids_last[cam_id_left].at(i))
+          && !doubly_verified_stereo_last[cam_id_left].count(ids_last[cam_id_left].at(i))) {
+        // some keypoints (e.g. newly extracted ones) in the last frame had not been marked as doubly_verified,
+        // but now we know they're good, so add them to database now (for the left-camera, only needed when strict_stereo=true).
+        cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(pts_last[cam_id_left].at(i).pt);
+        database->update_feature_nolock(ids_last[cam_id_left].at(i), img_time_last[cam_id_left], cam_id_left, 
+                                pts_last[cam_id_left].at(i).pt.x, pts_last[cam_id_left].at(i).pt.y, 
+                                npt_l.x, npt_l.y);
+        left_feat_ids.insert(ids_last[cam_id_left].at(i));
+      }
     }
-  }
 
-  for (size_t i = 0; i < good_left.size(); i++) {
-    if (!strict_stereo || doubly_verified_stereo_ids.count(good_ids_left.at(i))) {
-      cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(good_left.at(i).pt);
-      database->update_feature(good_ids_left.at(i), message.timestamp, cam_id_left, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x,
-                              npt_l.y);
+    for (size_t i=0; i<pts_last[cam_id_right].size(); i++) {
+      if (doubly_verified_stereo_ids.count(ids_last[cam_id_right].at(i))
+          && !doubly_verified_stereo_last[cam_id_right].count(ids_last[cam_id_right].at(i))) {
+        // some keypoints (e.g. newly extracted ones) in the last frame had not been marked as doubly_verified,
+        // but now we know they're good, so add them to database now.
+        cv::Point2f npt_l = camera_calib.at(cam_id_right)->undistort_cv(pts_last[cam_id_right].at(i).pt);
+        database->update_feature_nolock(ids_last[cam_id_right].at(i), img_time_last[cam_id_right], cam_id_right, 
+                                pts_last[cam_id_right].at(i).pt.x, pts_last[cam_id_right].at(i).pt.y, 
+                                npt_l.x, npt_l.y);
+
+        // if (!left_feat_ids.count(ids_last[cam_id_right].at(i))) {
+        //   PRINT_WARNING(YELLOW "TrackKLT: observation in left cam lost! feature id = %d\n" RESET, ids_last[cam_id_right].at(i));
+        // }
+      }
     }
-  }
-  for (size_t i = 0; i < good_right.size(); i++) {
-    if (doubly_verified_stereo_ids.count(good_ids_right.at(i))) {
-      cv::Point2f npt_r = camera_calib.at(cam_id_right)->undistort_cv(good_right.at(i).pt);
-      database->update_feature(good_ids_right.at(i), message.timestamp, cam_id_right, good_right.at(i).pt.x, good_right.at(i).pt.y, npt_r.x,
-                              npt_r.y);
+
+    for (size_t i = 0; i < good_left.size(); i++) {
+      if (!strict_stereo || doubly_verified_stereo_ids.count(good_ids_left.at(i))) {
+        cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(good_left.at(i).pt);
+        database->update_feature_nolock(good_ids_left.at(i), message.timestamp, cam_id_left, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x,
+                                npt_l.y);
+      }
+    }
+    for (size_t i = 0; i < good_right.size(); i++) {
+      if (doubly_verified_stereo_ids.count(good_ids_right.at(i))) {
+        cv::Point2f npt_r = camera_calib.at(cam_id_right)->undistort_cv(good_right.at(i).pt);
+        database->update_feature_nolock(good_ids_right.at(i), message.timestamp, cam_id_right, good_right.at(i).pt.x, good_right.at(i).pt.y, npt_r.x,
+                                npt_r.y);
+      }
     }
   }
 
