@@ -36,12 +36,12 @@ launch_args = [
         default_value="",
         description="path to estimator_config.yaml. If not given, determined based on provided 'config' above",
     ),
-    DeclareLaunchArgument(
-        name="verbosity",
-        default_value="INFO",
-        # default_value="DEBUG",
-        description="ALL, DEBUG, INFO, WARNING, ERROR, SILENT",
-    ),
+    # DeclareLaunchArgument(
+    #     name="verbosity",
+    #     default_value="INFO",
+    #     # default_value="DEBUG",
+    #     description="ALL, DEBUG, INFO, WARNING, ERROR, SILENT",
+    # ),
     # DeclareLaunchArgument(
     #     name="use_stereo",
     #     default_value="false",
@@ -163,7 +163,7 @@ def launch_setup(context):
         namespace=LaunchConfiguration("namespace"),
         output='screen',
         parameters=[
-            {"verbosity": LaunchConfiguration("verbosity")},
+            # {"verbosity": LaunchConfiguration("verbosity")},
             # {"use_stereo": LaunchConfiguration("use_stereo")},
             # {"klt_left_major_stereo": LaunchConfiguration("klt_left_major_stereo")},
             # {"klt_strict_stereo": LaunchConfiguration("klt_strict_stereo")},

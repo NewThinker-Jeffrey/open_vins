@@ -114,7 +114,9 @@ void ViPlayer::dataPlay() {
   double imu_start_time = imu_data_.empty() ? -1 : imu_data_[imu_idx].timestamp;
   double image_start_time = image_times_.empty() ? -1 : image_times_[image_idx];
   if (image_start_time > 0 && imu_start_time > 0) {
-    sensor_start_time_ = imu_start_time; // std::min(imu_start_time, image_start_time);    
+    // sensor_start_time_ = imu_start_time;
+    // sensor_start_time_ = std::min(imu_start_time, image_start_time);
+    sensor_start_time_ = std::max(imu_start_time, image_start_time);    
   } else if (imu_start_time > 0) {
     sensor_start_time_ = imu_start_time;
   } else {
@@ -136,6 +138,9 @@ void ViPlayer::dataPlay() {
   std::cout << "ViPlayer::dataPlay():  play_rate: " << play_rate_ << std::endl;
   std::cout << "ViPlayer::dataPlay():  imu frames: " << imu_data_.size() << std::endl;
   std::cout << "ViPlayer::dataPlay():  image frames: " << image_times_.size() << std::endl;
+  std::cout << "ViPlayer::dataPlay():  imu_start_time: " << imu_start_time << std::endl;
+  std::cout << "ViPlayer::dataPlay():  image_start_time: " << image_start_time << std::endl;
+  std::cout << "ViPlayer::dataPlay():  sensor_start_time: " << sensor_start_time_ << std::endl;
 
   double next_sensor_time;
   auto get_next_sensor_time = [&]() {
@@ -154,6 +159,8 @@ void ViPlayer::dataPlay() {
 
   while(!stop_request_ && (next_sensor_time = get_next_sensor_time()) > 0) {
     double sensor_dt = next_sensor_time - sensor_start_time_;
+    int ms_play_dt = int(sensor_dt / play_rate_ * 1000);
+    // std::cout << "ViPlayer::dataPlay():  ms_play_dt: " << ms_play_dt << ",  " << sensor_dt / play_rate_ * 1000 << std::endl;
     auto next_play_time = play_start_time_ + std::chrono::milliseconds(int(sensor_dt / play_rate_ * 1000));
     {
       std::unique_lock<std::mutex> locker(mutex);

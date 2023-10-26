@@ -276,6 +276,15 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
 
   {
     std::unique_lock<std::mutex> locker(imu_sync_mutex_);
+    if (last_imu_time_ > 0) {
+      auto dt = message.timestamp - last_imu_time_;
+      // const double dt_thr = 0.1;  // 100ms
+      const double dt_thr = 0.05;  // 50ms
+      if (dt >= dt_thr) {  
+        PRINT_WARNING(YELLOW "VioManager::feed_measurement_imu(): TOO LARGE IMU_GAP! %d ms (thr: %d)\n" RESET, int(dt*1000), int (dt_thr*1000));
+      }
+      // assert(dt < dt_thr);  // issue a crash for debug
+    }
     last_imu_time_ = message.timestamp;
     imu_sync_cond_.notify_all();
   }
@@ -1126,10 +1135,16 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   }
 
   // Save all the MSCKF features used in the update
-  for (auto const &feat : featsup_MSCKF) {
-    good_features_MSCKF.push_back(feat->p_FinG);
-    good_feature_ids_MSCKF.push_back(feat->featid);
-    feat->to_delete = true;
+  {
+    std::unique_lock<std::mutex> lck(trackFEATS->get_feature_database()->get_mutex());
+
+    for (auto const &feat : featsup_MSCKF) {
+      good_features_MSCKF.push_back(feat->p_FinG);
+      good_feature_ids_MSCKF.push_back(feat->featid);
+
+      feat->to_delete = true;
+      // feat->clean_older_measurements(message.timestamp);
+    }
   }
 
   //===================================================================================
@@ -1382,10 +1397,13 @@ double VioManager::compute_disparity_square(
         }
         printf("\n" RESET);
 
-        PRINT_WARNING(YELLOW "compute_disparity_square():  Might be a bug?? " RESET);
-        assert(!indices.empty());  // report the bug
-        assert(indices.back() >= 0);
-        assert(feat_times[indices.back()] == cloned_times.back());
+        //// It's not a bug. observations from left camera might be used and deleted before
+        //// its right counterpart become available.
+        ////
+        // PRINT_WARNING(YELLOW "compute_disparity_square():  Might be a bug?? " RESET);
+        // assert(!indices.empty());  // report the bug
+        // assert(indices.back() >= 0);
+        // assert(feat_times[indices.back()] == cloned_times.back());
 
         return 0.0;
       }
