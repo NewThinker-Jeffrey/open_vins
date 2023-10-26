@@ -180,8 +180,8 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
     img_out = cv::Mat(max_height, (int)img_last_cache.size() * max_width, CV_8UC3, cv::Scalar(0, 0, 0));
 
   // Max tracks to show (otherwise it clutters up the screen)
-  // size_t maxtracks = 50;
-  size_t maxtracks = 11;
+  size_t maxtracks = 50;
+  // size_t maxtracks = 11;
 
   // get time_str
   std::string time_str;
@@ -219,9 +219,14 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
       cv::cvtColor(img_last_cache[pair.first], img_temp, cv::COLOR_GRAY2RGB);
     else
       img_temp = img_out(cv::Rect(max_width * index_cam, 0, max_width, max_height));
+
     // draw, loop through all keypoints
-    bool highlighted_only = true;
-    bool no_tail = true;
+
+    bool highlighted_only = false;
+
+    // bool no_tail = true;
+    bool no_tail = false;
+
     for (size_t i = 0; i < ids_last_cache[pair.first].size(); i++) {
       // Get the feature from the database
       Feature feat;
