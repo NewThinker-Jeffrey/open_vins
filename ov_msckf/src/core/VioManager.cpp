@@ -903,6 +903,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   };
 
   if (params.choose_new_landmark_by_disparity) {
+    PRINT_DEBUG("DEBUG compute_disparity_square: computre for feats_maxtracks ...\n");
     for (auto feat : feats_maxtracks) {
       feat_to_disparity_square[feat] = compute_disparity_square(feat, cloned_times, R_Cold_in_Ccurs, message.sensor_ids[0]);
     }
@@ -962,6 +963,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     int reserve_for_future_maxtrack = std::min(5, state->_options.max_slam_features / 4);
     int most_quick_feats_slam_per_frame = state->_options.max_slam_features;  // std::min(15, state->_options.max_slam_features / 4);
     if (valid_amount < amount_to_add - reserve_for_future_maxtrack && params.enable_early_landmark) {
+      assert(cloned_times.back() == message.timestamp);
       std::vector<std::shared_ptr<Feature>> quick_feats_slam = 
           trackFEATS->get_feature_database()->features_containing(message.timestamp, false, true);
       const double disparity_thr = std::min(
@@ -974,6 +976,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
       if (!quick_feats_slam.empty()) {
         auto it = quick_feats_slam.begin();
 
+        PRINT_DEBUG("DEBUG compute_disparity_square: computre for potential early landmarks ...\n");
         while (it != quick_feats_slam.end()) {
           auto feat = *it;
           // if (!feat->timestamps.count(message.sensor_ids[0])) {
@@ -1278,11 +1281,6 @@ double VioManager::compute_disparity_square(
   bool is_stereo = false;
   // bool only_ref_cam = true;
   bool only_ref_cam = false;
-  if (!only_ref_cam) {
-    is_stereo = (feat->uvs.size() > 1);  // todo: process stereo features?
-                                         // need etrinsics. (only Rotation part)
-  }
-
   int total_obs = 0;
 
   std::unordered_map<size_t, std::vector<double>> camid_to_feat_times;
@@ -1292,6 +1290,10 @@ double VioManager::compute_disparity_square(
     std::unique_lock<std::mutex> lck(trackFEATS->get_feature_database()->get_mutex());
     if (!feat->timestamps.count(ref_cam_id)) {
       return 0.0;
+    }
+
+    if (!only_ref_cam) {
+      is_stereo = (feat->uvs.size() > 1);
     }
 
     // only compute disparities for stereo features possessing 2 or more observations.
@@ -1358,12 +1360,36 @@ double VioManager::compute_disparity_square(
     }
 
     if (camid == ref_cam_id) {
-      if (indices.empty()) {
-        // assert(indices.back() >= 0);
-        // assert(feat_times[indices.back()] == cloned_times.back());
-        PRINT_WARNING("compute_disparity_square(): indices.empty()!! Might be a bug??");
+      if (indices.empty() || indices.back() < 0 || feat_times[indices.back()] != cloned_times.back()) {
+        std::unique_lock<std::mutex> lck(trackFEATS->get_feature_database()->get_mutex());
+
+        PRINT_WARNING(YELLOW "compute_disparity_square():  indices.empty() || indices.back() < 0 || "
+                             "feat_times[indices.back()] == cloned_times.back() !!\n" RESET);
+        PRINT_WARNING(YELLOW "compute_disparity_square():  current state time: %.3f.   ref-cam feat n_observation = %d / %d.  ",
+                      cloned_times.back(), feat->timestamps.at(ref_cam_id).size(), feat->uvs_norm.at(ref_cam_id).size());
+        printf("ref-cam feat times (feat_time - state_time) :  ");
+        for (const auto& time : feat->timestamps.at(ref_cam_id)) {
+          printf("%.3f   ", time - cloned_times.back());
+        }
+        printf(".  feature-id=%d, is_stereo=%d\n" RESET, feat->featid, is_stereo);
+        PRINT_WARNING(YELLOW "compute_disparity_square():  all feat times of feature [%d] (feat_time - state_time) :  ", feat->featid);
+        for (const auto & pair : feat->timestamps) {
+          const auto & camid = pair.first;
+          printf("| cam%d:  ", camid);
+          for (const auto& time : feat->timestamps.at(camid)) {
+            printf("%.3f   ", time - cloned_times.back());
+          }
+        }
+        printf("\n" RESET);
+
+        PRINT_WARNING(YELLOW "compute_disparity_square():  Might be a bug?? " RESET);
+        assert(!indices.empty());  // report the bug
+        assert(indices.back() >= 0);
+        assert(feat_times[indices.back()] == cloned_times.back());
+
         return 0.0;
       }
+
       cur_uv_norm = camid_to_feat_uvs_norm.at(ref_cam_id)[indices.back()];
       if (params.vio_manager_high_frequency_log) {
         cur_uv = camid_to_feat_uvs.at(ref_cam_id)[indices.back()];
@@ -1371,7 +1397,6 @@ double VioManager::compute_disparity_square(
       }
     }
   }
-
 
   Eigen::Vector3d cur_homo(cur_uv_norm.x(), cur_uv_norm.y(), 1.0);
   double cur_homo_square = cur_homo.dot(cur_homo);

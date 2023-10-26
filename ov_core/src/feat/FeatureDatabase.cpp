@@ -23,6 +23,7 @@
 
 #include "Feature.h"
 #include "utils/print.h"
+#include "utils/colors.h"
 
 using namespace ov_core;
 
@@ -70,6 +71,8 @@ void FeatureDatabase::update_feature(size_t id, double timestamp, size_t cam_id,
 
     // prevent duplicate or older observations
     if (!feat->timestamps[cam_id].empty() && feat->timestamps[cam_id].back() >= timestamp) {
+      PRINT_WARNING(YELLOW "duplicate or older observations! feature id = %d" RESET,id);
+      assert(feat->timestamps[cam_id].back() < timestamp);
       return;
     }
 
