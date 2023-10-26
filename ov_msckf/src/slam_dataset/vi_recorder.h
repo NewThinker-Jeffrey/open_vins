@@ -33,6 +33,10 @@ public:
 
   void stopRecord();
 
+  void enableImageWindow();
+
+  void disableImageWindow();
+
 public:
 
   void feedCameraData(CameraData cam);

@@ -33,6 +33,8 @@ struct ViRecorder::Context {
   bool stop_request;
   std::deque<CameraData> cam_queue;
   std::deque<ImuData> imu_queue;
+
+  std::atomic<bool> show_image;
 };
 
 bool ViRecorder::startRecord(
@@ -55,6 +57,7 @@ bool ViRecorder::startRecord(
   assert(vsensor_type_ != VisualSensorType::NONE);
 
   c_.reset(new Context());
+  c_->show_image = false;
   c_->save_folder = save_folder;
   if (c_->save_folder.empty()) {
     static const std::string DATASET_ROOT = "./slam_datasets";
@@ -143,10 +146,19 @@ bool ViRecorder::startRecord(
             cv::imwrite(c_->save_folder + "/cam1/data/"
                         + std::to_string(int64_t(cam.timestamp * 1e9))
                         + img_save_format, cam.images[1]);
+            if (c_->show_image) {
+              cv::imshow("left", cam.images[0]);
+              cv::imshow("right", cam.images[1]);
+              cv::waitKey(1);
+            }
           } else if (vsensor_type_ == VisualSensorType::MONO) {
             cv::imwrite(c_->save_folder + "/cam0/data/"
                         + std::to_string(int64_t(cam.timestamp * 1e9))
                         + img_save_format, cam.images[0]);
+            if (c_->show_image) {
+              cv::imshow("left", cam.images[0]);
+              cv::waitKey(1);
+            }
           } else if (vsensor_type_ == VisualSensorType::RGBD) {
             cv::imwrite(c_->save_folder + "/color/data/"
                         + std::to_string(int64_t(cam.timestamp * 1e9))
@@ -155,11 +167,20 @@ bool ViRecorder::startRecord(
             cv::imwrite(c_->save_folder + "/depth/data/"
                         + std::to_string(int64_t(cam.timestamp * 1e9))
                         + ".png", cam.images[1]);
+            if (c_->show_image) {
+              cv::imshow("color", cam.images[0]);
+              cv::imshow("depth", cam.images[1]);
+              cv::waitKey(1);
+            }
           } else if (vsensor_type_ == VisualSensorType::DEPTH) {
             // depth image will be always saved in .png format 
             cv::imwrite(c_->save_folder + "/depth/data/"
                         + std::to_string(int64_t(cam.timestamp * 1e9))
-                        + ".png", cam.images[1]);
+                        + ".png", cam.images[0]);
+            if (c_->show_image) {
+              cv::imshow("depth", cam.images[0]);
+              cv::waitKey(1);
+            }
           }
         }
       }
@@ -204,6 +225,14 @@ void ViRecorder::stopRecord() {
 
     c_.reset();
   }
+}
+
+void ViRecorder::enableImageWindow() {
+  c_->show_image = true;
+}
+
+void ViRecorder::disableImageWindow() {
+  c_->show_image = false;
 }
 
 void ViRecorder::feedCameraData(CameraData cam) {
