@@ -103,6 +103,11 @@ launch_args = [
         description="whether to run_pangolin_viewer",
     ),
     DeclareLaunchArgument(
+        name="run_algo",
+        default_value="true",
+        description="whether to run_algo",
+    ),
+    DeclareLaunchArgument(
         name="save_feature_images",
         default_value="false",
         description="record the feature images",
@@ -173,6 +178,7 @@ def launch_setup(context):
             {"save_total_state": LaunchConfiguration("save_total_state")},
             {"save_feature_images": LaunchConfiguration("save_feature_images")},
             {"run_pangolin_viewer": LaunchConfiguration("run_pangolin_viewer")},            
+            {"run_algo": LaunchConfiguration("run_algo")},                        
             {"config_path": config_path},
             {"dataset": dataset},
             {"output_dir": output_dir},

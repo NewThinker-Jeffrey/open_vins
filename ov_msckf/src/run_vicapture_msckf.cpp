@@ -97,6 +97,7 @@ int main(int argc, char **argv) {
   bool save_feature_images = false;
   bool save_total_state = true;
   bool run_pangolin_viewer = true;
+  bool run_algo = true;
 
 #if ROS_AVAILABLE == 2
   std::cout << "ROS_AVAILABLE == 2" << std::endl;
@@ -131,6 +132,9 @@ int main(int argc, char **argv) {
   }  
   if (node->has_parameter("run_pangolin_viewer")) {
     node->get_parameter<bool>("run_pangolin_viewer", run_pangolin_viewer);
+  }
+  if (node->has_parameter("run_algo")) {
+    node->get_parameter<bool>("run_algo", run_algo);
   }
 
   // unique_parser_node = node;
@@ -192,18 +196,21 @@ int main(int argc, char **argv) {
   sys->Init();
 
   std::shared_ptr<ov_msckf::Viewer> gl_viewer(nullptr);
-  if (run_pangolin_viewer) {
+  if (run_algo && run_pangolin_viewer) {
     gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
   }
 
 #if ROS_AVAILABLE == 2
-  viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
+  viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state, run_algo);
 #elif ROS_AVAILABLE == 0
-  viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
+  viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state, run_algo);
 #endif
 
   if (recorder) {
     recorder->startRecord(capture.get());
+    if (!run_algo) {
+      recorder->enableImageWindow();
+    }
   }
 
   if (! capture->startStreaming()) {
@@ -214,12 +221,16 @@ int main(int argc, char **argv) {
   std::this_thread::sleep_for(std::chrono::milliseconds(1000));
   sys->Shutdown();
   std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-  viz->stop_visualization_thread();
+  if (viz) {
+    viz->stop_visualization_thread();
+  }
 
 
 #if ROS_AVAILABLE == 2
   // Final visualization
-  viz->visualize_final();
+  if (viz) {
+    viz->visualize_final();
+  }
 
   rclcpp::shutdown();
 #endif

@@ -50,7 +50,8 @@ ROS2VisualizerForViCapture::ROS2VisualizerForViCapture(
     std::shared_ptr<Viewer> gl_viewer,
     const std::string& output_dir,
     bool save_feature_images,
-    bool save_total_state) :
+    bool save_total_state,
+    bool run_algo) :
   ROS2Visualizer(node, getVioManagerFromVioInterface(app.get()), nullptr, gl_viewer, output_dir, save_feature_images, save_total_state),
   sys_(app) {
   
@@ -83,8 +84,11 @@ ROS2VisualizerForViCapture::ROS2VisualizerForViCapture(
 
   auto internal_sys = getVioManagerFromVioInterface(sys_.get());
   bool stereo = (internal_sys->get_params().state_options.num_cameras == 2);
-  capture->registerImageCallback(cam_data_cb);
-  capture->registerImuCallback(imu_data_cb);
+  if (run_algo) {
+    capture->registerImageCallback(cam_data_cb);
+    capture->registerImuCallback(imu_data_cb);
+  }
+
   if (stereo) {
     capture->changeVisualSensorType(
         slam_dataset::ViCapture::VisualSensorType::STEREO);
