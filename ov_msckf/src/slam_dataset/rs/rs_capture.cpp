@@ -98,21 +98,21 @@ bool RsCapture::startStreaming() {
     rs.cfg.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F);
   }
 
-  // start and stop just to get necessary profile
-  rs.pipe_profile = rs.pipe.start(rs.cfg);
-  rs.pipe.stop();
+  // // start and stop just to get necessary profile
+  // rs.pipe_profile = rs.pipe.start(rs.cfg);
+  // rs.pipe.stop();
 
-  if (vsensor_type_ == VisualSensorType::RGBD) {
-    // Align depth and RGB frames
-    //Pipeline could choose a device that does not have a color stream
-    //If there is no color stream, choose to align depth to another stream
-    rs.align_to = RsHelper::findStreamToAlign(rs.pipe_profile.get_streams());
+  // if (vsensor_type_ == VisualSensorType::RGBD) {
+  //   // Align depth and RGB frames
+  //   //Pipeline could choose a device that does not have a color stream
+  //   //If there is no color stream, choose to align depth to another stream
+  //   rs.align_to = RsHelper::findStreamToAlign(rs.pipe_profile.get_streams());
 
-    // Create a rs2::align object.
-    // rs2::align allows us to perform alignment of depth frames to others frames
-    //The "align_to" is the stream type to which we plan to align depth frames.
-    rs.align = std::make_shared<rs2::align>(rs.align_to);
-  }
+  //   // Create a rs2::align object.
+  //   // rs2::align allows us to perform alignment of depth frames to others frames
+  //   //The "align_to" is the stream type to which we plan to align depth frames.
+  //   rs.align = std::make_shared<rs2::align>(rs.align_to);
+  // }
 
   auto publish_imu_sync = [this](double gyro_time, rs2_vector gyro_data) {
     RsHelper& rs = *rs_;
@@ -255,7 +255,7 @@ bool RsCapture::startStreaming() {
       }
 
       if (vsensor_type_ == VisualSensorType::RGBD) {
-        if (RsHelper::profileChanged(rs.pipe.get_active_profile().get_streams(), rs.pipe_profile.get_streams()))
+        if (!rs.align || RsHelper::profileChanged(rs.pipe.get_active_profile().get_streams(), rs.pipe_profile.get_streams()))
         {
             //If the profile was changed, update the align object, and also get the new device's depth scale
             rs.pipe_profile = rs.pipe.get_active_profile();
