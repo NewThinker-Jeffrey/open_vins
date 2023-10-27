@@ -72,30 +72,54 @@ bool RsCapture::startStreaming() {
 
   if (vsensor_type_ == VisualSensorType::MONO ||
       vsensor_type_ == VisualSensorType::STEREO) {
-    rs.cfg.enable_stream(RS2_STREAM_INFRARED, 1, 640, 480, RS2_FORMAT_Y8, 30);
+    rs.cfg.enable_stream(
+        RS2_STREAM_INFRARED, 1,
+        bs_.infra_width, bs_.infra_height,
+        RS2_FORMAT_Y8,
+        bs_.infra_framerate);
   }
 
   if (vsensor_type_ == VisualSensorType::STEREO) {
-    rs.cfg.enable_stream(RS2_STREAM_INFRARED, 2, 640, 480, RS2_FORMAT_Y8, 30);
+    rs.cfg.enable_stream(
+        RS2_STREAM_INFRARED, 2,
+        bs_.infra_width, bs_.infra_height,
+        RS2_FORMAT_Y8,
+        bs_.infra_framerate);
   }
 
   if (vsensor_type_ == VisualSensorType::RGBD ||
       vsensor_type_ == VisualSensorType::DEPTH) {
-    // rs.cfg.enable_stream(RS2_STREAM_INFRARED, 1, 640, 480, RS2_FORMAT_Y8, 30);
-    rs.cfg.enable_stream(RS2_STREAM_DEPTH,640, 480, RS2_FORMAT_Z16, 30);
+    rs.cfg.enable_stream(
+        RS2_STREAM_DEPTH,
+        bs_.depth_width, bs_.depth_height,
+        RS2_FORMAT_Z16,
+        bs_.depth_framerate);
   }
 
   if (vsensor_type_ == VisualSensorType::RGBD) {
-    rs.cfg.enable_stream(RS2_STREAM_COLOR,640, 480, RS2_FORMAT_RGB8, 30);
+    rs.cfg.enable_stream(
+        RS2_STREAM_COLOR,
+        bs_.color_width, bs_.color_height,
+        RS2_FORMAT_RGB8,
+        bs_.color_framerate);
   }
 
   if (capture_imu_) {
-    // rs.cfg.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F, 200);
-    // rs.cfg.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F, 100);
-    // rs.cfg.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F, 200);
+    if (bs_.accel_framerate > 0) {
+      rs.cfg.enable_stream(
+          RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F, bs_.accel_framerate);
+    } else {
+      // use the sensor's default framerate
+      rs.cfg.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F);
+    }
 
-    rs.cfg.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F);
-    rs.cfg.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F);
+    if (bs_.gyro_framerate > 0) {
+      rs.cfg.enable_stream(
+          RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F, bs_.gyro_framerate);
+    } else {
+      // use the sensor's default framerate
+      rs.cfg.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F);
+    }
   }
 
   // // start and stop just to get necessary profile
@@ -178,8 +202,14 @@ bool RsCapture::startStreaming() {
         std::cout << "Aligning depth takes " << duration.count() * 1e3
                   << " ms" << std::endl;
 
-        cv::Mat color = cv::Mat(cv::Size(640, 480), CV_8UC3, (void*)(color_frame.get_data()), cv::Mat::AUTO_STEP).clone();
-        cv::Mat depth = cv::Mat(cv::Size(640, 480), CV_16U, (void*)(depth_frame.get_data()), cv::Mat::AUTO_STEP).clone();
+        cv::Mat color = cv::Mat(cv::Size(bs_.color_width, bs_.color_height),
+                                CV_8UC3,
+                                (void*)(color_frame.get_data()),
+                                cv::Mat::AUTO_STEP).clone();
+        cv::Mat depth = cv::Mat(cv::Size(bs_.depth_width, bs_.depth_height),
+                                CV_16U,
+                                (void*)(depth_frame.get_data()),
+                                cv::Mat::AUTO_STEP).clone();
 
         cam.sensor_ids.push_back(COLOR_CAM_ID);
         cam.sensor_ids.push_back(DEPTH_CAM_ID);
@@ -191,14 +221,14 @@ bool RsCapture::startStreaming() {
         cam.images.push_back(std::move(color));
         cam.images.push_back(std::move(depth));
       } else if (vsensor_type_ == VisualSensorType::STEREO) {
-        cv::Mat left = cv::Mat(
-                     cv::Size(640, 480), CV_8U, 
-                     (void*)(fs->get_infrared_frame(1).get_data()),
-                     cv::Mat::AUTO_STEP).clone();
-        cv::Mat right = cv::Mat(
-                      cv::Size(640, 480), CV_8U,
-                      (void*)(fs->get_infrared_frame(2).get_data()),
-                      cv::Mat::AUTO_STEP).clone();
+        cv::Mat left = cv::Mat(cv::Size(bs_.infra_width, bs_.infra_height),
+                              CV_8U, 
+                              (void*)(fs->get_infrared_frame(1).get_data()),
+                              cv::Mat::AUTO_STEP).clone();
+        cv::Mat right = cv::Mat(cv::Size(bs_.infra_width, bs_.infra_height),
+                                CV_8U,
+                                (void*)(fs->get_infrared_frame(2).get_data()),
+                                cv::Mat::AUTO_STEP).clone();
         cam.sensor_ids.push_back(LEFT_CAM_ID);
         cam.sensor_ids.push_back(RIGHT_CAM_ID);
 
@@ -210,16 +240,19 @@ bool RsCapture::startStreaming() {
         cam.images.push_back(std::move(right));
       } else if (vsensor_type_ == VisualSensorType::DEPTH) {
         rs2::depth_frame depth_frame = fs->get_depth_frame();
-        cv::Mat depth = cv::Mat(cv::Size(640, 480), CV_16U, (void*)(depth_frame.get_data()), cv::Mat::AUTO_STEP).clone();
+        cv::Mat depth = cv::Mat(cv::Size(bs_.depth_width, bs_.depth_height),
+                                CV_16U,
+                                (void*)(depth_frame.get_data()),
+                                cv::Mat::AUTO_STEP).clone();
         cam.sensor_ids.push_back(DEPTH_CAM_ID);
         cam.masks.push_back(cv::Mat::zeros(depth.rows, depth.cols, CV_8UC1));
         cam.images.push_back(std::move(depth));
       } else if (vsensor_type_ == VisualSensorType::MONO) {
-        cv::Mat left = cv::Mat(
-                     cv::Size(640, 480), CV_8U, 
-                     (void*)(fs->get_infrared_frame().get_data()),
-                    //  (void*)(fs->get_infrared_frame(1).get_data()),
-                     cv::Mat::AUTO_STEP).clone();
+        cv::Mat left = cv::Mat(cv::Size(bs_.infra_width, bs_.infra_height),
+                               CV_8U,
+                               (void*)(fs->get_infrared_frame().get_data()),
+                               //(void*)(fs->get_infrared_frame(1).get_data()),
+                               cv::Mat::AUTO_STEP).clone();
         cam.sensor_ids.push_back(LEFT_CAM_ID);
 
         // mask has max value of 255 (white) if it should be removed
@@ -237,14 +270,21 @@ bool RsCapture::startStreaming() {
   auto frame_callback = [this, publish_imu_sync](const rs2::frame& frame) {
     RsHelper& rs = *rs_;
     std::unique_lock<std::mutex> lock(rs.frame_mutex);
-    if (rs.imu_count + rs.image_count == 0) {
-      pthread_setname_np(pthread_self(), "rs_frm_cb");
-    }
+    // if (rs.imu_count + rs.image_count == 0) {
+    //   pthread_setname_np(pthread_self(), "rs_frm_cb");
+    // }
 
     if(rs2::frameset fs = frame.as<rs2::frameset>()) {
       if (rs.image_count % 100 == 0) {
-        std::cout << "realsense_image_callback_thread: " << pthread_self() << std::endl;
+        std::cout << "realsense_image_callback_thread: " << pthread_self()
+                  << ", current frame time = " << fs.get_timestamp()*1e-3
+                  << ", received image frames = " << rs.image_count
+                  << std::endl;
       }
+      if (rs.image_count == 0) {
+        pthread_setname_np(pthread_self(), "rs_image_cb");
+      }
+
       rs.count_im_buffer++;
       rs.image_count ++;
 
@@ -273,10 +313,18 @@ bool RsCapture::startStreaming() {
       rs.cond_image_rec.notify_all();
     } else if (rs2::motion_frame m_frame = frame.as<rs2::motion_frame>()) {
       if (rs.imu_count % 1000 == 0) {
-        std::cout << "realsense_imu_callback_thread: " << pthread_self() << std::endl;
+        std::cout << "realsense_imu_callback_thread: " << pthread_self()
+                  << ", current frame time = " << m_frame.get_timestamp() * 1e-3
+                  << ", received gyro frames = " << rs.gyro_count
+                  << ", received acc frames = " << rs.acc_count
+                  << std::endl;
+      }
+      if (rs.imu_count == 0) {
+        pthread_setname_np(pthread_self(), "rs_imu_cb");
       }
       if (m_frame.get_profile().stream_name() == "Gyro") {
         rs.imu_count ++;
+        rs.gyro_count ++;
         double gyro_time = m_frame.get_timestamp() * 1e-3;
         rs2_vector gyro_data = m_frame.get_motion_data();
 
@@ -286,6 +334,7 @@ bool RsCapture::startStreaming() {
           publish_imu_sync(gyro_time, gyro_data);
         }
       } else if (m_frame.get_profile().stream_name() == "Accel") {
+        rs.acc_count ++;
         double acc_time = m_frame.get_timestamp() * 1e-3;
         rs2_vector acc_data = m_frame.get_motion_data();
         rs.acc_list.push_back(std::make_pair(acc_time, acc_data));

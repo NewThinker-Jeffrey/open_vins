@@ -46,6 +46,8 @@ struct RsHelper {
   std::deque<std::pair<double, rs2_vector>> gyro_wait_list;
   std::deque<std::pair<double, rs2_vector>> acc_list;  // size <= 2
   int imu_count = 0;
+  int acc_count = 0;
+  int gyro_count = 0;
 
 
   static rs2_option getSensorOption(const rs2::sensor& sensor);
