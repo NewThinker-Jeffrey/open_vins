@@ -27,6 +27,7 @@ struct RsHelper {
 
   //// frame (imu & image) process
   std::mutex frame_mutex;
+  double first_frame_time = -1;
 
   // image process
   std::condition_variable cond_image_rec;
@@ -37,6 +38,7 @@ struct RsHelper {
   std::shared_ptr<std::thread> image_process_thread;
   std::atomic<bool> image_process_thread_stop_request;
   int image_count = 0;
+  int image_framerate = 1;
 
   // RGBD specified
   rs2_stream align_to;  // rs2_stream is a enum type.
@@ -65,17 +67,24 @@ struct RsHelper {
 
   static Eigen::Isometry3d getExtrinsics(
       rs2::pipeline_profile& pipe_profile,
-      rs2_stream from, rs2_stream to);
+      rs2_stream from_cam_type, rs2_stream to_cam_type,
+      int from_cam_index = -1, int to_cam_index = -1,  // -1 for any matching.
+      bool print = false);
 
   static Eigen::Isometry3d getExtrinsics(
       rs2::stream_profile& from_stream,
-      rs2::stream_profile& to_stream);
+      rs2::stream_profile& to_stream,
+      bool print = false);
 
   static rs2_intrinsics getCameraIntrinsics(
       rs2::pipeline_profile& pipe_profile,
-      rs2_stream cam);
+      rs2_stream cam_type,
+      int cam_index = -1,  // -1 for any matching.
+      bool print = false);
 
-  static rs2_intrinsics getCameraIntrinsics(rs2::stream_profile& cam_stream);
+  static rs2_intrinsics getCameraIntrinsics(
+      rs2::stream_profile& cam_stream,
+      bool print = false);
 };
 
 } // namespace slam_dataset

@@ -126,15 +126,17 @@ rs2_vector RsHelper::interpolateMeasure(
 
 Eigen::Isometry3d RsHelper::getExtrinsics(
     rs2::pipeline_profile& pipe_profile,
-    rs2_stream from, rs2_stream to) {
-  auto from_stream = pipe_profile.get_stream(from);
-  auto to_stream = pipe_profile.get_stream(to);
-  return getExtrinsics(from_stream, to_stream);
+    rs2_stream from_cam_type, rs2_stream to_cam_type,
+    int from_cam_index, int to_cam_index,
+    bool print) {
+  auto from_stream = pipe_profile.get_stream(from_cam_type, from_cam_index);
+  auto to_stream = pipe_profile.get_stream(to_cam_type, to_cam_index);
+  return getExtrinsics(from_stream, to_stream, print);
 }
 
 Eigen::Isometry3d RsHelper::getExtrinsics(
     rs2::stream_profile& from_stream,
-    rs2::stream_profile& to_stream) {
+    rs2::stream_profile& to_stream, bool print) {
 
   Eigen::Isometry3f ext_f = Eigen::Isometry3f::Identity();
 
@@ -143,35 +145,47 @@ Eigen::Isometry3d RsHelper::getExtrinsics(
   ext_f.linear() = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(R);
   ext_f.translation() = Eigen::Map<Eigen::Matrix<float, 3, 1>>(t);
   Eigen::Isometry3d ext = ext_f.cast<double>();
-  std::cout << "Tbc = " << std::endl;
-  std::cout << ext.matrix() << std::endl;
-  // for(int i = 0; i<3; i++){
-  //     for(int j = 0; j<3; j++)
-  //         std::cout << R[i*3 + j] << ", ";
-  //     std::cout << t[i] << "\n";
-  // }  
+  if (print) {
+    std::cout << "** RsHelper: Extrinsics from '" << from_stream.stream_name()
+              << "' to '" << to_stream.stream_name() << "':" << std::endl;
+    std::cout << ext.matrix() << std::endl;
+    // for(int i = 0; i<3; i++){
+    //     for(int j = 0; j<3; j++)
+    //         std::cout << R[i*3 + j] << ", ";
+    //     std::cout << t[i] << "\n";
+    // }
+  }
 
   return ext;
 }
 
 rs2_intrinsics RsHelper::getCameraIntrinsics(
     rs2::pipeline_profile& pipe_profile,
-    rs2_stream cam) {
-  auto cam_stream = pipe_profile.get_stream(cam);
-  return getCameraIntrinsics(cam_stream);
+    rs2_stream cam_type, int cam_index,
+    bool print) {
+  auto cam_stream = pipe_profile.get_stream(cam_type, cam_index);
+  return getCameraIntrinsics(cam_stream, print);
 }
 
-rs2_intrinsics RsHelper::getCameraIntrinsics(rs2::stream_profile& cam_stream) {
+rs2_intrinsics RsHelper::getCameraIntrinsics(rs2::stream_profile& cam_stream, bool print) {
   rs2_intrinsics intrinsics_cam = cam_stream.as<rs2::video_stream_profile>().get_intrinsics();
-  std::cout << " fx = " << intrinsics_cam.fx << std::endl;
-  std::cout << " fy = " << intrinsics_cam.fy << std::endl;
-  std::cout << " cx = " << intrinsics_cam.ppx << std::endl;
-  std::cout << " cy = " << intrinsics_cam.ppy << std::endl;
-  std::cout << " height = " << intrinsics_cam.height << std::endl;
-  std::cout << " width = " << intrinsics_cam.width << std::endl;
-  std::cout << " Coeff = " << intrinsics_cam.coeffs[0] << ", " << intrinsics_cam.coeffs[1] << ", " <<
-  intrinsics_cam.coeffs[2] << ", " << intrinsics_cam.coeffs[3] << ", " << intrinsics_cam.coeffs[4] << ", " << std::endl;
-  std::cout << " Model = " << intrinsics_cam.model << std::endl;
+  if (print) {
+    std::cout << "** RsHelper: Intrinsics of '" << cam_stream.stream_name() << "':" << std::endl;
+    std::cout << " height = " << intrinsics_cam.height << std::endl;
+    std::cout << " width = " << intrinsics_cam.width << std::endl;
+    std::cout << " fx = " << intrinsics_cam.fx << std::endl;
+    std::cout << " fy = " << intrinsics_cam.fy << std::endl;
+    std::cout << " cx = " << intrinsics_cam.ppx << std::endl;
+    std::cout << " cy = " << intrinsics_cam.ppy << std::endl;
+    std::cout << " DistortionModel = " << intrinsics_cam.model << std::endl;
+    std::cout << " Coeff = "
+              << intrinsics_cam.coeffs[0] << ", "
+              << intrinsics_cam.coeffs[1] << ", "
+              << intrinsics_cam.coeffs[2] << ", "
+              << intrinsics_cam.coeffs[3] << ", "
+              << intrinsics_cam.coeffs[4] << ", "
+              << std::endl;
+  }
   return intrinsics_cam;
 }
 

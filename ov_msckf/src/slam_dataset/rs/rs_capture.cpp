@@ -77,6 +77,7 @@ bool RsCapture::startStreaming() {
         bs_.infra_width, bs_.infra_height,
         RS2_FORMAT_Y8,
         bs_.infra_framerate);
+    rs.image_framerate = bs_.infra_framerate;
   }
 
   if (vsensor_type_ == VisualSensorType::STEREO) {
@@ -85,6 +86,7 @@ bool RsCapture::startStreaming() {
         bs_.infra_width, bs_.infra_height,
         RS2_FORMAT_Y8,
         bs_.infra_framerate);
+    rs.image_framerate = bs_.infra_framerate;
   }
 
   if (vsensor_type_ == VisualSensorType::RGBD ||
@@ -94,6 +96,7 @@ bool RsCapture::startStreaming() {
         bs_.depth_width, bs_.depth_height,
         RS2_FORMAT_Z16,
         bs_.depth_framerate);
+    rs.image_framerate = bs_.depth_framerate;
   }
 
   if (vsensor_type_ == VisualSensorType::RGBD) {
@@ -102,6 +105,7 @@ bool RsCapture::startStreaming() {
         bs_.color_width, bs_.color_height,
         RS2_FORMAT_RGB8,
         bs_.color_framerate);
+    rs.image_framerate = bs_.color_framerate;
   }
 
   if (capture_imu_) {
@@ -275,20 +279,26 @@ bool RsCapture::startStreaming() {
     // }
 
     if(rs2::frameset fs = frame.as<rs2::frameset>()) {
-      if (rs.image_count % 100 == 0) {
+      double new_timestamp_image = fs.get_timestamp()*1e-3;
+      if (rs.first_frame_time < 0) {
+        rs.first_frame_time = new_timestamp_image;
+        std::cout.setf(std::ios::fixed);
+        std::cout << "realsense_first_frame_time = " << std::setprecision(3) << rs.first_frame_time << std::endl;
+      }
+
+      if (rs.image_count % (rs.image_framerate * 10) == 0) {
         std::cout << "realsense_image_callback_thread: " << pthread_self()
-                  << ", current frame time = " << fs.get_timestamp()*1e-3
+                  << ", current frame time = " << new_timestamp_image - rs.first_frame_time
                   << ", received image frames = " << rs.image_count
                   << std::endl;
       }
       if (rs.image_count == 0) {
-        pthread_setname_np(pthread_self(), "rs_image_cb");
+        pthread_setname_np(pthread_self(), "rs_img_cb");
       }
 
       rs.count_im_buffer++;
       rs.image_count ++;
 
-      double new_timestamp_image = fs.get_timestamp()*1e-3;
       if(abs(rs.timestamp_image-new_timestamp_image)<0.001){
         rs.count_im_buffer--;
         return;
@@ -312,20 +322,26 @@ bool RsCapture::startStreaming() {
       rs.image_ready = true;
       rs.cond_image_rec.notify_all();
     } else if (rs2::motion_frame m_frame = frame.as<rs2::motion_frame>()) {
-      if (rs.imu_count % 1000 == 0) {
-        std::cout << "realsense_imu_callback_thread: " << pthread_self()
-                  << ", current frame time = " << m_frame.get_timestamp() * 1e-3
-                  << ", received gyro frames = " << rs.gyro_count
-                  << ", received acc frames = " << rs.acc_count
-                  << std::endl;
+      if (rs.first_frame_time < 0) {
+        rs.first_frame_time = m_frame.get_timestamp() * 1e-3;
+        std::cout.setf(std::ios::fixed);
+        std::cout << "realsense_first_frame_time = " << std::setprecision(3) << rs.first_frame_time << std::endl;
       }
-      if (rs.imu_count == 0) {
-        pthread_setname_np(pthread_self(), "rs_imu_cb");
-      }
+
       if (m_frame.get_profile().stream_name() == "Gyro") {
+        double gyro_time = m_frame.get_timestamp() * 1e-3;
+        if (rs.gyro_count % (bs_.gyro_framerate > 0 ? bs_.gyro_framerate * 10 : 2000) == 0) {
+          std::cout << "realsense_gyro_callback_thread: " << pthread_self()
+                    << ", current frame time = " << gyro_time - rs.first_frame_time
+                    << ", received gyro frames = " << rs.gyro_count
+                    << std::endl;
+        }
+        if (rs.gyro_count == 0) {
+          pthread_setname_np(pthread_self(), "rs_gyro_cb");
+        }
+
         rs.imu_count ++;
         rs.gyro_count ++;
-        double gyro_time = m_frame.get_timestamp() * 1e-3;
         rs2_vector gyro_data = m_frame.get_motion_data();
 
         if (rs.acc_list.size() < 2 || rs.acc_list.back().first < gyro_time) {
@@ -334,8 +350,18 @@ bool RsCapture::startStreaming() {
           publish_imu_sync(gyro_time, gyro_data);
         }
       } else if (m_frame.get_profile().stream_name() == "Accel") {
-        rs.acc_count ++;
         double acc_time = m_frame.get_timestamp() * 1e-3;
+        if (rs.acc_count % (bs_.accel_framerate > 0 ? bs_.accel_framerate * 10 : 625) == 0) {
+          std::cout << "realsense_acc_callback_thread: " << pthread_self()
+                    << ", current frame time = " << acc_time - rs.first_frame_time
+                    << ", received acc frames = " << rs.acc_count
+                    << std::endl;
+        }
+        if (rs.acc_count == 0) {
+          pthread_setname_np(pthread_self(), "rs_acc_cb");
+        }
+
+        rs.acc_count ++;
         rs2_vector acc_data = m_frame.get_motion_data();
         rs.acc_list.push_back(std::make_pair(acc_time, acc_data));
         while (rs.acc_list.size() > 2) {
@@ -354,6 +380,49 @@ bool RsCapture::startStreaming() {
   };
 
   rs.pipe_profile = rs.pipe.start(rs.cfg, frame_callback);
+
+  {
+    //// DEBUG Intrinsics and Extrinsics
+    // bool print = false;
+    bool print = true;
+
+    if (capture_imu_) {
+      RsHelper::getExtrinsics(rs.pipe_profile, RS2_STREAM_ACCEL, RS2_STREAM_GYRO, -1, -1, print);
+    }
+
+    if (vsensor_type_ == VisualSensorType::MONO ||
+        vsensor_type_ == VisualSensorType::STEREO) {      
+      RsHelper::getCameraIntrinsics(rs.pipe_profile, RS2_STREAM_INFRARED, 1, print);
+      if (capture_imu_) {
+        RsHelper::getExtrinsics(rs.pipe_profile, RS2_STREAM_INFRARED, RS2_STREAM_GYRO, 1, -1, print);
+      }
+    }
+
+    if (vsensor_type_ == VisualSensorType::STEREO) {
+      RsHelper::getCameraIntrinsics(rs.pipe_profile, RS2_STREAM_INFRARED, 2, print);
+      RsHelper::getExtrinsics(rs.pipe_profile, RS2_STREAM_INFRARED, RS2_STREAM_INFRARED, 2, 1, print);
+      if (capture_imu_) {
+        RsHelper::getExtrinsics(rs.pipe_profile, RS2_STREAM_INFRARED, RS2_STREAM_GYRO, 2, -1, print);
+      }
+    }
+
+    if (vsensor_type_ == VisualSensorType::RGBD ||
+        vsensor_type_ == VisualSensorType::DEPTH) {
+      RsHelper::getCameraIntrinsics(rs.pipe_profile, RS2_STREAM_DEPTH, -1, print);
+      if (capture_imu_) {
+        RsHelper::getExtrinsics(rs.pipe_profile, RS2_STREAM_DEPTH, RS2_STREAM_GYRO, -1, -1, print);
+      }
+    }
+
+    if (vsensor_type_ == VisualSensorType::RGBD) {
+      RsHelper::getCameraIntrinsics(rs.pipe_profile, RS2_STREAM_COLOR, -1, print);
+      RsHelper::getExtrinsics(rs.pipe_profile, RS2_STREAM_DEPTH, RS2_STREAM_COLOR, -1, -1, print);
+      if (capture_imu_) {
+        RsHelper::getExtrinsics(rs.pipe_profile, RS2_STREAM_COLOR, RS2_STREAM_GYRO, -1, -1, print);
+      }      
+    }
+  }
+
   return true;
 }
 

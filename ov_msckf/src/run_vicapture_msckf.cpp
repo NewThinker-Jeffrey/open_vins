@@ -179,11 +179,11 @@ int main(int argc, char **argv) {
     PRINT_WARNING(YELLOW "dataset is not set! use live streaming ...\n" RESET);
     slam_dataset::RsCapture::BasicSettings bs;
 
-    bs.gyro_framerate = 0;
-    bs.accel_framerate = 0;
+    // bs.gyro_framerate = 0;
+    // bs.accel_framerate = 0;
 
-    // bs.gyro_framerate = 400;
-    // bs.accel_framerate = 250;
+    bs.gyro_framerate = 400;
+    bs.accel_framerate = 250;
 
     capture = std::make_shared<slam_dataset::RsCapture>(
         slam_dataset::ViCapture::VisualSensorType::NONE,
