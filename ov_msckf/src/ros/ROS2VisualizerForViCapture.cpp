@@ -78,7 +78,7 @@ ROS2VisualizerForViCapture::ROS2VisualizerForViCapture(
   auto imu_data_cb = [this](int imu_idx, const ov_interface::IMU_MSG& msg) {
     // std::cout << "play imu: " << imu_idx << std::endl;
     sys_->ReceiveImu(msg);
-    visualize_odometry(msg.timestamp);
+    //visualize_odometry(msg.timestamp);
   };
 
   capture->registerImageCallback(cam_data_cb);
