@@ -58,8 +58,7 @@ public:
     std::shared_ptr<Viewer> gl_viewer = nullptr,
     const std::string& output_dir = "",
     bool save_feature_images = false,
-    bool save_total_state = true,
-    bool run_algo = true);
+    bool save_total_state = true);
 
   ~ROS2VisualizerForViCapture();
 

@@ -62,6 +62,9 @@ std::shared_ptr<ov_interface::VIO> sys;
 std::shared_ptr<slam_dataset::ViCapture> capture;
 std::shared_ptr<slam_dataset::ViRecorder> recorder;
 
+extern ov_msckf::VioManagerOptions& getVioParamsFromVioInterface(ov_interface::VIO* vio);
+
+
 __sighandler_t old_sigint_handler = nullptr;
 void shutdownSigintHandler(int sig) {
   std::cout << "Stop Requested ... " << std::endl;
@@ -175,15 +178,28 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  sys = std::make_shared<ov_interface::VIO>(config_path.c_str());
+  auto& internal_params = getVioParamsFromVioInterface(sys.get());
+
   if (dataset.empty()) {
     PRINT_WARNING(YELLOW "dataset is not set! use live streaming ...\n" RESET);
+
+    int image_width = internal_params.camera_intrinsics.begin()->second->w();
+    int image_height = internal_params.camera_intrinsics.begin()->second->h();
+    int imu_rate = internal_params.imu_rate;
+
     slam_dataset::RsCapture::BasicSettings bs;
 
     // bs.gyro_framerate = 0;
     // bs.accel_framerate = 0;
 
-    bs.gyro_framerate = 400;
-    bs.accel_framerate = 250;
+    if (imu_rate > 200) {
+      bs.gyro_framerate = 400;
+      bs.accel_framerate = 250;
+    }
+    bs.infra_width = image_width;
+    bs.infra_height = image_height;
+    PRINT_WARNING(YELLOW "Sensor settings for realsense: image size_wh(%d, %d), imu_rate(%d)\n" RESET, bs.infra_width, bs.infra_height, bs.gyro_framerate);
 
     capture = std::make_shared<slam_dataset::RsCapture>(
         slam_dataset::ViCapture::VisualSensorType::NONE,
@@ -196,11 +212,22 @@ int main(int argc, char **argv) {
         true, nullptr, nullptr);
   }
 
+
+  bool stereo = (internal_params.state_options.num_cameras == 2);
+  if (stereo) {
+    capture->changeVisualSensorType(
+        slam_dataset::ViCapture::VisualSensorType::STEREO);
+  } else {
+    capture->changeVisualSensorType(
+        slam_dataset::ViCapture::VisualSensorType::MONO);
+  }
+
+
   // Override the default sigint handler.
   // This must be set after the first NodeHandle is created.
   old_sigint_handler = signal(SIGINT, shutdownSigintHandler);
 
-  sys = std::make_shared<ov_interface::VIO>(config_path.c_str());
+
   sys->Init();
 
   std::shared_ptr<ov_msckf::Viewer> gl_viewer(nullptr);
@@ -209,9 +236,9 @@ int main(int argc, char **argv) {
   }
 
 #if ROS_AVAILABLE == 2
-  viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state, run_algo);
+  viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
 #elif ROS_AVAILABLE == 0
-  viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state, run_algo);
+  viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
 #endif
 
   if (recorder) {

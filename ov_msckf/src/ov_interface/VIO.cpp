@@ -20,13 +20,15 @@
 
 
 struct ov_interface::VIO::Impl {
-  Impl(const std::string& config_file) : config_file_(config_file) {
-  }
-
-  std::string config_file_;
   ov_msckf::VioManagerOptions params_;
   std::shared_ptr<ov_msckf::VioManager> internal_;
 };
+
+// extern ov_msckf::VioManagerOptions& getVioParamsFromVioInterface(ov_interface::VIO* vio);
+ov_msckf::VioManagerOptions& getVioParamsFromVioInterface(ov_interface::VIO* vio) {
+  // return std::dynamic_pointer_cast<ov_msckf::VioManager>(vio->impl());
+  return vio->impl()->params_;
+}
 
 // extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(ov_interface::VIO*);
 std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(ov_interface::VIO* vio) {
@@ -37,20 +39,9 @@ std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(ov_interface
 
 namespace ov_interface {
 
-VIO::VIO(const char* config_file) : impl_(new Impl(config_file)) {
-  
-}
-
-VIO::~VIO() {
-  Shutdown();
-  if (impl_) {
-    delete impl_;
-  }
-}
-
-bool VIO::Init() {
+VIO::VIO(const char* config_file) : impl_(new Impl()) {
   // Load the config
-  auto parser = std::make_shared<ov_core::YamlParser>(impl_->config_file_);
+  auto parser = std::make_shared<ov_core::YamlParser>(config_file);
 
 // #if ROS_AVAILABLE == 2
 //   if (auto node = unique_parser_node.lock()) {
@@ -61,9 +52,8 @@ bool VIO::Init() {
   // Verbosity
   std::string verbosity = "DEBUG";
   parser->parse_config("verbosity", verbosity);
-  ov_core::Printer::setPrintLevel(verbosity);
+  ov_core::Printer::setPrintLevel(verbosity);  
 
-  // Create our VIO system
   ov_msckf::VioManagerOptions params;
   params.print_and_load(parser);
   params.use_multi_threading_subs = true;
@@ -73,6 +63,17 @@ bool VIO::Init() {
     std::exit(EXIT_FAILURE);
   }
   impl_->params_ = params;
+}
+
+VIO::~VIO() {
+  Shutdown();
+  if (impl_) {
+    delete impl_;
+  }
+}
+
+bool VIO::Init() {
+  // Create our VIO system
   Reset();
   return true;
 }

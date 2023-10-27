@@ -50,7 +50,7 @@ Viewer::Viewer(std::shared_ptr<ov_interface::VIO> app) : _app(app) {
 }
 
 void Viewer::init() {
-  pangolin::CreateWindowAndBind("SLAM Demo",1024,768);
+  pangolin::CreateWindowAndBind("SLAM Demo",1280,720);
 
 #if 0
   pangolin::CreatePanel("menu").SetBounds(0.0,1.0,0.0,pangolin::Attach::Pix(175));
