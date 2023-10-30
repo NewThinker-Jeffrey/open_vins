@@ -196,12 +196,31 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   sprintf(tmp_buf, "%.3f", output->status.distance);
   std::string distance_str(tmp_buf);
 
+  std::string vio_vel_str;
+  {
+    double vel_up, vel_front, vel_right;
+    Eigen::Vector3d new_vel = output->state_clone->_imu->vel();
+    Eigen::Matrix<double, 3, 3> R_Gtoi = output->state_clone->_imu->Rot();
+    Eigen::Vector3d v_up = Eigen::Vector3d(0, 0, 1);
+    Eigen::Vector3d v_front = R_Gtoi.transpose() * Eigen::Vector3d(0, 0, 1);
+    v_front.z() = 0;
+    v_front.normalize();
+    Eigen::Vector3d v_right = v_front.cross(v_up);
+    v_right.normalize();
+    vel_right = v_right.dot(new_vel);
+    vel_front = v_front.dot(new_vel);
+    vel_up = v_up.dot(new_vel);
+    sprintf(tmp_buf, "%.3f,\t%.3f,\t%.3f", vel_right, vel_front, vel_up);
+    vio_vel_str = std::string(tmp_buf);
+  }
+
   drawMultiTextLinesInViewCoord(
       { TextLine("IMU time:   " + imu_time_str)
        ,TextLine("Image time: " + image_time_str)
        ,TextLine("Image delay: " + (imu_time > 0 ? std::to_string(int64_t((imu_time - image_time) * 1e3)) + " ms" : std::string("unknown")))
        ,TextLine("Stable points:  " + std::to_string(_slam_points.size()))
        ,TextLine("Short-term points: " + std::to_string(_msckf_points.size()))
+       ,TextLine("vio_velocity(right, front, up): " + vio_vel_str)       
        ,TextLine("vio_pos:     " + vio_pos_str)
        ,TextLine("predict_pos: " + predict_pos_str)
        ,TextLine("Traveled distance: " + distance_str)       
