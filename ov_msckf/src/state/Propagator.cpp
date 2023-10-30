@@ -374,6 +374,12 @@ void Propagator::predict_mean_discrete(std::shared_ptr<State> state, double dt, 
                                        const Eigen::Vector3d &a_hat1, const Eigen::Vector3d &w_hat2, const Eigen::Vector3d &a_hat2,
                                        Eigen::Vector4d &new_q, Eigen::Vector3d &new_v, Eigen::Vector3d &new_p) {
 
+  bool restrict_acc = true;
+  bool restrict_velocity = true;
+
+  // bool restrict_acc = false;
+  // bool restrict_velocity = false;
+
   // If we are averaging the IMU, then do so
   Eigen::Vector3d w_hat = w_hat1;
   Eigen::Vector3d a_hat = a_hat1;
@@ -397,11 +403,71 @@ void Propagator::predict_mean_discrete(std::shared_ptr<State> state, double dt, 
   new_q = quatnorm(bigO * state->_imu->quat());
   // new_q = rot_2_quat(exp_so3(-w_hat*dt)*R_Gtoi);
 
+  Eigen::Vector3d a_minus_g = R_Gtoi.transpose() * a_hat - _gravity;
+
+  // restrict accel
+  if (restrict_acc) {
+    double a_minus_g_norm = a_minus_g.norm();
+    const double a_minus_g_thr = 2.0;
+    if (a_minus_g_norm > a_minus_g_thr) {
+      // a_minus_g = Eigen::Vector3d(0,0,0);
+      a_minus_g *= a_minus_g_thr / a_minus_g_norm;
+    }
+  }
+
   // Velocity: just the acceleration in the local frame, minus global gravity
-  new_v = state->_imu->vel() + R_Gtoi.transpose() * a_hat * dt - _gravity * dt;
+  new_v = state->_imu->vel() + a_minus_g * dt;
+
+  // restrict velocity
+  if (restrict_velocity) {
+    // double new_v_norm = new_v.norm();
+    // const double new_v_thr = 0.3;
+    // if (new_v_norm > new_v_thr) {
+    //   new_v *= new_v_thr / new_v_norm;
+    // }
+
+
+    const double v_up_thr = 0.2;
+    // const double v_front_thr = 0.5;
+    const double v_front_thr = 1.0;
+    const double v_right_thr = 0.2;
+
+    Eigen::Vector3d v_up = Eigen::Vector3d(0, 0, 1);
+    Eigen::Vector3d v_front = R_Gtoi.transpose() * Eigen::Vector3d(0, 0, 1);
+    v_front.z() = 0;
+    v_front.normalize();
+    Eigen::Vector3d v_right = v_front.cross(v_up);
+    v_right.normalize();
+
+
+    v_up = v_up.dot(new_v) * v_up;
+    v_up.x() = 0;
+    v_up.y() = 0;
+    double v_up_norm = v_up.norm();
+    if (v_up_norm > v_up_thr) {
+      v_up *= v_up_thr / v_up_norm;
+    }
+
+    v_front = v_front.dot(new_v) * v_front;
+    v_front.z() = 0;
+    double v_front_norm = v_front.norm();
+    if (v_front_norm > v_front_thr) {
+      v_front *= v_front_thr / v_front_norm;
+    }
+
+    v_right = v_right.dot(new_v) * v_right;
+    v_right.z() = 0;
+    double v_right_norm = v_right.norm();
+    if (v_right_norm > v_right_thr) {
+      v_right *= v_right_thr / v_right_norm;
+    }
+
+    new_v = v_up + v_front + v_right;
+  }
 
   // Position: just velocity times dt, with the acceleration integrated twice
-  new_p = state->_imu->pos() + state->_imu->vel() * dt + 0.5 * R_Gtoi.transpose() * a_hat * dt * dt - 0.5 * _gravity * dt * dt;
+  // new_p = state->_imu->pos() + state->_imu->vel() * dt + 0.5 * a_minus_g * dt * dt;
+  new_p = state->_imu->pos() + 0.5 * (state->_imu->vel() + new_v) * dt;
 }
 
 void Propagator::predict_mean_rk4(std::shared_ptr<State> state, double dt, const Eigen::Vector3d &w_hat1, const Eigen::Vector3d &a_hat1,
