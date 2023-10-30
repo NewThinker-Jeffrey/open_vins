@@ -231,6 +231,35 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
     // Get the Jacobian for this feature
     UpdaterHelper::get_feature_jacobian_full(state, feat, H_f, H_x, res, Hx_order);
+    
+    if (_options.absolute_residual_thr > 0.0) {
+      const double absolute_residual_square_thr = _options.absolute_residual_thr * _options.absolute_residual_thr;
+      std::cout << "absolute_residuals: ";
+      double max_error_square = 0.0;
+      for (size_t i=0; i<res.size()/2; i++) {
+        double& px = res[2*i];
+        double& py = res[2*i+1];
+        double error_square = px * px + py * py;
+        if (error_square > max_error_square) {
+          max_error_square = error_square;
+        }
+        std::cout << sqrt(error_square) << "  ";
+        if (error_square > absolute_residual_square_thr) {
+          break;
+        }
+      }
+      std::cout << std::endl;
+      if (max_error_square > absolute_residual_square_thr) {
+        {
+          std::unique_lock<std::mutex> lck(_db->get_mutex());
+          (*it2)->to_delete = true;
+        }
+        it2 = feature_vec.erase(it2);
+        std::cout << "absolute_residual_check_failed!! res = " << res.transpose() << std::endl;
+        continue;
+      }
+    }
+
 
     // Nullspace project
     UpdaterHelper::nullspace_project_inplace(H_f, H_x, res);
