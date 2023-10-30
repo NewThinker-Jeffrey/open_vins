@@ -200,10 +200,16 @@ struct VioManagerOptions {
     if (parser != nullptr) {
       parser->parse_config("up_msckf_sigma_px", msckf_options.sigma_pix);
       parser->parse_config("up_msckf_chi2_multipler", msckf_options.chi2_multipler);
+      parser->parse_config("up_msckf_absolute_residual_thr", msckf_options.absolute_residual_thr, false);
+
       parser->parse_config("up_slam_sigma_px", slam_options.sigma_pix);
       parser->parse_config("up_slam_chi2_multipler", slam_options.chi2_multipler);
+      parser->parse_config("up_slam_absolute_residual_thr", slam_options.absolute_residual_thr, false);
+
       parser->parse_config("up_aruco_sigma_px", aruco_options.sigma_pix);
       parser->parse_config("up_aruco_chi2_multipler", aruco_options.chi2_multipler);
+      parser->parse_config("up_aruco_absolute_residual_thr", aruco_options.absolute_residual_thr, false);
+
       msckf_options.sigma_pix_sq = std::pow(msckf_options.sigma_pix, 2);
       slam_options.sigma_pix_sq = std::pow(slam_options.sigma_pix, 2);
       aruco_options.sigma_pix_sq = std::pow(aruco_options.sigma_pix, 2);
