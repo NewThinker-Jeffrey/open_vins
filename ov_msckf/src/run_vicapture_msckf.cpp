@@ -101,6 +101,7 @@ int main(int argc, char **argv) {
   bool save_total_state = true;
   bool run_pangolin_viewer = true;
   bool run_algo = true;
+  bool record_rgbd = false;
 
 #if ROS_AVAILABLE == 2
   std::cout << "ROS_AVAILABLE == 2" << std::endl;
@@ -138,6 +139,9 @@ int main(int argc, char **argv) {
   }
   if (node->has_parameter("run_algo")) {
     node->get_parameter<bool>("run_algo", run_algo);
+  }
+  if (node->has_parameter("record_rgbd")) {
+    node->get_parameter<bool>("record_rgbd", record_rgbd);
   }
 
   // unique_parser_node = node;
@@ -212,16 +216,20 @@ int main(int argc, char **argv) {
         true, nullptr, nullptr);
   }
 
-
-  bool stereo = (internal_params.state_options.num_cameras == 2);
-  if (stereo) {
+  if (record_rgbd) {
+    assert(!run_algo);
     capture->changeVisualSensorType(
-        slam_dataset::ViCapture::VisualSensorType::STEREO);
+        slam_dataset::ViCapture::VisualSensorType::RGBD);
   } else {
-    capture->changeVisualSensorType(
-        slam_dataset::ViCapture::VisualSensorType::MONO);
+    bool stereo = (internal_params.state_options.num_cameras == 2);
+    if (stereo) {
+      capture->changeVisualSensorType(
+          slam_dataset::ViCapture::VisualSensorType::STEREO);
+    } else {
+      capture->changeVisualSensorType(
+          slam_dataset::ViCapture::VisualSensorType::MONO);
+    }
   }
-
 
   // Override the default sigint handler.
   // This must be set after the first NodeHandle is created.
@@ -235,11 +243,13 @@ int main(int argc, char **argv) {
     gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
   }
 
+  if (run_algo) {
 #if ROS_AVAILABLE == 2
-  viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
+    viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
 #elif ROS_AVAILABLE == 0
-  viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
-#endif
+      viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
+#endif    
+  }
 
   if (recorder) {
     recorder->startRecord(capture.get());

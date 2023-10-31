@@ -108,6 +108,11 @@ launch_args = [
         description="whether to run_algo",
     ),
     DeclareLaunchArgument(
+        name="record_rgbd",
+        default_value="false",
+        description="whether to record_rgbd",
+    ),
+    DeclareLaunchArgument(
         name="save_feature_images",
         default_value="false",
         description="record the feature images",
@@ -179,6 +184,7 @@ def launch_setup(context):
             {"save_feature_images": LaunchConfiguration("save_feature_images")},
             {"run_pangolin_viewer": LaunchConfiguration("run_pangolin_viewer")},            
             {"run_algo": LaunchConfiguration("run_algo")},                        
+            {"record_rgbd": LaunchConfiguration("record_rgbd")},                        
             {"config_path": config_path},
             {"dataset": dataset},
             {"output_dir": output_dir},
