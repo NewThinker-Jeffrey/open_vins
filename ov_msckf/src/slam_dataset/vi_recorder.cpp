@@ -4,6 +4,7 @@
 #include <mutex>
 #include <atomic>
 #include <condition_variable>
+#include <math.h>
 
 namespace {
 
@@ -17,9 +18,40 @@ std::string getCmdToIndexImageFolder(const std::string& image_folder) {
          "awk -F. '{print $1\",\"$0 }' > " + image_folder + ".csv";
 }
 
+uint8_t* log_depth_table = nullptr;
+
+cv::Mat cvtToLogDepth(const cv::Mat& depth_img) {
+  assert(depth_img.type() == CV_16U);
+
+  if (!log_depth_table) {
+    // build log_depth_table
+    log_depth_table = new uint8_t[65536];
+    const double inv_log2__x__16 = 16.0 / std::log(2.0);
+    for (int i=0; i<65536; i++) {
+      int v = int(log(double(i+1)) * inv_log2__x__16);
+      v = std::min(v, 255);
+      v = std::max(v, 0);
+      log_depth_table[i] = 255 - v;
+    }
+
+    // 0 for unavailable.
+    log_depth_table[0] = 0;
+  }
+
+  cv::Mat log_depth_img(depth_img.size(), CV_8U);
+  auto* ptr_log = log_depth_img.ptr<uint8_t>();
+  const auto* ptr = depth_img.ptr<uint16_t>();
+  for (size_t i=0; i<depth_img.rows*depth_img.cols; i++) {
+    ptr_log[i] = log_depth_table[ptr[i]];
+  }
+
+  return log_depth_img;
+}
+
 }  // namespace
 
 namespace slam_dataset {
+
 
 struct ViRecorder::Context {
   std::ofstream imu_file;
@@ -160,16 +192,20 @@ bool ViRecorder::startRecord(
               cv::waitKey(1);
             }
           } else if (vsensor_type_ == VisualSensorType::RGBD) {
+            // imshow() and imwrite() needs BGR format, while
+            // rs'color image is in RGB.
+            cv::Mat bgr;
+            cv::cvtColor(cam.images[0], bgr, cv::COLOR_RGB2BGR);
             cv::imwrite(c_->save_folder + "/color/data/"
                         + std::to_string(int64_t(cam.timestamp * 1e9))
-                        + img_save_format, cam.images[0]);
+                        + img_save_format, bgr);
             // depth image will be always saved in .png format 
             cv::imwrite(c_->save_folder + "/depth/data/"
                         + std::to_string(int64_t(cam.timestamp * 1e9))
                         + ".png", cam.images[1]);
             if (c_->show_image) {
-              cv::imshow("color", cam.images[0]);
-              cv::imshow("depth", cam.images[1]);
+              cv::imshow("color", bgr);              
+              cv::imshow("depth", cvtToLogDepth(cam.images[1]));
               cv::waitKey(1);
             }
           } else if (vsensor_type_ == VisualSensorType::DEPTH) {
@@ -178,7 +214,7 @@ bool ViRecorder::startRecord(
                         + std::to_string(int64_t(cam.timestamp * 1e9))
                         + ".png", cam.images[0]);
             if (c_->show_image) {
-              cv::imshow("depth", cam.images[0]);
+              cv::imshow("depth", cvtToLogDepth(cam.images[0]));
               cv::waitKey(1);
             }
           }

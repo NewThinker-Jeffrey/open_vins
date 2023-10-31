@@ -332,6 +332,7 @@ void readRGBDImg(const std::string& img_path_rgb,
 
   img_rgb = cv::imread(img_path_rgb, cv::IMREAD_COLOR);
   img_depth = cv::imread(img_path_depth, cv::IMREAD_GRAYSCALE);
+  assert(img_depth.type() == CV_16U);
 
   message.images.push_back(img_rgb.clone());
   message.images.push_back(img_depth.clone());
