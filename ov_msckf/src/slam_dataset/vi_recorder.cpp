@@ -27,8 +27,20 @@ cv::Mat cvtToLogDepth(const cv::Mat& depth_img) {
     // build log_depth_table
     log_depth_table = new uint8_t[65536];
     const double inv_log2__x__16 = 16.0 / std::log(2.0);
+    auto log_value = [](int depth_i) {
+      double depth = 0.001 * depth_i;  // in meters
+      static const double base_depth = 0.3;
+      double delta_depth = (depth - base_depth);
+      delta_depth = std::max(delta_depth, 0.0);
+      return log(double(1000.0*delta_depth+1.0));
+      // return log(double(delta_depth+1.0));
+      // return log(double(depth+1.0));
+    };
+    double min_value = log_value(0);
+    double max_value = log_value(65535);
+    double ratio = 255.0 / (max_value - min_value);
     for (int i=0; i<65536; i++) {
-      int v = int(log(double(i+1)) * inv_log2__x__16);
+      int v = (log_value(i) - min_value) * ratio;
       v = std::min(v, 255);
       v = std::max(v, 0);
       log_depth_table[i] = 255 - v;

@@ -202,7 +202,14 @@ bool RsCapture::startStreaming() {
 
         auto end_time = std::chrono::steady_clock::now();
         // auto end_time = std::chrono::monotonic_clock::now();
-        auto duration = end_time - start_time;
+
+        // auto duration = end_time - start_time;
+        // std::cout << "Aligning depth takes " << duration.count() * 1e-6
+        //           << " ms" << std::endl;
+
+        auto duration =
+            std::chrono::duration_cast<std::chrono::duration<double>>
+            (end_time - start_time);
         std::cout << "Aligning depth takes " << duration.count() * 1e3
                   << " ms" << std::endl;
 

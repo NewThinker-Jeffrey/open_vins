@@ -19,4 +19,4 @@ imu0:
   model: calibrated
   rostopic: /camera/imu
   time_offset: 0.0
-  update_rate: 400.0
+  update_rate: 200.0
