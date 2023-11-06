@@ -427,10 +427,10 @@ void Propagator::predict_mean_discrete(std::shared_ptr<State> state, double dt, 
     // }
 
 
-    const double v_up_thr = 0.5;
+    const double v_up_thr = 0.1;
     // const double v_front_thr = 0.5;
     const double v_front_thr = 1.0;
-    const double v_right_thr = 0.5;
+    const double v_right_thr = 0.1;
 
     Eigen::Vector3d v_up = Eigen::Vector3d(0, 0, 1);
     Eigen::Vector3d v_front = R_Gtoi.transpose() * Eigen::Vector3d(0, 0, 1);
