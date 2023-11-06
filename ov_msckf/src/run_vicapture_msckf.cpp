@@ -201,6 +201,14 @@ int main(int argc, char **argv) {
       bs.gyro_framerate = 400;
       bs.accel_framerate = 250;
     }
+    if (record_rgbd) {
+      bs.depth_framerate = 5;
+      bs.color_framerate = 5;
+      bs.depth_width = 848;
+      bs.depth_height = 480;
+      bs.color_width = 848;
+      bs.color_height = 480;
+    }
     bs.infra_width = image_width;
     bs.infra_height = image_height;
     PRINT_WARNING(YELLOW "Sensor settings for realsense: image size_wh(%d, %d), imu_rate(%d)\n" RESET, bs.infra_width, bs.infra_height, bs.gyro_framerate);
