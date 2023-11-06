@@ -19,15 +19,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef OV_MSCKF_VisualizerForFolderBasedDataset_H
-#define OV_MSCKF_VisualizerForFolderBasedDataset_H
+#ifndef OV_MSCKF_VisualizerForViCapture_H
+#define OV_MSCKF_VisualizerForViCapture_H
 
 #include <fstream>
 #include <string>
 #include <memory>
 #include <thread>
 
-#include "no_ros/FolderBasedDataset.h"
+#include "slam_dataset/vi_capture.h"
 #include "ov_interface/VIO.h"
 #include "core/VioManager.h"
 
@@ -46,7 +46,7 @@ class Viewer;
  * - Our different features (SLAM, MSCKF, ARUCO)
  * - Groundtruth trajectory if we have it
  */
-class VisualizerForFolderBasedDataset {
+class VisualizerForViCapture {
 
 public:
   /**
@@ -55,21 +55,16 @@ public:
    * @param app Core estimator manager
    * @param sim Simulator if we are simulating
    */
-  VisualizerForFolderBasedDataset(
+
+  VisualizerForViCapture(
     std::shared_ptr<ov_interface::VIO> app,
+    std::shared_ptr<slam_dataset::ViCapture> capture,
     std::shared_ptr<Viewer> gl_viewer = nullptr,
     const std::string& output_dir = "",
     bool save_feature_images = false,
     bool save_total_state = true);
 
-  ~VisualizerForFolderBasedDataset();
-
-  void setup_player(const std::string& dataset,
-                    double play_rate = 1.0);
-
-  void request_stop_play();
-
-  void wait_play_over();
+  ~VisualizerForViCapture();
 
   void stop_visualization_thread();
 
@@ -92,11 +87,10 @@ protected:
 
   double last_visualization_timestamp = 0;
 
-  std::shared_ptr<ov_interface::FolderBasedDataset> dataset_;
   std::shared_ptr<ov_interface::VIO> sys_;
   std::shared_ptr<Viewer> gl_viewer_;
 };
 
 } // namespace ov_msckf
 
-#endif // OV_MSCKF_VisualizerForFolderBasedDataset_H
+#endif // OV_MSCKF_VisualizerForViCapture_H
