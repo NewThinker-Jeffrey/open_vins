@@ -89,7 +89,6 @@ list(APPEND LIBRARY_SOURCES
         src/slam_dataset/vi_capture.cpp
         src/slam_dataset/vi_player.cpp
         src/slam_dataset/vi_recorder.cpp        
-        # src/no_ros/FolderBasedDataset.cpp
         src/slam_viz/pangolin_helper.cpp
         )
 
@@ -105,7 +104,6 @@ if(realsense2_FOUND)
     )
 endif()
 
-# list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROS2VisualizerForFolderBasedDataset.cpp src/ros/ROSVisualizerHelper.cpp src/no_ros/Viewer.cpp)
 file(GLOB_RECURSE LIBRARY_HEADERS "src/core/*.h" "src/ov_interface/*.h" "src/state/*.h" "src/update/*.h" "src/utils/*.h" "src/sim/*.h")
 add_library(ov_msckf_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
 # ament_target_dependencies(ov_msckf_lib ${ament_libraries} ov_core ov_init)
@@ -128,45 +126,14 @@ ament_export_libraries(ov_msckf_lib)
 # Make binary files!
 ##################################################
 
-# list(APPEND folder_based_msckf_SOURCES
-#                 src/run_folder_based_msckf.cpp
-#                 src/no_ros/VisualizerHelper.cpp
-#                 src/no_ros/VisualizerHelper.h
-#                 src/no_ros/Viewer.cpp
-#                 src/no_ros/Viewer.h
-#                 src/no_ros/VisualizerForFolderBasedDataset.cpp
-#                 src/no_ros/VisualizerForFolderBasedDataset.h
-#                 )
-
-# if (ENABLE_ROS)
-#         # ROS_AVAILABLE=2
-#         list(APPEND folder_based_msckf_SOURCES
-#                 src/ros/ROS2Visualizer.cpp
-#                 src/ros/ROS2Visualizer.h
-#                 src/ros/ROSVisualizerHelper.cpp
-#                 src/ros/ROSVisualizerHelper.h
-#                 src/ros/ROS2VisualizerForFolderBasedDataset.cpp
-#                 src/ros/ROS2VisualizerForFolderBasedDataset.h
-#                 )
-# endif()
-
-# add_executable(run_folder_based_msckf 
-#                ${folder_based_msckf_SOURCES}
-#                )
-               
-# ament_target_dependencies(run_folder_based_msckf ${ament_libraries} ov_core ov_init)
-# target_link_libraries(run_folder_based_msckf ov_msckf_lib ${thirdparty_libraries})
-# install(TARGETS run_folder_based_msckf DESTINATION lib/${PROJECT_NAME})
-
-
 list(APPEND vicapture_msckf_SOURCES
                 src/run_vicapture_msckf.cpp
                 src/no_ros/VisualizerHelper.cpp
                 src/no_ros/VisualizerHelper.h
                 src/no_ros/Viewer.cpp
                 src/no_ros/Viewer.h
-                # src/no_ros/VisualizerForViCapture.cpp
-                # src/no_ros/VisualizerForViCapture.h
+                src/no_ros/VisualizerForViCapture.cpp
+                src/no_ros/VisualizerForViCapture.h
                 )
 
 if (ENABLE_ROS)

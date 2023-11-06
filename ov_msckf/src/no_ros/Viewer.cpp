@@ -71,15 +71,18 @@ void Viewer::init() {
   // Define Camera Render Object (for view / scene browsing)
   pangolin::OpenGlMatrix proj = pangolin::ProjectionMatrix(640,480,320,320,320,240,0.1,1000);
   // pangolin::OpenGlRenderState s_cam1(proj, pangolin::ModelViewLookAt(1,0.5,-2,0,0,0, pangolin::AxisY) );
+
 std::cout << "Viewer::init(): Before pangolin::OpenGlRenderState" << std::endl;
 
   // Keep robot's position and map's orientation  unchanged in the screen
   // s_cam1 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY));
   s_cam1 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height, viewpoint_height * 0.85, 0, 0, 0, pangolin::AxisY));
+  assert(s_cam1);
 
   // Keep robot's position and robot's orientation unchanged in the screen
   s_cam2 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, -viewpoint_height, 0, 0, 0, pangolin::AxisZ));
   // s_cam2 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, viewpoint_height, 0, 0, 0,   0, 0, -1));
+  assert(s_cam2);
 
 
 std::cout << "Viewer::init(): After pangolin::OpenGlRenderState" << std::endl;
