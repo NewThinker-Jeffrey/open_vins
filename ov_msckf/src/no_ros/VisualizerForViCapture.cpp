@@ -88,8 +88,8 @@ VisualizerForViCapture::VisualizerForViCapture(
 
     // use a high rate to ensure the vis_output_ to update in time (which is also needed in visualize_odometry()).
     while (!stop_viz_request_) {
-      visualize();
       std::this_thread::sleep_for(std::chrono::milliseconds(25));  // todo: make the period configurable.
+      visualize();
     }
   });
 

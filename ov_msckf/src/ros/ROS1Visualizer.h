@@ -50,6 +50,7 @@
 #include <chrono>
 #include <filesystem>
 #include <cv_bridge/cv_bridge.h>
+#include "no_ros/Viewer.h"
 
 namespace ov_core {
 class YamlParser;
@@ -80,7 +81,13 @@ public:
    * @param app Core estimator manager
    * @param sim Simulator if we are simulating
    */
-  ROS1Visualizer(std::shared_ptr<ros::NodeHandle> nh, std::shared_ptr<VioManager> app, std::shared_ptr<Simulator> sim = nullptr);
+  ROS1Visualizer(std::shared_ptr<ros::NodeHandle> nh,
+                 std::shared_ptr<VioManager> app,
+                 std::shared_ptr<Simulator> sim = nullptr,
+                 std::shared_ptr<Viewer> gl_viewer = nullptr,
+                 const std::string& output_dir = "",
+                 bool save_feature_images = false,
+                 bool save_total_state = true);
 
   /**
    * @brief Will setup ROS subscribers and callbacks
@@ -114,6 +121,8 @@ public:
   /// Callback for synchronized stereo camera information
   void callback_stereo(const sensor_msgs::ImageConstPtr &msg0, const sensor_msgs::ImageConstPtr &msg1, int cam_id0, int cam_id1);
 
+  void stop_visualization_thread();
+
 protected:
   /// Publish the current state
   void publish_state();
@@ -129,6 +138,8 @@ protected:
 
   /// Publish loop-closure information of current pose and active track information
   void publish_loopclosure_information();
+
+  void save_feature_image(double timestamp, const cv::Mat& feature_image);
 
   /// Global node handler
   std::shared_ptr<ros::NodeHandle> _nh;
@@ -185,6 +196,7 @@ protected:
   // Last timestamp we visualized at
   double last_visualization_timestamp = 0;
   double last_visualization_timestamp_image = 0;
+  double last_visualization_timestamp_odom = 0;
 
   // Our groundtruth states
   std::map<double, Eigen::Matrix<double, 17, 1>> gt_states;
@@ -198,6 +210,17 @@ protected:
   // Files and if we should save total state
   bool save_total_state = false;
   std::ofstream of_state_est, of_state_std, of_state_gt;
+
+  bool save_feature_images = false;
+  std::string feature_image_save_dir = "";
+
+  std::string output_dir = "";
+
+  std::shared_ptr<std::thread> _vis_thread;
+  std::shared_ptr<VioManager::Output> _vis_output;
+  std::atomic<bool> stop_viz_request_;
+
+  std::shared_ptr<Viewer> gl_viewer;
 };
 
 } // namespace ov_msckf

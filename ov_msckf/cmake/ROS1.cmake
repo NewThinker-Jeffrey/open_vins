@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.3)
 # Find ROS build system
 find_package(catkin QUIET COMPONENTS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core ov_init)
 
+# find_package(realsense2)
+find_package(realsense2 REQUIRED)
+
+
 # Describe ROS project
 option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
 if (catkin_FOUND AND ENABLE_ROS)
@@ -28,6 +32,7 @@ include_directories(
         ${EIGEN3_INCLUDE_DIR}
         # ${Boost_INCLUDE_DIRS}
         ${CERES_INCLUDE_DIRS}
+        ${Pangolin_INCLUDE_DIRS}
         ${catkin_INCLUDE_DIRS}
 )
 
@@ -36,6 +41,7 @@ list(APPEND thirdparty_libraries
         # ${Boost_LIBRARIES}
         ${OpenCV_LIBRARIES}
         ${CERES_LIBRARIES}
+        ${Pangolin_LIBRARIES}
         ${catkin_LIBRARIES}
 )
 
@@ -84,11 +90,31 @@ list(APPEND LIBRARY_SOURCES
         src/update/UpdaterMSCKF.cpp
         src/update/UpdaterSLAM.cpp
         src/update/UpdaterZeroVelocity.cpp
+        src/ov_interface/VIO.cpp
+        src/slam_dataset/vi_capture.cpp
+        src/slam_dataset/vi_player.cpp
+        src/slam_dataset/vi_recorder.cpp        
+        src/slam_viz/pangolin_helper.cpp
 )
-if (catkin_FOUND AND ENABLE_ROS)
-    list(APPEND LIBRARY_SOURCES src/ros/ROS1Visualizer.cpp src/ros/ROSVisualizerHelper.cpp)
-endif ()
-file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
+
+if(realsense2_FOUND)    
+        include_directories(${realsense_INCLUDE_DIR})
+        list(APPEND LIBRARY_SOURCES
+                src/slam_dataset/rs/rs_capture.cpp
+                src/slam_dataset/rs/rs_helper.cpp
+        )
+        list(APPEND thirdparty_libraries
+                ${realsense2_LIBRARY}
+        )
+endif()
+    
+message(STATUS "LIBRARY_SOURCES AND LIBRARY_HEADERS:  ${LIBRARY_SOURCES} ${LIBRARY_HEADERS}")
+
+# if (catkin_FOUND AND ENABLE_ROS)
+#     list(APPEND LIBRARY_SOURCES src/ros/ROS1Visualizer.cpp src/ros/ROSVisualizerHelper.cpp)
+# endif ()
+# file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
+file(GLOB_RECURSE LIBRARY_HEADERS "src/core/*.h" "src/ov_interface/*.h" "src/state/*.h" "src/update/*.h" "src/utils/*.h" "src/sim/*.h")
 add_library(ov_msckf_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
 target_link_libraries(ov_msckf_lib ${thirdparty_libraries})
 target_include_directories(ov_msckf_lib PUBLIC src/)
@@ -106,9 +132,53 @@ install(DIRECTORY src/
 # Make binary files!
 ##################################################
 
+list(APPEND vicapture_msckf_SOURCES
+                src/run_vicapture_msckf.cpp
+                src/no_ros/VisualizerHelper.cpp
+                src/no_ros/VisualizerHelper.h
+                src/no_ros/Viewer.cpp
+                src/no_ros/Viewer.h
+                src/no_ros/VisualizerForViCapture.cpp
+                src/no_ros/VisualizerForViCapture.h
+                )
+
+if (ENABLE_ROS)
+        # ROS_AVAILABLE=1
+        list(APPEND vicapture_msckf_SOURCES
+                src/ros/ROS1Visualizer.cpp
+                src/ros/ROS1Visualizer.h
+                src/ros/ROSVisualizerHelper.cpp
+                src/ros/ROSVisualizerHelper.h
+                src/ros/ROS1VisualizerForViCapture.cpp
+                src/ros/ROS1VisualizerForViCapture.h
+                )
+endif()
+
+
+
+add_executable(run_vicapture_msckf
+                ${vicapture_msckf_SOURCES})
+
+target_link_libraries(run_vicapture_msckf ov_msckf_lib ${thirdparty_libraries})
+install(TARGETS run_vicapture_msckf
+        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+            
 if (catkin_FOUND AND ENABLE_ROS)
 
-    add_executable(ros1_serial_msckf src/ros1_serial_msckf.cpp)
+    add_executable(ros1_serial_msckf
+                src/ros1_serial_msckf.cpp
+                src/ros/ROS1Visualizer.cpp
+                src/ros/ROS1Visualizer.h
+                src/ros/ROSVisualizerHelper.cpp
+                src/ros/ROSVisualizerHelper.h
+                src/no_ros/VisualizerHelper.cpp
+                src/no_ros/VisualizerHelper.h
+                src/no_ros/Viewer.cpp
+                src/no_ros/Viewer.h)
+
     target_link_libraries(ros1_serial_msckf ov_msckf_lib ${thirdparty_libraries})
     install(TARGETS ros1_serial_msckf
             ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
@@ -116,7 +186,16 @@ if (catkin_FOUND AND ENABLE_ROS)
             RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
     )
 
-    add_executable(run_subscribe_msckf src/run_subscribe_msckf.cpp)
+    add_executable(run_subscribe_msckf
+                   src/run_subscribe_msckf.cpp
+                   src/ros/ROS1Visualizer.cpp
+                   src/ros/ROS1Visualizer.h
+                   src/ros/ROSVisualizerHelper.cpp
+                   src/ros/ROSVisualizerHelper.h
+                   src/no_ros/VisualizerHelper.cpp
+                   src/no_ros/VisualizerHelper.h
+                   src/no_ros/Viewer.cpp
+                   src/no_ros/Viewer.h)
     target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
     install(TARGETS run_subscribe_msckf
             ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
@@ -124,31 +203,40 @@ if (catkin_FOUND AND ENABLE_ROS)
             RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
     )
 
+        add_executable(run_simulation
+                src/run_simulation.cpp
+                src/ros/ROS1Visualizer.cpp
+                src/ros/ROS1Visualizer.h
+                src/ros/ROSVisualizerHelper.cpp
+                src/ros/ROSVisualizerHelper.h
+                src/no_ros/VisualizerHelper.cpp
+                src/no_ros/VisualizerHelper.h
+                src/no_ros/Viewer.cpp
+                src/no_ros/Viewer.h)
+        target_link_libraries(run_simulation ov_msckf_lib ${thirdparty_libraries})
+        install(TARGETS run_simulation
+                ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+                LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+                RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+                )
+
+        add_executable(test_sim_meas src/test_sim_meas.cpp)
+        target_link_libraries(test_sim_meas ov_msckf_lib ${thirdparty_libraries})
+        install(TARGETS test_sim_meas
+                ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+                LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+                RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+                )
+
+        add_executable(test_sim_repeat src/test_sim_repeat.cpp)
+        target_link_libraries(test_sim_repeat ov_msckf_lib ${thirdparty_libraries})
+        install(TARGETS test_sim_repeat
+                ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+                LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+                RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+                )
 endif ()
 
-add_executable(run_simulation src/run_simulation.cpp)
-target_link_libraries(run_simulation ov_msckf_lib ${thirdparty_libraries})
-install(TARGETS run_simulation
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
-add_executable(test_sim_meas src/test_sim_meas.cpp)
-target_link_libraries(test_sim_meas ov_msckf_lib ${thirdparty_libraries})
-install(TARGETS test_sim_meas
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
-add_executable(test_sim_repeat src/test_sim_repeat.cpp)
-target_link_libraries(test_sim_repeat ov_msckf_lib ${thirdparty_libraries})
-install(TARGETS test_sim_repeat
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
 
 
 ##################################################

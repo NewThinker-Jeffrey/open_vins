@@ -1,0 +1,43 @@
+<launch>
+
+    <!-- what config we are going to run (should match folder name) -->
+    <!-- <arg name="verbosity"   default="INFO" /> ALL, DEBUG, INFO, WARNING, ERROR, SILENT -->
+    <arg name="config"      default="euroc_mav" /> <!-- euroc_mav, tum_vi, rpng_aruco -->
+    <arg name="config_path" default="$(find ov_msckf)/../config/$(arg config)/estimator_config.yaml" />
+    <arg name="play_rate"    default="1" />
+    <arg name="visualization_rate"  default="40" />
+    <arg name="dataset"     default="" />
+    <arg name="output_dir"     default="" />
+    <arg name="run_pangolin_viewer"     default="true" />
+    <arg name="run_algo"     default="true" />
+    <arg name="record_rgbd"     default="false" />
+    <arg name="save_feature_images"     default="false" />
+    <arg name="record_timing_information"     default="false" />
+    <arg name="save_total_state"     default="false" />
+
+
+    <!-- MASTER NODE! -->
+<!--    <node name="ov_msckf" pkg="ov_msckf" type="run_subscribe_msckf" output="screen" clear_params="true" required="true" launch-prefix="gdb -ex run &#45;&#45;args">-->
+    <node name="ov_msckf" pkg="ov_msckf" type="run_vicapture_msckf" output="screen" clear_params="true" required="true">
+
+        <!-- master configuration object -->
+        <param name="config_path"            type="string" value="$(arg config_path)" />
+
+        <!-- work mode -->
+        <param name="record_rgbd"   type="bool"   value="$(arg record_rgbd)" />
+        <param name="run_algo"   type="bool"   value="$(arg run_algo)" />
+        <param name="run_pangolin_viewer"   type="bool"   value="$(arg run_pangolin_viewer)" />
+        <param name="play_rate"   type="double"   value="$(arg play_rate)" />
+        <param name="visualization_rate"   type="double"   value="$(arg visualization_rate)" />
+
+        <!-- in/out -->
+        <param name="dataset"            type="string" value="$(arg dataset)" />
+        <param name="output_dir"            type="string" value="$(arg output_dir)" />
+
+        <!-- recording -->
+        <param name="record_timing_information"   type="bool"   value="$(arg record_timing_information)" />
+        <param name="save_total_state"   type="bool"   value="$(arg save_total_state)" />
+        <param name="save_feature_images"   type="bool"   value="$(arg save_feature_images)" />
+    </node>
+
+</launch>

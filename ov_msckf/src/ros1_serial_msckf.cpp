@@ -249,7 +249,8 @@ int main(int argc, char **argv) {
 
       // Check if we should initialize using the groundtruth
       Eigen::Matrix<double, 17, 1> imustate;
-      if (!gt_states.empty() && !sys->initialized() && ov_core::DatasetReader::get_gt_state(meas_time, imustate, gt_states)) {
+      auto output = sys->getLastOutput(false, false);
+      if (!gt_states.empty() && output->status.initialized && ov_core::DatasetReader::get_gt_state(meas_time, imustate, gt_states)) {
         // biases are pretty bad normally, so zero them
         // imustate.block(11,0,6,1).setZero();
         sys->initialize_with_gt(imustate);

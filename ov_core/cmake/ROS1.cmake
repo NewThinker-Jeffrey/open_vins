@@ -55,6 +55,8 @@ list(APPEND LIBRARY_SOURCES
         src/feat/FeatureDatabase.cpp
         src/feat/FeatureInitializer.cpp
         src/utils/print.cpp
+        src/utils/sensor_data.cpp
+        src/utils/chi_square/chi_squared_quantile_table_0_95.cpp
 )
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_core_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
@@ -76,23 +78,23 @@ install(DIRECTORY src/
 
 if (catkin_FOUND AND ENABLE_ROS)
 
-    add_executable(test_tracking src/test_tracking.cpp)
-    target_link_libraries(test_tracking ov_core_lib ${thirdparty_libraries})
-    install(TARGETS test_tracking
-            ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-            LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-            RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-    )
+#     add_executable(test_tracking src/test_tracking.cpp)
+#     target_link_libraries(test_tracking ov_core_lib ${thirdparty_libraries})
+#     install(TARGETS test_tracking
+#             ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+#             LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+#             RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+#     )
 
 endif ()
 
-add_executable(test_webcam src/test_webcam.cpp)
-target_link_libraries(test_webcam ov_core_lib ${thirdparty_libraries})
-install(TARGETS test_webcam
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
+# add_executable(test_webcam src/test_webcam.cpp)
+# target_link_libraries(test_webcam ov_core_lib ${thirdparty_libraries})
+# install(TARGETS test_webcam
+#         ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+#         LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+#         RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+# )
 
 add_executable(test_profile src/test_profile.cpp)
 target_link_libraries(test_profile ov_core_lib ${thirdparty_libraries})
