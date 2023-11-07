@@ -74,16 +74,28 @@ void Viewer::init() {
 
 std::cout << "Viewer::init(): Before pangolin::OpenGlRenderState" << std::endl;
 
+  auto modelview1 = pangolin::ModelViewLookAt(0, -viewpoint_height, viewpoint_height * 0.85, 0, 0, 0, pangolin::AxisY);
+  // auto modelview1 = pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY);
+
+std::cout << "Viewer::init(): modelview1 created." << std::endl;
+
+
+  auto modelview2 = pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, -viewpoint_height, 0, 0, 0, pangolin::AxisZ);
+  // auto modelview2 = pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, viewpoint_height, 0, 0, 0,   0, 0, -1);
+
+std::cout << "Viewer::init(): modelview2 created." << std::endl;
+
   // Keep robot's position and map's orientation  unchanged in the screen
-  // s_cam1 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY));
-  s_cam1 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height, viewpoint_height * 0.85, 0, 0, 0, pangolin::AxisY));
+  s_cam1 = std::make_shared<pangolin::OpenGlRenderState>(proj, modelview1);
   assert(s_cam1);
 
+std::cout << "Viewer::init(): s_cam1 created." << std::endl;
+
   // Keep robot's position and robot's orientation unchanged in the screen
-  s_cam2 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, -viewpoint_height, 0, 0, 0, pangolin::AxisZ));
-  // s_cam2 = std::make_shared<pangolin::OpenGlRenderState>(proj, pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, viewpoint_height, 0, 0, 0,   0, 0, -1));
+  s_cam2 = std::make_shared<pangolin::OpenGlRenderState>(proj, modelview2);
   assert(s_cam2);
 
+std::cout << "Viewer::init(): s_cam2 created." << std::endl;
 
 std::cout << "Viewer::init(): After pangolin::OpenGlRenderState" << std::endl;
 
