@@ -42,6 +42,11 @@
 std::shared_ptr<ov_msckf::ROS2VisualizerForViCapture> viz;
 // extern std::weak_ptr<rclcpp::Node> unique_parser_node;
 
+#elif ROS_AVAILABLE == 1
+#include "ros/ROS1VisualizerForViCapture.h"
+#include <ros/ros.h>
+std::shared_ptr<ov_msckf::ROS1VisualizerForViCapture> viz;
+
 #elif ROS_AVAILABLE == 0
 #include "no_ros/VisualizerForViCapture.h"
 std::shared_ptr<ov_msckf::VisualizerForViCapture> viz;
@@ -114,7 +119,7 @@ int main(int argc, char **argv) {
   rclcpp::NodeOptions options;
   options.allow_undeclared_parameters(true);
   options.automatically_declare_parameters_from_overrides(true);
-  auto node = std::make_shared<rclcpp::Node>("run_folder_based_msckf", options);
+  auto node = std::make_shared<rclcpp::Node>("run_vicapture_msckf", options);
   node->get_parameter<std::string>("config_path", config_path);
 
   if (node->has_parameter("dataset")) {
@@ -145,6 +150,45 @@ int main(int argc, char **argv) {
   }
 
   // unique_parser_node = node;
+
+
+#elif ROS_AVAILABLE == 1
+  std::cout << "ROS_AVAILABLE == 1" << std::endl;
+  if (argc > 1) {
+    config_path = argv[1];
+  }
+
+  // Launch our ros node
+  ros::init(argc, argv, "run_vicapture_msckf");
+  auto nh = std::make_shared<ros::NodeHandle>("~");
+  nh->param<std::string>("config_path", config_path, config_path);
+
+  if (nh->hasParam("dataset")) {
+    nh->param<std::string>("dataset", dataset, dataset);
+  }
+  if (nh->hasParam("play_rate")) {
+    nh->param<double>("play_rate", play_rate, play_rate);
+  }
+  if (nh->hasParam("output_dir")) {
+    nh->param<std::string>("output_dir", output_dir, output_dir);
+  }
+  std::cout << "output_dir: " << output_dir << std::endl;
+  if (nh->hasParam("save_feature_images")) {
+    nh->param<bool>("save_feature_images", save_feature_images, save_feature_images);
+  }
+  if (nh->hasParam("save_total_state")) {
+    nh->param<bool>("save_total_state", save_total_state, save_total_state);
+  }  
+  if (nh->hasParam("run_pangolin_viewer")) {
+    nh->param<bool>("run_pangolin_viewer", run_pangolin_viewer, run_pangolin_viewer);
+  }
+  if (nh->hasParam("run_algo")) {
+    nh->param<bool>("run_algo", run_algo, run_algo);
+  }
+  if (nh->hasParam("record_rgbd")) {
+    nh->param<bool>("record_rgbd", record_rgbd, record_rgbd);
+  }
+
 #elif ROS_AVAILABLE == 0
   std::cout << "ROS_AVAILABLE == 0" << std::endl;
 #ifdef USE_GFLAGS  // ROS_AVAILABLE == 0  
@@ -254,6 +298,8 @@ int main(int argc, char **argv) {
   if (run_algo) {
 #if ROS_AVAILABLE == 2
     viz = std::make_shared<ov_msckf::ROS2VisualizerForViCapture>(node, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
+#elif ROS_AVAILABLE == 1
+    viz = std::make_shared<ov_msckf::ROS1VisualizerForViCapture>(nh, sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
 #elif ROS_AVAILABLE == 0
       viz = std::make_shared<ov_msckf::VisualizerForViCapture>(sys, capture, gl_viewer, output_dir, save_feature_images, save_total_state);
 #endif    
@@ -286,6 +332,13 @@ int main(int argc, char **argv) {
   }
 
   rclcpp::shutdown();
+#elif   ROS_AVAILABLE == 1
+  // Final visualization
+  if (viz) {
+    viz->visualize_final();
+  }
+
+  ros::shutdown();
 #endif
 
   std::cout << "Destroying Visualizer ..." << std::endl;

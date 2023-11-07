@@ -132,6 +132,40 @@ install(DIRECTORY src/
 # Make binary files!
 ##################################################
 
+list(APPEND vicapture_msckf_SOURCES
+                src/run_vicapture_msckf.cpp
+                src/no_ros/VisualizerHelper.cpp
+                src/no_ros/VisualizerHelper.h
+                src/no_ros/Viewer.cpp
+                src/no_ros/Viewer.h
+                src/no_ros/VisualizerForViCapture.cpp
+                src/no_ros/VisualizerForViCapture.h
+                )
+
+if (ENABLE_ROS)
+        # ROS_AVAILABLE=1
+        list(APPEND vicapture_msckf_SOURCES
+                src/ros/ROS1Visualizer.cpp
+                src/ros/ROS1Visualizer.h
+                src/ros/ROSVisualizerHelper.cpp
+                src/ros/ROSVisualizerHelper.h
+                src/ros/ROS1VisualizerForViCapture.cpp
+                src/ros/ROS1VisualizerForViCapture.h
+                )
+endif()
+
+
+
+add_executable(run_vicapture_msckf
+                ${vicapture_msckf_SOURCES})
+
+target_link_libraries(run_vicapture_msckf ov_msckf_lib ${thirdparty_libraries})
+install(TARGETS run_vicapture_msckf
+        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+            
 if (catkin_FOUND AND ENABLE_ROS)
 
     add_executable(ros1_serial_msckf

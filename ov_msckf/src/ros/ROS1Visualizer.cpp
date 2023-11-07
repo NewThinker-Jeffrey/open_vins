@@ -107,6 +107,7 @@ ROS1Visualizer::ROS1Visualizer(
 
   if (save_feature_images && !output_dir.empty()) {
     feature_image_save_dir = output_dir + "/" + "feature_images";
+    std::cout << "feature_image_save_dir: " << feature_image_save_dir << std::endl;
     std::filesystem::create_directories(std::filesystem::path(feature_image_save_dir.c_str()));
   }
 
@@ -124,6 +125,9 @@ ROS1Visualizer::ROS1Visualizer(
       filepath_std = output_dir + "/" + "state_deviation.txt";
       filepath_gt = output_dir + "/" + "state_groundtruth.txt";
     }
+    std::cout << "filepath_est: " << filepath_est << std::endl;
+    std::cout << "filepath_std: " << filepath_std << std::endl;
+    std::cout << "filepath_gt: " << filepath_gt << std::endl;
     ROSVisualizerHelper::init_total_state_files(
         filepath_est, filepath_std, filepath_gt,
         _sim,
@@ -210,6 +214,16 @@ void ROS1Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
       PRINT_INFO("subscribing to cam (mono): %s\n", cam_topic.c_str());
     }
   }
+}
+
+
+void ROS1Visualizer::stop_visualization_thread() {
+  stop_viz_request_ = true;
+  if (_vis_thread && _vis_thread->joinable()) {
+    _vis_thread->join();
+    _vis_thread.reset();
+  }
+  std::cout << "visualization_thread stoped." << std::endl;
 }
 
 void ROS1Visualizer::visualize() {

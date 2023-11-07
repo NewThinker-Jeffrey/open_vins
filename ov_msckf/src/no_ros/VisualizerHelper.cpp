@@ -44,8 +44,14 @@ void VisualizerHelper::init_total_state_files(
     std::filesystem::remove(filepath_std);
 
   // Create folder path to this location if not exists
-  std::filesystem::create_directories(std::filesystem::path(filepath_est.c_str()).parent_path());
-  std::filesystem::create_directories(std::filesystem::path(filepath_std.c_str()).parent_path());
+  auto filepath_est_parent = std::filesystem::path(filepath_est.c_str()).parent_path();
+  auto filepath_std_parent = std::filesystem::path(filepath_std.c_str()).parent_path();
+  if (!filepath_est_parent.empty()) {
+    std::filesystem::create_directories(filepath_est_parent);
+  }
+  if (!filepath_std_parent.empty()) {
+    std::filesystem::create_directories(filepath_std_parent);
+  }
 
   // Open the files
   of_state_est.open(filepath_est.c_str());
@@ -57,7 +63,10 @@ void VisualizerHelper::init_total_state_files(
   if (sim != nullptr) {
     if (std::filesystem::exists(filepath_gt))
       std::filesystem::remove(filepath_gt);
-    std::filesystem::create_directories(std::filesystem::path(filepath_gt.c_str()).parent_path());
+    auto filepath_gt_parent = std::filesystem::path(filepath_gt.c_str()).parent_path();
+    if (!filepath_gt_parent.empty()) {
+      std::filesystem::create_directories(filepath_gt_parent);
+    }
     of_state_gt.open(filepath_gt.c_str());
     of_state_gt << "# timestamp(s) q p v bg ba cam_imu_dt num_cam cam0_k cam0_d cam0_rot cam0_trans .... etc" << std::endl;
   }

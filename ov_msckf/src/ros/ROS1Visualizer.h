@@ -121,6 +121,8 @@ public:
   /// Callback for synchronized stereo camera information
   void callback_stereo(const sensor_msgs::ImageConstPtr &msg0, const sensor_msgs::ImageConstPtr &msg1, int cam_id0, int cam_id1);
 
+  void stop_visualization_thread();
+
 protected:
   /// Publish the current state
   void publish_state();
