@@ -1,3 +1,5 @@
+#ifndef USE_HEAR_SLAM
+
 #include "rs_helper.h"
 
 #include <iostream>
@@ -192,3 +194,5 @@ rs2_intrinsics RsHelper::getCameraIntrinsics(rs2::stream_profile& cam_stream, bo
 
 } // namespace slam_dataset
 
+
+#endif // USE_HEAR_SLAM

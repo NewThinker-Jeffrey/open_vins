@@ -1,3 +1,5 @@
+#ifndef USE_HEAR_SLAM
+
 #include "vi_player.h"
 
 #include <mutex>
@@ -354,3 +356,4 @@ void readDepthImg(const std::string& img_path_depth,
 
 }  // namespace slam_dataset
 
+#endif // USE_HEAR_SLAM

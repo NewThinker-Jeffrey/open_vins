@@ -1,3 +1,5 @@
+#ifndef USE_HEAR_SLAM
+
 #include "vi_recorder.h"
 
 #include <thread>
@@ -307,3 +309,4 @@ void ViRecorder::feedImuData(ImuData imu) {
 
 } // namespace slam_dataset
 
+#endif // USE_HEAR_SLAM

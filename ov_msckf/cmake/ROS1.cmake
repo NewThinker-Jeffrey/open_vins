@@ -1,7 +1,16 @@
 cmake_minimum_required(VERSION 3.3)
 
+option(USE_HEAR_SLAM "Enable or disable building with ROS (if it is found)" OFF)
+if (USE_HEAR_SLAM)
+    set(HEAR_SLAM_PKG hear_slam)
+    add_definitions(-DUSE_HEAR_SLAM)
+    message(STATUS "Will use hear_slam!!")
+else()
+    message(STATUS "Won't use hear_slam.")
+endif()
+
 # Find ROS build system
-find_package(catkin QUIET COMPONENTS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core ov_init)
+find_package(catkin QUIET COMPONENTS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core ov_init ${HEAR_SLAM_PKG})
 
 # find_package(realsense2)
 find_package(realsense2 REQUIRED)
@@ -12,7 +21,7 @@ option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
 if (catkin_FOUND AND ENABLE_ROS)
     add_definitions(-DROS_AVAILABLE=1)
     catkin_package(
-            CATKIN_DEPENDS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core ov_init
+            CATKIN_DEPENDS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core ov_init ${HEAR_SLAM_PKG}
             INCLUDE_DIRS src/
             LIBRARIES ov_msckf_lib
     )

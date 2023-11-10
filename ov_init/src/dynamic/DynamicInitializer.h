@@ -23,10 +23,10 @@
 #define OV_INIT_DYNAMICINITIALIZER_H
 
 #include "init/InertialInitializerOptions.h"
+#include "utils/sensor_data.h"
 
 namespace ov_core {
 class FeatureDatabase;
-struct ImuData;
 } // namespace ov_core
 namespace ov_type {
 class Type;

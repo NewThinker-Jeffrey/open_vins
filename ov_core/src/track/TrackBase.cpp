@@ -332,7 +332,7 @@ Eigen::Matrix3d TrackBase::integrate_gryo(double old_time, double new_time) {
   std::vector<ImuData> prop_data;
   {
     std::lock_guard<std::mutex> lck(imu_data_mtx);
-    prop_data = ImuData::select_imu_readings(imu_data, old_imu_time, new_imu_time);
+    prop_data = select_imu_readings(imu_data, old_imu_time, new_imu_time);
   }
   if (prop_data.size() < 2) {
     PRINT_WARNING(YELLOW "TrackBase::integrate_gryo(): no prop_data!\n" RESET);
@@ -351,7 +351,7 @@ Eigen::Matrix3d TrackBase::integrate_gryo(double old_time, double new_time) {
     }
   }
 
-  prop_data = ImuData::fill_imu_data_gaps(prop_data, 0.0051);
+  prop_data = fill_imu_data_gaps(prop_data, 0.0051);
 
   Eigen::Quaterniond q(1,0,0,0);
   for (size_t i=0; i<prop_data.size()-1; i++) {

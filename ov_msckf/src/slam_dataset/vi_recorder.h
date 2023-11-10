@@ -1,6 +1,10 @@
 #ifndef SLAM_DATASET_VI_RECORDER_H
 #define SLAM_DATASET_VI_RECORDER_H
 
+#include "sensor_data.h"
+
+#ifndef USE_HEAR_SLAM
+
 #include <map>
 #include <memory>
 #include <unordered_map>
@@ -55,5 +59,7 @@ protected:
 };
 
 } // namespace slam_dataset
+
+#endif // USE_HEAR_SLAM
 
 #endif // SLAM_DATASET_VI_RECORDER_H

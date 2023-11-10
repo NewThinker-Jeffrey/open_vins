@@ -19,13 +19,32 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+
 #include "sensor_data.h"
 #include "print.h"
 #include "colors.h"
 
-using namespace ov_core;
+namespace ov_core {
 
-ImuData ImuData::interpolate_data(const ImuData &imu_1, const ImuData &imu_2, double timestamp) {
+#ifdef USE_HEAR_SLAM
+
+ImuData interpolate_data(const ImuData &imu_1, const ImuData &imu_2, double timestamp) {
+  return hear_slam::Imu::interpolate(imu_1, imu_2, timestamp);
+}
+
+std::vector<ImuData> fill_imu_data_gaps(const std::vector<ImuData>& in_data, double max_gap) {
+  return hear_slam::Imu::fillDataGaps(in_data, max_gap);
+
+}
+
+std::vector<ImuData> select_imu_readings(const std::vector<ImuData> &imu_data, double time0, double time1,
+                                                  bool warn) {
+  return hear_slam::Imu::selectBetween(imu_data, time0, time1, warn);
+}
+
+#else
+
+ImuData interpolate_data(const ImuData &imu_1, const ImuData &imu_2, double timestamp) {
   // time-distance lambda
   double lambda = (timestamp - imu_1.timestamp) / (imu_2.timestamp - imu_1.timestamp);
   // PRINT_DEBUG("lambda - %d\n", lambda);
@@ -37,7 +56,7 @@ ImuData ImuData::interpolate_data(const ImuData &imu_1, const ImuData &imu_2, do
   return data;
 }
 
-std::vector<ImuData> ImuData::fill_imu_data_gaps(const std::vector<ImuData>& in_data, double max_gap) {
+std::vector<ImuData> fill_imu_data_gaps(const std::vector<ImuData>& in_data, double max_gap) {
   std::vector<ImuData> out_data;
   if (in_data.empty()) {
     return out_data;
@@ -52,7 +71,7 @@ std::vector<ImuData> ImuData::fill_imu_data_gaps(const std::vector<ImuData>& in_
     double gap = t1 - t0;
     if (gap > max_gap) {
       if (gap > 0.1) {
-        PRINT_WARNING(YELLOW "ImuData::fill_imu_data_gaps(): LARGE_IMU_GAP!! We're filling a large imu gap (%.3f) from %.3f to %.3f!!!\n" RESET, gap, t0, t1);
+        PRINT_WARNING(YELLOW "fill_imu_data_gaps(): LARGE_IMU_GAP!! We're filling a large imu gap (%.3f) from %.3f to %.3f!!!\n" RESET, gap, t0, t1);
       }
 
       int to_fill = gap / max_gap;
@@ -69,7 +88,7 @@ std::vector<ImuData> ImuData::fill_imu_data_gaps(const std::vector<ImuData>& in_
   return out_data;
 }
 
-std::vector<ImuData> ImuData::select_imu_readings(const std::vector<ImuData> &imu_data, double time0, double time1,
+std::vector<ImuData> select_imu_readings(const std::vector<ImuData> &imu_data, double time0, double time1,
                                                   bool warn) {
 
   // Our vector imu readings
@@ -78,7 +97,7 @@ std::vector<ImuData> ImuData::select_imu_readings(const std::vector<ImuData> &im
   // Ensure we have some measurements in the first place!
   if (imu_data.empty()) {
     if (warn)
-      PRINT_WARNING(YELLOW "ImuData::select_imu_readings(): No IMU measurements. IMU-CAMERA are likely messed up!!!\n" RESET);
+      PRINT_WARNING(YELLOW "select_imu_readings(): No IMU measurements. IMU-CAMERA are likely messed up!!!\n" RESET);
     return prop_data;
   }
 
@@ -91,7 +110,7 @@ std::vector<ImuData> ImuData::select_imu_readings(const std::vector<ImuData> &im
     // And the current is not greater then it yet...
     // Then we should "split" our current IMU measurement
     if (imu_data.at(i + 1).timestamp > time0 && imu_data.at(i).timestamp < time0) {
-      ov_core::ImuData data = ImuData::interpolate_data(imu_data.at(i), imu_data.at(i + 1), time0);
+      ov_core::ImuData data = interpolate_data(imu_data.at(i), imu_data.at(i + 1), time0);
       prop_data.push_back(data);
       // PRINT_DEBUG("propagation #%d = CASE 1 = %.3f => %.3f\n", (int)i, data.timestamp - prop_data.at(0).timestamp,
       //             time0 - prop_data.at(0).timestamp);
@@ -148,7 +167,7 @@ std::vector<ImuData> ImuData::select_imu_readings(const std::vector<ImuData> &im
     if (warn)
       PRINT_WARNING(
           YELLOW
-          "ImuData::select_imu_readings(): No IMU measurements to propagate with (%d of 2). IMU-CAMERA are likely messed up!!!\n" RESET,
+          "select_imu_readings(): No IMU measurements to propagate with (%d of 2). IMU-CAMERA are likely messed up!!!\n" RESET,
           (int)prop_data.size());
     return prop_data;
   }
@@ -156,7 +175,7 @@ std::vector<ImuData> ImuData::select_imu_readings(const std::vector<ImuData> &im
   // If we did not reach the whole integration period (i.e., the last inertial measurement we have is smaller then the time we want to
   // reach) Then we should just "stretch" the last measurement to be the whole period (case 3 in the above loop)
   // if(time1-imu_data.at(imu_data.size()-1).timestamp > 1e-3) {
-  //    PRINT_DEBUG(YELLOW "ImuData::select_imu_readings(): Missing inertial measurements to propagate with (%.6f sec missing).
+  //    PRINT_DEBUG(YELLOW "select_imu_readings(): Missing inertial measurements to propagate with (%.6f sec missing).
   //    IMU-CAMERA are likely messed up!!!\n" RESET, (time1-imu_data.at(imu_data.size()-1).timestamp)); return prop_data;
   //}
 
@@ -165,7 +184,7 @@ std::vector<ImuData> ImuData::select_imu_readings(const std::vector<ImuData> &im
   for (size_t i = 0; i < prop_data.size() - 1; i++) {
     if (std::abs(prop_data.at(i + 1).timestamp - prop_data.at(i).timestamp) < 1e-12) {
       if (warn)
-        PRINT_WARNING(YELLOW "ImuData::select_imu_readings(): Zero DT between IMU reading %d and %d, removing it!\n" RESET, (int)i,
+        PRINT_WARNING(YELLOW "select_imu_readings(): Zero DT between IMU reading %d and %d, removing it!\n" RESET, (int)i,
                       (int)(i + 1));
       prop_data.erase(prop_data.begin() + i);
       i--;
@@ -177,7 +196,7 @@ std::vector<ImuData> ImuData::select_imu_readings(const std::vector<ImuData> &im
     if (warn)
       PRINT_WARNING(
           YELLOW
-          "ImuData::select_imu_readings(): No IMU measurements to propagate with (%d of 2). IMU-CAMERA are likely messed up!!!\n" RESET,
+          "select_imu_readings(): No IMU measurements to propagate with (%d of 2). IMU-CAMERA are likely messed up!!!\n" RESET,
           (int)prop_data.size());
     return prop_data;
   }
@@ -185,3 +204,6 @@ std::vector<ImuData> ImuData::select_imu_readings(const std::vector<ImuData> &im
   // Success :D
   return prop_data;
 }
+#endif  // USE_HEAR_SLAM
+
+}  // namespace ov_core

@@ -1,3 +1,5 @@
+#ifndef USE_HEAR_SLAM
+
 #include "rs_capture.h"
 #include "rs_helper.h"
 
@@ -461,3 +463,5 @@ bool RsCapture::isStreaming() const {
 
 } // namespace slam_dataset
 
+
+#endif // USE_HEAR_SLAM

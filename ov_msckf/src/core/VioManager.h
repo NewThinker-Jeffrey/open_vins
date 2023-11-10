@@ -34,10 +34,9 @@
 
 #include "VioManagerOptions.h"
 #include "state/State.h"
+#include "utils/sensor_data.h"
 
 namespace ov_core {
-struct ImuData;
-struct CameraData;
 class TrackBase;
 class FeatureInitializer;
 } // namespace ov_core

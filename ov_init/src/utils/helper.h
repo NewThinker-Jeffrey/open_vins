@@ -43,12 +43,13 @@ public:
    * @param timestamp Timestamp being interpolated to
    */
   static ov_core::ImuData interpolate_data(const ov_core::ImuData &imu_1, const ov_core::ImuData &imu_2, double timestamp) {
-    double lambda = (timestamp - imu_1.timestamp) / (imu_2.timestamp - imu_1.timestamp);
-    ov_core::ImuData data;
-    data.timestamp = timestamp;
-    data.am = (1 - lambda) * imu_1.am + lambda * imu_2.am;
-    data.wm = (1 - lambda) * imu_1.wm + lambda * imu_2.wm;
-    return data;
+    return ov_core::interpolate_data(imu_1, imu_2, timestamp);
+    // double lambda = (timestamp - imu_1.timestamp) / (imu_2.timestamp - imu_1.timestamp);
+    // ov_core::ImuData data;
+    // data.timestamp = timestamp;
+    // data.am = (1 - lambda) * imu_1.am + lambda * imu_2.am;
+    // data.wm = (1 - lambda) * imu_1.wm + lambda * imu_2.wm;
+    // return data;
   }
 
   /**

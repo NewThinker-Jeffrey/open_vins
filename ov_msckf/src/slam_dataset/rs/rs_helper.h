@@ -1,6 +1,8 @@
 #ifndef SLAM_DATASET_RS_HELPER_H
 #define SLAM_DATASET_RS_HELPER_H
 
+#ifndef USE_HEAR_SLAM
+
 #include <memory>
 #include <deque>
 #include <thread>
@@ -88,5 +90,7 @@ struct RsHelper {
 };
 
 } // namespace slam_dataset
+
+#endif // USE_HEAR_SLAM
 
 #endif // SLAM_DATASET_RS_HELPER_H

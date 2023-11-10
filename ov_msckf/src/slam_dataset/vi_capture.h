@@ -1,14 +1,16 @@
 #ifndef SLAM_DATASET_VI_CAPTURE_H
 #define SLAM_DATASET_VI_CAPTURE_H
 
+#include "sensor_data.h"
+
+#ifndef USE_HEAR_SLAM
+
 #include <map>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 #include <string>
 #include <mutex>
-
-#include "sensor_data.h"
 
 namespace slam_dataset {
 
@@ -130,5 +132,7 @@ protected:
 };
 
 } // namespace slam_dataset
+
+#endif // USE_HEAR_SLAM
 
 #endif // SLAM_DATASET_VI_CAPTURE_H

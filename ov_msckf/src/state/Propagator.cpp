@@ -65,10 +65,10 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
   std::vector<ov_core::ImuData> prop_data;
   {
     std::lock_guard<std::mutex> lck(imu_data_mtx);
-    prop_data = ov_core::ImuData::select_imu_readings(imu_data, time0, time1);
+    prop_data = ov_core::select_imu_readings(imu_data, time0, time1);
   }
 
-  prop_data = ImuData::fill_imu_data_gaps(prop_data);
+  prop_data = fill_imu_data_gaps(prop_data);
 
   if (output_rotation) {
     if (prop_data.size() < 2) {
@@ -168,12 +168,12 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
     } else {
       time1 = timestamp + t_off;
     }
-    prop_data = ov_core::ImuData::select_imu_readings(imu_data, time0, time1, false);
+    prop_data = ov_core::select_imu_readings(imu_data, time0, time1, false);
   }
   if (prop_data.size() < 2)
     return false;
 
-  prop_data = ImuData::fill_imu_data_gaps(prop_data);
+  prop_data = fill_imu_data_gaps(prop_data);
   if (output_timestamp) {
     *output_timestamp = prop_data.back().timestamp - t_off;
   }

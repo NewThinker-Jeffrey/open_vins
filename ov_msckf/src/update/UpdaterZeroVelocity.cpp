@@ -95,7 +95,7 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   double time1 = timestamp + t_off_new;
 
   // Select bounding inertial measurements
-  std::vector<ov_core::ImuData> imu_recent = ov_core::ImuData::select_imu_readings(imu_data, time0, time1);
+  std::vector<ov_core::ImuData> imu_recent = ov_core::select_imu_readings(imu_data, time0, time1);
 
   // Move forward in time
   last_prop_time_offset = t_off_new;

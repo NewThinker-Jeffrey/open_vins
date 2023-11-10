@@ -1,14 +1,23 @@
 cmake_minimum_required(VERSION 3.3)
 
+option(USE_HEAR_SLAM "Enable or disable building with ROS (if it is found)" OFF)
+if (USE_HEAR_SLAM)
+    set(HEAR_SLAM_PKG hear_slam)
+    add_definitions(-DUSE_HEAR_SLAM)
+    message(STATUS "Will use hear_slam!!")
+else()
+    message(STATUS "Won't use hear_slam.")
+endif()
+
 # Find ROS build system
-find_package(catkin QUIET COMPONENTS roscpp ov_core)
+find_package(catkin QUIET COMPONENTS roscpp ov_core ${HEAR_SLAM_PKG})
 
 # Describe ROS project
 option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
 if (catkin_FOUND AND ENABLE_ROS)
     add_definitions(-DROS_AVAILABLE=1)
     catkin_package(
-            CATKIN_DEPENDS roscpp cv_bridge ov_core
+            CATKIN_DEPENDS roscpp cv_bridge ov_core ${HEAR_SLAM_PKG}
             INCLUDE_DIRS src/
             LIBRARIES ov_init_lib
     )

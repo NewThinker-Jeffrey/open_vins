@@ -1,3 +1,5 @@
+#ifndef USE_HEAR_SLAM
+
 #include "vi_capture.h"
 
 #include <thread>
@@ -63,3 +65,4 @@ void ViCapture::runImuCallbacks(int imu_idx, ImuData&& msg) {
 
 }  // namespace slam_dataset
 
+#endif // USE_HEAR_SLAM

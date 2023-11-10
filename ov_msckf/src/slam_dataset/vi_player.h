@@ -1,6 +1,10 @@
 #ifndef SLAM_DATASET_VI_PLYAER_H
 #define SLAM_DATASET_VI_PLYAER_H
 
+#include "sensor_data.h"
+
+#ifndef USE_HEAR_SLAM
+
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -80,5 +84,7 @@ protected:
 };
 
 } // namespace slam_dataset
+
+#endif // USE_HEAR_SLAM
 
 #endif // SLAM_DATASET_VI_RECORDER_H
