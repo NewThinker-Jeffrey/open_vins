@@ -1,6 +1,16 @@
 #ifndef SLAM_VIZ_PANGOLIN_HELPER_TYPES_H
 #define SLAM_VIZ_PANGOLIN_HELPER_TYPES_H
 
+#ifdef USE_HEAR_SLAM
+
+#include "hear_slam/viz/pangolin_helper.h"
+
+namespace slam_viz {
+  using namespace hear_slam;
+}
+
+#else
+
 #include <stdint.h>
 #include <string>
 #include <deque>
@@ -70,5 +80,6 @@ using PointdPtrSet = std::deque<const Eigen::Vector3d*>;
 
 } // namespace slam_viz
 
+#endif // USE_HEAR_SLAM
 
 #endif // SLAM_VIZ_PANGOLIN_HELPER_TYPES_H

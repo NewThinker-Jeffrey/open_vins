@@ -1,3 +1,4 @@
+#ifndef USE_HEAR_SLAM
 
 #include "pangolin_helper.h"
 
@@ -621,3 +622,5 @@ makeGlMatrix(const Eigen::Matrix4f& eigen_float_mat) {
 
 } // namespace slam_viz
 
+
+#endif // USE_HEAR_SLAM

@@ -3,6 +3,8 @@
 
 #include "pangolin_helper_types.h"
 
+#ifndef USE_HEAR_SLAM
+
 #include <vector>
 #include <memory>
 #include <opencv2/core/core.hpp>
@@ -194,5 +196,6 @@ void drawPointCloud2(
 
 } // namespace slam_viz
 
+#endif // USE_HEAR_SLAM
 
 #endif // SLAM_VIZ_PANGOLIN_HELPER_H
