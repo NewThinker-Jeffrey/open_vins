@@ -184,17 +184,25 @@ struct VioManagerOptions {
    *
    * @param parser If not null, this parser will be used to load our parameters
    */
+  void set_imu_noises(double sigma_w, double sigma_wb, double sigma_a, double sigma_ab) {
+    imu_noises.sigma_w = sigma_w;
+    imu_noises.sigma_wb = sigma_wb;
+    imu_noises.sigma_a = sigma_a;
+    imu_noises.sigma_ab = sigma_ab;
+    imu_noises.sigma_w_2 = std::pow(imu_noises.sigma_w, 2);
+    imu_noises.sigma_wb_2 = std::pow(imu_noises.sigma_wb, 2);
+    imu_noises.sigma_a_2 = std::pow(imu_noises.sigma_a, 2);
+    imu_noises.sigma_ab_2 = std::pow(imu_noises.sigma_ab, 2);
+  }
   void print_and_load_noise(const std::shared_ptr<ov_core::YamlParser> &parser = nullptr) {
     PRINT_DEBUG("NOISE PARAMETERS:\n");
     if (parser != nullptr) {
-      parser->parse_external("relative_config_imu", "imu0", "gyroscope_noise_density", imu_noises.sigma_w);
-      parser->parse_external("relative_config_imu", "imu0", "gyroscope_random_walk", imu_noises.sigma_wb);
-      parser->parse_external("relative_config_imu", "imu0", "accelerometer_noise_density", imu_noises.sigma_a);
-      parser->parse_external("relative_config_imu", "imu0", "accelerometer_random_walk", imu_noises.sigma_ab);
-      imu_noises.sigma_w_2 = std::pow(imu_noises.sigma_w, 2);
-      imu_noises.sigma_wb_2 = std::pow(imu_noises.sigma_wb, 2);
-      imu_noises.sigma_a_2 = std::pow(imu_noises.sigma_a, 2);
-      imu_noises.sigma_ab_2 = std::pow(imu_noises.sigma_ab, 2);
+      double sigma_w, sigma_wb, sigma_a, sigma_ab;
+      parser->parse_external("relative_config_imu", "imu0", "gyroscope_noise_density", sigma_w);
+      parser->parse_external("relative_config_imu", "imu0", "gyroscope_random_walk", sigma_wb);
+      parser->parse_external("relative_config_imu", "imu0", "accelerometer_noise_density", sigma_a);
+      parser->parse_external("relative_config_imu", "imu0", "accelerometer_random_walk", sigma_ab);
+      set_imu_noises(sigma_w, sigma_wb, sigma_a, sigma_ab);
     }
     imu_noises.print();
     if (parser != nullptr) {
@@ -242,14 +250,44 @@ struct VioManagerOptions {
   std::map<size_t, Eigen::VectorXd> camera_extrinsics;
   std::map<size_t, Eigen::Matrix4d> T_CtoIs;
 
-  /// Map between camid and camera extrinsics (T_C_in_Is: pose of camera in imu).
-  std::map<size_t, Eigen::Isometry3d> T_C_in_Is;
-
   /// If we should try to load a mask and use it to reject invalid features
   bool use_mask = false;
 
   /// Mask images for each camera
   std::map<size_t, cv::Mat> masks;
+
+  void set_camera_intrinsics(size_t cam_id, const std::string& dist_model, int width, int height, Eigen::VectorXd cam_calib) {
+    cam_calib(0) /= (downsample_cameras) ? 2.0 : 1.0;
+    cam_calib(1) /= (downsample_cameras) ? 2.0 : 1.0;
+    cam_calib(2) /= (downsample_cameras) ? 2.0 : 1.0;
+    cam_calib(3) /= (downsample_cameras) ? 2.0 : 1.0;
+    width /= (downsample_cameras) ? 2.0 : 1.0;
+    height /= (downsample_cameras) ? 2.0 : 1.0;
+    std::pair<int, int> wh(width, height);
+
+    // Create intrinsics model
+    if (dist_model == "equidistant") {
+      camera_intrinsics.insert({cam_id, std::make_shared<ov_core::CamEqui>(width, height)});
+      camera_intrinsics.at(cam_id)->set_value(cam_calib);
+    } else {
+      camera_intrinsics.insert({cam_id, std::make_shared<ov_core::CamRadtan>(width, height)});
+      camera_intrinsics.at(cam_id)->set_value(cam_calib);
+    }
+  }
+
+  void set_camera_extrinsics(size_t cam_id, const Eigen::Matrix4d& T_CtoI) {
+    T_CtoIs.insert({cam_id, T_CtoI});
+    Eigen::Matrix<double, 7, 1> cam_eigen;
+    cam_eigen.block(0, 0, 4, 1) = ov_core::rot_2_quat(T_CtoI.block(0, 0, 3, 3).transpose());
+    cam_eigen.block(4, 0, 3, 1) = -T_CtoI.block(0, 0, 3, 3).transpose() * T_CtoI.block(0, 3, 3, 1);
+    camera_extrinsics.insert({cam_id, cam_eigen});
+    {
+      std::ostringstream oss;
+      oss << "DEBUG T_CtoIs: " << cam_id << std::endl;
+      oss << T_CtoI << std::endl;
+      PRINT_INFO("%s", oss.str().c_str());
+    }
+  }
 
   /**
    * @brief This function will load and print all state parameters (e.g. sensor extrinsics)
@@ -284,44 +322,20 @@ struct VioManagerOptions {
         Eigen::VectorXd cam_calib = Eigen::VectorXd::Zero(8);
         cam_calib << cam_calib1.at(0), cam_calib1.at(1), cam_calib1.at(2), cam_calib1.at(3), cam_calib2.at(0), cam_calib2.at(1),
             cam_calib2.at(2), cam_calib2.at(3);
-        cam_calib(0) /= (downsample_cameras) ? 2.0 : 1.0;
-        cam_calib(1) /= (downsample_cameras) ? 2.0 : 1.0;
-        cam_calib(2) /= (downsample_cameras) ? 2.0 : 1.0;
-        cam_calib(3) /= (downsample_cameras) ? 2.0 : 1.0;
 
         // FOV / resolution
         std::vector<int> matrix_wh = {1, 1};
         parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "resolution", matrix_wh);
-        matrix_wh.at(0) /= (downsample_cameras) ? 2.0 : 1.0;
-        matrix_wh.at(1) /= (downsample_cameras) ? 2.0 : 1.0;
-        std::pair<int, int> wh(matrix_wh.at(0), matrix_wh.at(1));
 
         // Extrinsics
         Eigen::Matrix4d T_CtoI = Eigen::Matrix4d::Identity();
         parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "T_imu_cam", T_CtoI);
 
         // Load these into our state
-        Eigen::Matrix<double, 7, 1> cam_eigen;
-        cam_eigen.block(0, 0, 4, 1) = ov_core::rot_2_quat(T_CtoI.block(0, 0, 3, 3).transpose());
-        cam_eigen.block(4, 0, 3, 1) = -T_CtoI.block(0, 0, 3, 3).transpose() * T_CtoI.block(0, 3, 3, 1);
 
-        // Create intrinsics model
-        if (dist_model == "equidistant") {
-          camera_intrinsics.insert({i, std::make_shared<ov_core::CamEqui>(matrix_wh.at(0), matrix_wh.at(1))});
-          camera_intrinsics.at(i)->set_value(cam_calib);
-        } else {
-          camera_intrinsics.insert({i, std::make_shared<ov_core::CamRadtan>(matrix_wh.at(0), matrix_wh.at(1))});
-          camera_intrinsics.at(i)->set_value(cam_calib);
-        }
-        
-        T_CtoIs.insert({i, T_CtoI});
-        camera_extrinsics.insert({i, cam_eigen});
-        {
-          std::ostringstream oss;
-          oss << "DEBUG T_CtoIs: " << i << std::endl;
-          oss << T_CtoI << std::endl;
-          PRINT_INFO("%s", oss.str().c_str());
-        }
+        set_camera_intrinsics(i, dist_model, matrix_wh[0], matrix_wh[1], cam_calib);
+
+        set_camera_extrinsics(i, T_CtoI);
       }
 
       parser->parse_config("use_mask", use_mask);
