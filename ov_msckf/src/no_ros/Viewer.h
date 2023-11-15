@@ -23,7 +23,6 @@
 #define OV_MSCKF_VIEWER_H
 
 #include "core/VioManager.h"
-#include "ov_interface/VIO.h"
 #include <mutex>
 
 
@@ -35,7 +34,7 @@ namespace ov_msckf {
 
 class Viewer {
 public:
-  Viewer(std::shared_ptr<ov_interface::VIO> app);
+  Viewer(VioManager* interal_app);
   void init();
   void show(std::shared_ptr<VioManager::Output> task);
 
@@ -47,7 +46,7 @@ private:
 
 
   /// Core application of the filter system
-  std::shared_ptr<ov_interface::VIO> _app;
+  VioManager* _interal_app;
 
   std::shared_ptr<pangolin::OpenGlRenderState> s_cam1, s_cam2;
   std::deque <Eigen::Vector3f> _traj;
@@ -65,7 +64,7 @@ namespace ov_msckf {
 
 class Viewer {
 public:
-  Viewer(std::shared_ptr<ov_interface::VIO> app) {
+  Viewer(VioManager* interal_app) {
     std::cout << "Viewer::Viewer():  No Pangolin!" << std::endl;
   }
   void init() {}

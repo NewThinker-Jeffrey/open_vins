@@ -32,9 +32,8 @@
 #include <Eigen/Geometry>
 
 #include "slam_viz/pangolin_helper.h"
+#include "state/Propagator.h"
 
-
-extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(ov_interface::VIO*);
 
 using namespace ov_core;
 using namespace ov_type;
@@ -42,7 +41,7 @@ using namespace ov_msckf;
 
 const double viewpoint_height = 5.0;
 
-Viewer::Viewer(std::shared_ptr<ov_interface::VIO> app) : _app(app) {
+Viewer::Viewer(VioManager* interal_app) : _interal_app(interal_app) {
   std::cout << "Viewer::Viewer():  Use Pangolin!" << std::endl;
 
   // std::cout << "Viewer::Viewer():  Loading Chinese font ..." << std::endl;
@@ -122,8 +121,7 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  auto internal_app = getVioManagerFromVioInterface(_app.get());
-  cv::Mat img_history = internal_app->get_historical_viz_image(output);
+  cv::Mat img_history = _interal_app->get_historical_viz_image(output);
   drawCvImageOnView(
       img_history,
       pangolin::Display("feature_tracking"),
@@ -137,15 +135,23 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
 
   double imu_time;
   {
-    auto loc = _app->Localization(true);
-    const double* q = loc.q;
-    const double* p = loc.p;
-    imu_time = loc.timestamp;
-    Eigen::Quaternionf quat(q[3], q[0], q[1], q[2]);
-    _predicted_imu_pose = Eigen::Isometry3f(quat);
-    _predicted_imu_pose.translation() = Eigen::Vector3f(p[0], p[1], p[2]);
+    Eigen::Matrix<double, 13, 1> state_plus;
+    Eigen::Matrix<double, 12, 12> covariance;
+    bool propagate_ok = _interal_app->get_propagator()->fast_state_propagate(
+        output->state_clone, -1.0, state_plus, covariance, &imu_time);
+    if (propagate_ok) {
+      Eigen::Matrix<double, 4, 1> qJPL_from_world_to_imu = state_plus.block(0, 0, 4, 1);
+      Eigen::Vector3d pos = state_plus.block(4, 0, 3, 1);
+      // Openvins outputs a quaternion in JPL convention and interpret it as the rotation from world to imu,
+      // while we want a quaternion in Hamilton convention representing the rotation from imu to world.
+      // However, the two quaternions coincide with each other in numbers.
+      Eigen::Matrix<double, 4, 1> qHamilton_from_imu_to_world = qJPL_from_world_to_imu;
+      auto& q = qHamilton_from_imu_to_world;
+      Eigen::Quaternionf quat(q[3], q[0], q[1], q[2]);
+      _predicted_imu_pose = Eigen::Isometry3f(quat);
+      _predicted_imu_pose.translation() = Eigen::Vector3f(pos[0], pos[1], pos[2]);
+    }
   }
-
 
 
   {

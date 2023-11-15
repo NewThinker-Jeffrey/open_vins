@@ -68,6 +68,7 @@ std::shared_ptr<slam_dataset::ViCapture> capture;
 std::shared_ptr<slam_dataset::ViRecorder> recorder;
 
 extern ov_msckf::VioManagerOptions& getVioParamsFromVioInterface(ov_interface::VIO* vio);
+extern std::shared_ptr<ov_msckf::VioManager> getVioManagerFromVioInterface(ov_interface::VIO*);
 
 
 __sighandler_t old_sigint_handler = nullptr;
@@ -292,7 +293,7 @@ int main(int argc, char **argv) {
 
   std::shared_ptr<ov_msckf::Viewer> gl_viewer(nullptr);
   if (run_algo && run_pangolin_viewer) {
-    gl_viewer = std::make_shared<ov_msckf::Viewer>(sys);
+    gl_viewer = std::make_shared<ov_msckf::Viewer>(getVioManagerFromVioInterface(sys.get()).get());
   }
 
   if (run_algo) {
