@@ -632,6 +632,10 @@ void VioManager::update_output(double timestamp) {
   output.visualization.active_cam0_image = active_image;
   std::unique_lock<std::mutex> locker(output_mutex_);
   this->output = std::move(output);
+
+  if (update_callback_) {
+    update_callback_(this->output);
+  }
 }
 
 void VioManager::clear_older_tracking_cache(double timestamp) {

@@ -121,6 +121,10 @@ public:
     return output;
   }
 
+  void setUpdateCallback(std::function<void(const Output& output)> cb) {
+    update_callback_ = cb;
+  }
+
   /**
    * @brief Default constructor, will load all configuration variables
    * @param params_ Parameters loaded from either ROS or CMDLINE
@@ -356,6 +360,8 @@ protected:
 
   std::mutex output_mutex_;
   Output output;
+    // This callback will be invoked when the output is updated.
+  std::function<void(const Output& output)> update_callback_;
   void update_output(double timestamp);
 
   // Last camera message timestamps we have received (mapped by cam id)

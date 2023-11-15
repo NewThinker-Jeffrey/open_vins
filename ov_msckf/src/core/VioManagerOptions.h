@@ -256,7 +256,10 @@ struct VioManagerOptions {
   /// Mask images for each camera
   std::map<size_t, cv::Mat> masks;
 
-  void set_camera_intrinsics(size_t cam_id, const std::string& dist_model, int width, int height, Eigen::VectorXd cam_calib) {
+  void set_camera_intrinsics(size_t cam_id,
+                             const std::string& dist_model, // radtan or equidistant
+                             int width, int height,
+                             Eigen::VectorXd cam_calib) {
     cam_calib(0) /= (downsample_cameras) ? 2.0 : 1.0;
     cam_calib(1) /= (downsample_cameras) ? 2.0 : 1.0;
     cam_calib(2) /= (downsample_cameras) ? 2.0 : 1.0;
