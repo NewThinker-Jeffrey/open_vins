@@ -1126,8 +1126,10 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   //===================================================================================
 
   // Re-triangulate all current tracks in the current frame
+  // note(jeffrey): we assume 'sensor_ids' is a sorted vector (small id frist), and there is always a
+  //                camera with sensor_id=0;
+  // std::cout << "DEBUG sensor_ids: " << message.sensor_ids[0] << ", " << message.sensor_ids[1] << std::endl;
   if (message.sensor_ids.at(0) == 0) {
-
     // Re-triangulate features
     retriangulate_active_tracks(message);
 
