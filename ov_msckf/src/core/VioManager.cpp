@@ -633,7 +633,7 @@ void VioManager::update_output(double timestamp) {
   std::unique_lock<std::mutex> locker(output_mutex_);
   this->output = std::move(output);
 
-  if (update_callback_) {
+  if (timestamp > 0 && update_callback_) {
     update_callback_(this->output);
   }
 }
