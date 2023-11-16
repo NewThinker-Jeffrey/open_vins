@@ -90,6 +90,9 @@ list(APPEND LIBRARY_SOURCES
         src/slam_dataset/vi_player.cpp
         src/slam_dataset/vi_recorder.cpp        
         src/slam_viz/pangolin_helper.cpp
+        src/no_ros/VisualizerHelper.cpp
+        src/no_ros/Viewer.cpp
+        src/no_ros/VisualizerForViCapture.cpp
         )
 
 
@@ -104,7 +107,7 @@ if(realsense2_FOUND)
     )
 endif()
 
-file(GLOB_RECURSE LIBRARY_HEADERS "src/core/*.h" "src/ov_interface/*.h" "src/state/*.h" "src/update/*.h" "src/utils/*.h" "src/sim/*.h")
+file(GLOB_RECURSE LIBRARY_HEADERS "src/core/*.h" "src/ov_interface/*.h" "src/state/*.h" "src/update/*.h" "src/utils/*.h" "src/sim/*.h" "src/no_ros/*.h")
 add_library(ov_msckf_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
 # ament_target_dependencies(ov_msckf_lib ${ament_libraries} ov_core ov_init)
 ament_target_dependencies(ov_msckf_lib ov_core ov_init)
@@ -128,12 +131,6 @@ ament_export_libraries(ov_msckf_lib)
 
 list(APPEND vicapture_msckf_SOURCES
                 src/run_vicapture_msckf.cpp
-                src/no_ros/VisualizerHelper.cpp
-                src/no_ros/VisualizerHelper.h
-                src/no_ros/Viewer.cpp
-                src/no_ros/Viewer.h
-                src/no_ros/VisualizerForViCapture.cpp
-                src/no_ros/VisualizerForViCapture.h
                 )
 
 if (ENABLE_ROS)
@@ -165,10 +162,6 @@ if (ENABLE_ROS)
                 src/ros/ROS2Visualizer.h
                 src/ros/ROSVisualizerHelper.cpp
                 src/ros/ROSVisualizerHelper.h
-                src/no_ros/VisualizerHelper.cpp
-                src/no_ros/VisualizerHelper.h
-                src/no_ros/Viewer.cpp
-                src/no_ros/Viewer.h
                 )
         ament_target_dependencies(run_subscribe_msckf ${ament_libraries} ov_core ov_init)
         target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
@@ -180,10 +173,6 @@ if (ENABLE_ROS)
                         src/ros/ROS2Visualizer.h
                         src/ros/ROSVisualizerHelper.cpp
                         src/ros/ROSVisualizerHelper.h
-                        src/no_ros/VisualizerHelper.cpp
-                        src/no_ros/VisualizerHelper.h
-                        src/no_ros/Viewer.cpp
-                        src/no_ros/Viewer.h        
                         )
         ament_target_dependencies(run_simulation ${ament_libraries} ov_core ov_init)
         target_link_libraries(run_simulation ov_msckf_lib ${thirdparty_libraries})

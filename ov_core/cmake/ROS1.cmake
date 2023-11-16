@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.3)
 
-option(USE_HEAR_SLAM "Enable or disable building with ROS (if it is found)" OFF)
+option(USE_HEAR_SLAM "Enable or disable building with hear_slam" OFF)
 if (USE_HEAR_SLAM)
     set(HEAR_SLAM_PKG hear_slam)
     add_definitions(-DUSE_HEAR_SLAM)
