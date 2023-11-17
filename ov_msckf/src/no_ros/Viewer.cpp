@@ -209,10 +209,17 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   std::string imu_time_str = get_time_str(imu_time);
   std::string image_time_str = get_time_str(image_time);
   char tmp_buf[100];
-  sprintf(tmp_buf, "%.3f, %.3f, %.3f", new_pos(0), new_pos(1), new_pos(2));
-  std::string vio_pos_str(tmp_buf);
+  Eigen::Matrix4f fT_MtoG = output->status.T_MtoG.cast<float>();
+  Eigen::Matrix3f R_MtoG = fT_MtoG.block<3,3>(0,0);
+  Eigen::Vector3f t_MinG = fT_MtoG.block<3,1>(0,3);
+
+  Eigen::Vector3f transformed_new_pos = R_MtoG * new_pos + t_MinG;
+
+  sprintf(tmp_buf, "%.3f, %.3f, %.3f", transformed_new_pos(0), transformed_new_pos(1), transformed_new_pos(2));
+  std::string slam_pos_str(tmp_buf);
   Eigen::Vector3f predict_pos = _predicted_imu_pose.translation();
-  sprintf(tmp_buf, "%.3f, %.3f, %.3f", predict_pos(0), predict_pos(1), predict_pos(2));
+  Eigen::Vector3f transformed_predict_pos = R_MtoG * predict_pos + t_MinG;
+  sprintf(tmp_buf, "%.3f, %.3f, %.3f", transformed_predict_pos(0), transformed_predict_pos(1), transformed_predict_pos(2));
   std::string predict_pos_str(tmp_buf);
   sprintf(tmp_buf, "%.3f", output->status.distance);
   std::string distance_str(tmp_buf);
@@ -221,9 +228,11 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
       { TextLine("IMU time:   " + imu_time_str)
        ,TextLine("Image time: " + image_time_str)
        ,TextLine("Image delay: " + (imu_time > 0 ? std::to_string(int64_t((imu_time - image_time) * 1e3)) + " ms" : std::string("unknown")))
+       ,TextLine("Relocalized: " + std::to_string(output->status.localized))
+       ,TextLine("Reloc cnt: " + std::to_string(output->status.accepted_localization_cnt))
        ,TextLine("Stable points:  " + std::to_string(_slam_points.size()))
        ,TextLine("Short-term points: " + std::to_string(_msckf_points.size()))
-       ,TextLine("vio_pos:     " + vio_pos_str)
+       ,TextLine("slam_pos:     " + slam_pos_str)
        ,TextLine("predict_pos: " + predict_pos_str)
        ,TextLine("Traveled distance: " + distance_str)       
       },
@@ -277,6 +286,12 @@ void Viewer::classifyPoints(std::shared_ptr<VioManager::Output> output) {
 
 void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
   using namespace slam_viz::pangolin_helper;
+
+  glPushMatrix();
+  Eigen::Matrix4f fT_MtoG = output->status.T_MtoG.cast<float>();
+  glMultMatrixf(fT_MtoG.data());
+
+
   Eigen::Vector3f new_pos = _imu_pose.translation();
   // draw grid
   drawGrids2D(
@@ -285,6 +300,15 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
       Color(255, 255, 255, 40), 1.0f);
 
   drawFrame(2.0, 10.0, 80);
+
+  // draw line connecting the origin point and current pos.
+  glLineWidth(1.0);
+  glColor4ub(255, 255, 0, 80);
+  glBegin(GL_LINES);
+  glVertex3f(0,0,0);
+  glVertex3f(new_pos(0), new_pos(1), new_pos(2));
+  glEnd();
+
 
   drawMultiTextLines(
       {TextLine("起点", false, getChineseFont()),
@@ -336,14 +360,17 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
         // 1.0 / 72.0);
   });
 
+
   const bool draw_imu_predict = true;
   if (draw_imu_predict) {
     multMatrixfAndDraw(_predicted_imu_pose.matrix(), [&](){
       drawVehicle(
           0.4 * 1.3, Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(0, -1, 0),
           Color(255,0,255,80), 4.0f);
-    });
+    });    
   }
+
+  glPopMatrix();
 }
 
 

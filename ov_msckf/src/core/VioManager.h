@@ -76,6 +76,7 @@ public:
       double distance = 0.0;
       bool localized = false;
       Eigen::Matrix4d T_MtoG;
+      int accepted_localization_cnt = 0;
     } status;
 
     /////// The state ///////
@@ -348,6 +349,7 @@ protected:
   std::mutex localization_queue_mutex_;
   std::deque<ov_core::LocalizationData> localization_queue_;
   bool localized_ = false;
+  int accepted_localization_cnt_ = 0;
   Eigen::Matrix<double, 4, 1> q_GtoM_;  // in JPL convention
   Eigen::Matrix3d R_GtoM_;
   Eigen::Matrix<double, 3, 1> p_MinG_;

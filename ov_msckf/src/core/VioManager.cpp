@@ -541,6 +541,9 @@ void VioManager::do_update(ImgProcessContextPtr c) {
 
 void VioManager::dealwith_one_localization(const ov_core::LocalizationData& reloc, std::shared_ptr<ov_type::PoseJPL> target_clone) {
 
+// std::cout << "DEBUG dealwith_localization: input,  q = [" << reloc.qm.transpose() << "],  p = [" << reloc.pm.transpose() << "]" << std::endl;
+
+
   std::shared_ptr<ov_type::PoseJPL> predict_pose = target_clone;
 
   Eigen::Matrix<double, 4, 1> q_MtoI_predict = predict_pose->quat();
@@ -576,10 +579,19 @@ void VioManager::dealwith_one_localization(const ov_core::LocalizationData& relo
     Eigen::Matrix<double, 4, 1> q_MtoI_inv;
     q_MtoI_inv << -q_MtoI[0], -q_MtoI[1], -q_MtoI[2], q_MtoI[3];
 
+// std::cout << "DEBUG dealwith_localization: q_MtoI = [" << q_MtoI.transpose() << "]" << std::endl;
+// std::cout << "DEBUG dealwith_localization: p_IinM = [" << p_IinM.transpose() << "]" << std::endl;
+// std::cout << "DEBUG dealwith_localization: q_GtoI = [" << q_GtoI.transpose() << "]" << std::endl;
+// std::cout << "DEBUG dealwith_localization: p_IinG = [" << p_IinG.transpose() << "]" << std::endl;
+// std::cout << "DEBUG dealwith_localization: q_MtoI_inv = [" << q_MtoI_inv.transpose() << "]" << std::endl;
+
     LocalizationAnchor base;
     base.R_GtoM = R_MtoI.transpose() * R_GtoI;  // R_M_G = R_M_I * R_I_G
     base.q_GtoM = ov_core::quat_multiply(q_MtoI_inv, q_GtoI);
-    base.p_MinG = p_IinG - R_GtoM_.transpose() * p_IinM;
+    base.p_MinG = p_IinG - base.R_GtoM.transpose() * p_IinM;
+
+// std::cout << "DEBUG dealwith_localization: base.q_GtoM = [" << base.q_GtoM.transpose() << "],  base.p_MinG = [" << base.p_MinG.transpose() << "]" << std::endl;
+
 
     initial_loc_buffer_.push_back(base);
     const size_t initial_loc_buffer_size = 3;
@@ -704,7 +716,8 @@ void VioManager::dealwith_one_localization(const ov_core::LocalizationData& relo
   }
   
   // do the update
-  PRINT_INFO(BLUE "dealwith_localization: accecp the localization @%f!\n" RESET, reloc.timestamp);
+  accepted_localization_cnt_ ++;
+  PRINT_INFO(BLUE "dealwith_localization: accecp the localization @%f, total accepted %d!\n" RESET, reloc.timestamp, accepted_localization_cnt_);
   StateHelper::EKFUpdate(state, {predict_pose}, H, residual, reloc.qp_cov);
 }
 
@@ -757,6 +770,7 @@ void VioManager::dealwith_localizations() {
       PRINT_WARNING(YELLOW "dealwith_localization: Localization time doesn't match the vio-estimate times! We'll disgard it!");
       continue;
     }
+    PRINT_INFO(BLUE "dealwith_localization: find target clone @%f, reloc.time %f\n" RESET, target_clone_time, oldest_loc.timestamp);
 
     std::shared_ptr<ov_type::PoseJPL> target_clone = state->_clones_IMU.at(target_clone_time);
 
@@ -854,6 +868,7 @@ void VioManager::update_output(double timestamp) {
   output.status.distance = distance;
   output.status.drift = has_drift;
   output.status.localized = localized_;
+  output.status.accepted_localization_cnt = accepted_localization_cnt_;
   output.status.T_MtoG = Eigen::Matrix4d::Identity();
   if (localized_) {
     output.status.T_MtoG.block<3,3>(0,0) = R_GtoM_.transpose();
