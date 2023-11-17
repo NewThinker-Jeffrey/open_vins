@@ -44,6 +44,11 @@
 #include "update/UpdaterSLAM.h"
 #include "update/UpdaterZeroVelocity.h"
 
+// headers used by reloc update
+// todo(jeffrey): maybe we should put the implementation of localization update in a signle .cpp file)
+#include "utils/chi_square/chi_squared_quantile_table_0_95.h"
+#include "update/UpdaterHelper.h"
+
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
@@ -429,6 +434,7 @@ void VioManager::update_thread_func() {
 
     do_update(c);
     has_drift = check_drift();
+    dealwith_localizations();
     update_output(c->message->timestamp);
   }
 }
@@ -530,6 +536,235 @@ void VioManager::do_update(ImgProcessContextPtr c) {
   do_feature_propagate_update(c);
 }
 
+
+
+
+void VioManager::dealwith_one_localization(const ov_core::LocalizationData& reloc, std::shared_ptr<ov_type::PoseJPL> target_clone) {
+
+  std::shared_ptr<ov_type::PoseJPL> predict_pose = target_clone;
+
+  Eigen::Matrix<double, 4, 1> q_MtoI_predict = predict_pose->quat();
+  Eigen::Matrix<double, 3, 1> p_IinM_predict = predict_pose->pos();
+  Eigen::Matrix3d R_MtoI_predict = predict_pose->Rot();
+
+  Eigen::Matrix<double, 4, 1> q_GtoI_observe = reloc.qm;
+  Eigen::Matrix<double, 3, 1> p_IinG_observe = reloc.pm;
+  Eigen::Matrix3d R_GtoI_observe = ov_core::quat_2_Rot(reloc.qm);
+
+  // check gravity direction disparity
+  Eigen::Vector3d gravity_vec_diff = R_GtoI_observe * Eigen::Vector3d::UnitZ() - R_MtoI_predict * Eigen::Vector3d::UnitZ();
+  double approx_gravity_angle_diff = gravity_vec_diff.norm();
+  const double gravity_angle_diff_thr = 0.08;  // about 5°
+  PRINT_INFO(BLUE "dealwith_localization: check gravity: gravity_angle_diff = %.4f\n" RESET, approx_gravity_angle_diff);
+  if (approx_gravity_angle_diff > gravity_angle_diff_thr) {
+    PRINT_WARNING(YELLOW "dealwith_localization: Reject the localization since the gravity check failed!\n" RESET);
+    return;
+  }
+
+  if (!localized_) {
+    // todo(jeffrey):
+    //     We may need to collect a series of localizations and then do some consistency check
+    //     before accept the initial localization.
+
+    const Eigen::Matrix<double, 4, 1>& q_MtoI = q_MtoI_predict;
+    const Eigen::Matrix<double, 3, 1>& p_IinM = p_IinM_predict;
+    const Eigen::Matrix<double, 4, 1>& q_GtoI = q_GtoI_observe;
+    const Eigen::Matrix<double, 3, 1>& p_IinG = p_IinG_observe;
+    const Eigen::Matrix3d& R_MtoI = R_MtoI_predict;
+    const Eigen::Matrix3d& R_GtoI = R_GtoI_observe;
+
+    Eigen::Matrix<double, 4, 1> q_MtoI_inv;
+    q_MtoI_inv << -q_MtoI[0], -q_MtoI[1], -q_MtoI[2], q_MtoI[3];
+
+    LocalizationAnchor base;
+    base.R_GtoM = R_MtoI.transpose() * R_GtoI;  // R_M_G = R_M_I * R_I_G
+    base.q_GtoM = ov_core::quat_multiply(q_MtoI_inv, q_GtoI);
+    base.p_MinG = p_IinG - R_GtoM_.transpose() * p_IinM;
+
+    initial_loc_buffer_.push_back(base);
+    const size_t initial_loc_buffer_size = 3;
+    while(initial_loc_buffer_.size() > initial_loc_buffer_size) {
+      initial_loc_buffer_.pop_front();
+    }
+    if (initial_loc_buffer_.size() < initial_loc_buffer_size) {
+      PRINT_INFO(BLUE "dealwith_localization: We need to collect %d localization measurements before we "
+                 "initialize the localization. now we have %d\n" RESET,
+                 initial_loc_buffer_size, initial_loc_buffer_.size());
+      return;
+    }
+
+    // check consistency
+    Eigen::Matrix<double, 4, 1> base_q_GtoM_inv;
+    base_q_GtoM_inv << -base.q_GtoM[0], -base.q_GtoM[1], -base.q_GtoM[2], base.q_GtoM[3];
+    double max_p_diff = 0.0;
+    double max_theta_diff = 0.0;
+    for (const LocalizationAnchor& a : initial_loc_buffer_) {
+      Eigen::Matrix<double, 4, 1> q_diff = ov_core::quat_multiply(a.q_GtoM, base_q_GtoM_inv);
+      Eigen::Matrix<double, 3, 1> theta_diff(2.0 * q_diff[0], 2.0 * q_diff[1], 2.0 * q_diff[2]);
+      Eigen::Matrix<double, 3, 1> p_diff = a.p_MinG - base.p_MinG;
+      double theta_diff_norm = theta_diff.norm();
+      double p_diff_norm = p_diff.norm();
+      PRINT_INFO(BLUE "dealwith_localization: check initial: theta_diff_norm = %.4f, p_diff_norm = %.4f\n" RESET, theta_diff_norm, p_diff_norm);
+      if (theta_diff_norm > max_theta_diff) {
+        max_theta_diff = theta_diff_norm;
+      }
+      if (p_diff_norm > max_p_diff) {
+        max_p_diff = p_diff_norm;
+      }
+    }
+    PRINT_INFO(BLUE "dealwith_localization: check initial: max_theta_diff = %.4f, max_p_diff = %.4f\n" RESET, max_theta_diff, max_p_diff);
+    const double initial_loc_theta_diff_thr = 0.1;
+    const double initial_loc_pos_diff_thr = 0.5;
+    if (max_theta_diff > initial_loc_theta_diff_thr ||
+        max_p_diff > initial_loc_pos_diff_thr) {
+      PRINT_WARNING(YELLOW "dealwith_localization: localization not initilized since the recent localizations differ too much\n" RESET);
+      return;
+    }
+    
+    // After q_GtoM_ & p_MinG is initialized, we'll fix it.
+    R_GtoM_ = base.R_GtoM;
+    q_GtoM_ = base.q_GtoM;
+    p_MinG_ = base.p_MinG;
+    localized_ = true;
+    initial_loc_buffer_.clear();
+    PRINT_INFO(BLUE "dealwith_localization: localization initialized!\n" RESET);
+  }
+
+  Eigen::Matrix3d R_MtoG = R_GtoM_.transpose();
+  Eigen::Matrix3d R_GtoI_predict = R_MtoI_predict * R_GtoM_;  // R_I_G = R_I_M * R_M_G
+  // q_GtoI = q_MtoI * q_GtoM;
+  // p_IinG = p_MinG + R_MtoG * p_IinM;
+  Eigen::Matrix<double, 4, 1> q_GtoI_predict = ov_core::quat_multiply(q_MtoI_predict, q_GtoM_);
+  Eigen::Matrix<double, 3, 1> p_IinG_predict = p_MinG_ + R_MtoG * p_IinM_predict;
+
+  // q_err * q_predict = q_observe
+  // q_err = q_observe * q_predict.inv()
+  Eigen::Matrix<double, 4, 1> q_GtoI_predict_inv;
+  q_GtoI_predict_inv << -q_GtoI_predict[0], -q_GtoI_predict[1], -q_GtoI_predict[2], q_GtoI_predict[3];
+  Eigen::Matrix<double, 4, 1> q_err = ov_core::quat_multiply(q_GtoI_observe, q_GtoI_predict_inv);
+  Eigen::Matrix<double, 3, 1> theta_err(2.0 * q_err[0], 2.0 * q_err[1], 2.0 * q_err[2]);
+  Eigen::Matrix<double, 3, 1> p_err = p_IinG_observe - p_IinG_predict;
+  double theta_err_norm = theta_err.norm();
+  double p_err_norm = p_err.norm();
+  PRINT_INFO(BLUE "dealwith_localization: theta_err.norm() = %.4f, p_err.norm() = %.4f\n" RESET, theta_err_norm, p_err_norm);
+  // todo(jeffrey): Check theta_err_norm & p_err_norm, they should be small.
+  //                If not, we may need to disgard (or reinitialize?) the localization.
+  Eigen::Matrix<double, 6, 1> residual;
+  residual << theta_err[0], theta_err[1], theta_err[2],
+              p_err[0], p_err[1], p_err[2];
+  PRINT_INFO(BLUE "dealwith_localization: residual.theta = (%.4f, %.4f, %.4f),  residual.pos = (%.4f, %.4f, %.4f)\n" RESET,
+              theta_err[0], theta_err[1], theta_err[2], p_err[0], p_err[1], p_err[2]);
+  
+  //
+  // q_GtoI = q_MtoI * q_GtoM;
+  // p_IinG = p_MinG + R_MtoG * p_IinM;
+  //
+  // We use left perturbation for quaternion in openvins, 
+  // so,
+  //
+  // err_q_GtoI = err_q_MtoI
+  // err_p_IinG = R_MtoG * err_p_IinM
+  //
+  // then we get the H matrix:  [I_{33},  R_G_M]^t
+  //
+
+  Eigen::Matrix<double, 6, 6> P_prior =
+      StateHelper::get_marginal_covariance(state, {predict_pose});
+  {
+    Eigen::MatrixXd q_cov = P_prior.block(0,0,3,3);
+    Eigen::MatrixXd p_cov = P_prior.block(3,3,3,3);
+    double std_q = std::sqrt(q_cov.trace());
+    double std_p = std::sqrt(p_cov.trace());
+    PRINT_INFO(BLUE "dealwith_localization: predict uncertainty: std_q = %.4f, std_p = %.4f\n" RESET, std_q, std_p);
+    // If the uncertainty of predict pose is larger than a thresheld, we re-initialize the localization;
+    // Otherwise, we use the cov of predict pose to detect outlier localizations.
+
+    const double q_uncertainty_thr_for_localization_reset = 0.05;
+    const double p_uncertainty_thr_for_localization_reset = 0.5;
+    if (std_q > q_uncertainty_thr_for_localization_reset ||
+        std_p > p_uncertainty_thr_for_localization_reset) {
+      PRINT_WARNING(YELLOW "dealwith_localization: Will re-initialize the localization since the current pose estimate has high uncertainty!\n" RESET);
+      localized_ = false;
+      dealwith_one_localization(reloc, target_clone);
+      return;
+    }
+  }
+  Eigen::Matrix<double, 6, 6> H = Eigen::Matrix<double, 6, 6>::Zero();
+  H.block<3,3>(0,0) = Eigen::Matrix3d::Identity();
+  H.block<3,3>(3,3) = R_MtoG;
+  Eigen::Matrix<double, 6, 6> residual_cov = H * P_prior * H.transpose() + reloc.qp_cov;
+  Eigen::Matrix<double, 6, 6> info = residual_cov.inverse();
+  double mh_distance_square = residual.transpose() * info * residual;
+  const double mh_thr = ::chi_squared_quantile_table_0_95[6];
+  PRINT_INFO(BLUE "dealwith_localization: mh_distance_square = %.4f, mh_thr = %.4f\n" RESET, mh_distance_square, mh_thr);
+  // check mh_distance, it should be small. If not, we may need to disgard the localization.
+  if (mh_distance_square > mh_thr) {
+    PRINT_WARNING(YELLOW "dealwith_localization: Will reject the localization @%f since the mh_distance check failed!\n" RESET, reloc.timestamp);
+    return;
+  }
+  
+  // do the update
+  PRINT_INFO(BLUE "dealwith_localization: accecp the localization @%f!\n" RESET, reloc.timestamp);
+  StateHelper::EKFUpdate(state, {predict_pose}, H, residual, reloc.qp_cov);
+}
+
+void VioManager::dealwith_localizations() {
+  // find the closest clone
+  std::vector<double> cloned_times;
+  for (const auto &clone_imu : state->_clones_IMU) {
+    cloned_times.push_back(clone_imu.first);
+  }
+  if (cloned_times.empty()) {
+    return;
+  }
+
+  const double TIME_PRECISION = 0.000001;  // in seconds.
+
+  while(1) {
+    ov_core::LocalizationData oldest_loc;
+    {
+      std::unique_lock<std::mutex> locker(localization_queue_mutex_);
+      if (localization_queue_.empty()) {
+        return;
+      }
+      oldest_loc = localization_queue_.front();
+      if (oldest_loc.timestamp > cloned_times.back() + TIME_PRECISION) {
+        PRINT_WARNING(YELLOW "Localization earlier than vio estimates! But it's ok, "
+                      "we'll deal with it later when newer estimates become available. "
+                      "(time advanced: %f)\n" RESET, oldest_loc.timestamp - cloned_times.back());
+        return;
+      }
+      if (oldest_loc.timestamp + TIME_PRECISION < cloned_times.front()) {
+        PRINT_WARNING(YELLOW "Localization comes too late! We'll disgard it!"
+                      "(time behind: %f)\n" RESET, cloned_times.front() - oldest_loc.timestamp);
+        localization_queue_.pop_front();
+        continue;
+      }
+
+      localization_queue_.pop_front();
+    }
+
+    // find the corresponding clone time.
+    double target_clone_time = -1.0;
+    for (double clone_time : cloned_times) {
+      if (fabs(clone_time - oldest_loc.timestamp) <= TIME_PRECISION) {
+        target_clone_time = clone_time;
+        break;
+      }
+    }
+
+    if (target_clone_time < 0) {
+      PRINT_WARNING(YELLOW "dealwith_localization: Localization time doesn't match the vio-estimate times! We'll disgard it!");
+      continue;
+    }
+
+    std::shared_ptr<ov_type::PoseJPL> target_clone = state->_clones_IMU.at(target_clone_time);
+
+    dealwith_one_localization(oldest_loc, target_clone);
+  }
+}
+
+
 bool VioManager::check_drift() {
   constexpr double acc_bias_thr = 3.0;  // m / s^2
   constexpr double gyro_bias_thr = 1.0;  // rad / s
@@ -605,7 +840,6 @@ bool VioManager::check_drift() {
 }
 
 void VioManager::update_output(double timestamp) {
-
   Output output;
   if (timestamp > 0) {
     std::unique_lock<std::mutex> locker(output_mutex_);
@@ -619,6 +853,13 @@ void VioManager::update_output(double timestamp) {
   output.status.initialized_time = startup_time;
   output.status.distance = distance;
   output.status.drift = has_drift;
+  output.status.localized = localized_;
+  output.status.T_MtoG = Eigen::Matrix4d::Identity();
+  if (localized_) {
+    output.status.T_MtoG.block<3,3>(0,0) = R_GtoM_.transpose();
+    output.status.T_MtoG.block<3,1>(0,3) = p_MinG_;
+  }
+
   // output.state_clone = std::const_pointer_cast<const State>(state->clone());
   output.state_clone = std::const_pointer_cast<State>(state->clone());
   output.visualization.good_features_MSCKF = good_features_MSCKF;
@@ -691,6 +932,23 @@ void VioManager::feed_measurement_camera(ov_core::CameraData message) {
   }
 }
 
+
+void VioManager::feed_measurement_localization(ov_core::LocalizationData message) {
+  if (stop_request_) {
+    PRINT_WARNING(YELLOW "VioManager::feed_measurement_localization: called after the stop_request!\n" RESET);
+    return;
+  }
+
+  PRINT_WARNING(YELLOW "VioManager::feed_measurement_localization: Receive Localization with timestamp %f\n" RESET, message.timestamp);
+
+  {
+    std::unique_lock<std::mutex> locker(localization_queue_mutex_);
+    localization_queue_.push_back(message);
+    std::sort(localization_queue_.begin(), localization_queue_.end());
+  }
+}
+
+
 void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
   // Start timing
   auto c = std::make_shared<ImgProcessContext>();
@@ -705,6 +963,7 @@ void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
     do_feature_tracking(c);
     do_update(c);
     has_drift = check_drift();
+    dealwith_localizations();
     update_output(c->message->timestamp);
   }
 }

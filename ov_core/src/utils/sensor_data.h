@@ -93,6 +93,25 @@ struct CameraData {
 #endif  // USE_HEAR_SLAM
 
 
+struct LocalizationData {
+
+  /// Timestamp of the Localization
+  double timestamp;
+
+  /// Position reading, position of imu frame expressed in world frame
+  Eigen::Matrix<double, 3, 1> pm;
+
+  /// Quaternion reading, rotation from world frame to imu frame (in JPL convention)
+  Eigen::Matrix<double, 4, 1> qm;
+
+  /// Cov matrix. q first, and then p, which agrees with openvins convention (see ov_type::PoseJPL::set_local_id())
+  Eigen::Matrix<double, 6, 6> qp_cov;
+
+  /// Sort function to allow for using of STL containers
+  bool operator<(const LocalizationData &other) const { return timestamp < other.timestamp; }
+};
+
+
 /**
  * @brief Nice helper function that will linearly interpolate between two imu messages.
  *

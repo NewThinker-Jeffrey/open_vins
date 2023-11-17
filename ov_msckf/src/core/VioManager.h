@@ -74,6 +74,8 @@ public:
       double initialized_time = -1;
       bool drift = false;
       double distance = 0.0;
+      bool localized = false;
+      Eigen::Matrix4d T_MtoG;
     } status;
 
     /////// The state ///////
@@ -148,6 +150,13 @@ public:
   void feed_measurement_camera(ov_core::CameraData message);
 
   /**
+   * @brief Feed function for localization measurements (visual-relocal)
+   * @param message Contains our timestamp, pose, and cov
+   */
+  void feed_measurement_localization(ov_core::LocalizationData message);
+
+
+  /**
    * @brief Feed function for a synchronized simulated cameras
    * @param timestamp Time that this image was collected
    * @param camids Camera ids that we have simulated measurements for
@@ -199,6 +208,8 @@ protected:
 
   void do_feature_tracking(ImgProcessContextPtr c);
   void do_update(ImgProcessContextPtr c);
+  void dealwith_localizations();
+  void dealwith_one_localization(const ov_core::LocalizationData& reloc, std::shared_ptr<ov_type::PoseJPL> target_clone);
 
   /// Returns 3d SLAM features in the global frame
   std::vector<Eigen::Vector3d> get_features_SLAM();
@@ -333,6 +344,19 @@ protected:
 
   std::mutex camera_queue_mutex_;
   std::deque<ov_core::CameraData> camera_queue_;
+
+  std::mutex localization_queue_mutex_;
+  std::deque<ov_core::LocalizationData> localization_queue_;
+  bool localized_ = false;
+  Eigen::Matrix<double, 4, 1> q_GtoM_;  // in JPL convention
+  Eigen::Matrix3d R_GtoM_;
+  Eigen::Matrix<double, 3, 1> p_MinG_;
+  struct LocalizationAnchor {
+    Eigen::Matrix<double, 4, 1> q_GtoM;  // in JPL convention
+    Eigen::Matrix3d R_GtoM;
+    Eigen::Matrix<double, 3, 1> p_MinG;
+  };
+  std::deque<LocalizationAnchor> initial_loc_buffer_;
 
   ImgProcessContextQueue feature_tracking_task_queue_;
   std::mutex feature_tracking_task_queue_mutex_;
