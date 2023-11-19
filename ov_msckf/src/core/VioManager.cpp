@@ -627,8 +627,10 @@ void VioManager::dealwith_one_localization(const ov_core::LocalizationData& relo
     PRINT_INFO(BLUE "dealwith_localization: check initial: max_theta_diff = %.4f, max_p_diff = %.4f\n" RESET, max_theta_diff, max_p_diff);
     const double initial_loc_theta_diff_thr = 0.1;
     const double initial_loc_pos_diff_thr = 0.5;
-    if (max_theta_diff > initial_loc_theta_diff_thr ||
-        max_p_diff > initial_loc_pos_diff_thr) {
+    if (max_theta_diff > initial_loc_theta_diff_thr
+        // todo(jeffrey): find a better method to deal with p_diff (which is coupled with orientation err and the distance from current position to the origin point)
+        || max_p_diff > initial_loc_pos_diff_thr
+        ) {
       PRINT_WARNING(YELLOW "dealwith_localization: localization not initilized since the recent localizations differ too much\n" RESET);
       return;
     }
