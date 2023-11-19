@@ -287,19 +287,33 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
   using namespace slam_viz::pangolin_helper;
 
   Eigen::Vector3f new_pos = _imu_pose.translation();
+
+  Eigen::Matrix4f fT_MtoG = output->status.T_MtoG.cast<float>();
+  Eigen::Matrix3f R_MtoG = fT_MtoG.block<3,3>(0,0);
+  Eigen::Vector3f t_MinG = fT_MtoG.block<3,1>(0,3);
+  Eigen::Vector3f transformed_new_pos = R_MtoG * new_pos + t_MinG;
+
   // draw grid
   drawGrids2D(
-      new_pos(0), new_pos(1),
+      transformed_new_pos(0), transformed_new_pos(1),
       100, 100,
       Color(255, 255, 255, 40), 1.0f);
 
   drawFrame(2.0, 10.0, 80);
 
+  // draw blue line connecting the origin point (of the global map) and current pos.
+  glLineWidth(1.0);
+  glColor4ub(0, 0, 255, 120);
+  glBegin(GL_LINES);
+  glVertex3f(0,0,0);
+  glVertex3f(transformed_new_pos(0), transformed_new_pos(1), transformed_new_pos(2));
+  glEnd();
+
+  // then draw everything in mission frame
   glPushMatrix();
-  Eigen::Matrix4f fT_MtoG = output->status.T_MtoG.cast<float>();
   glMultMatrixf(fT_MtoG.data());
 
-  // draw line connecting the origin point (of the mission, not of the global map) and current pos.
+  // draw yellow line connecting the origin point (of the mission, not of the global map) and current pos.
   glLineWidth(1.0);
   glColor4ub(255, 255, 0, 80);
   glBegin(GL_LINES);
