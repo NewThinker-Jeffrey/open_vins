@@ -153,13 +153,17 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
     }
   }
 
+  Eigen::Matrix4f fT_MtoG = output->status.T_MtoG.cast<float>();
+  Eigen::Matrix3f R_MtoG = fT_MtoG.block<3,3>(0,0);
+  Eigen::Vector3f t_MinG = fT_MtoG.block<3,1>(0,3);
+  Eigen::Vector3f transformed_new_pos = R_MtoG * new_pos + t_MinG;
 
   {
     Eigen::Isometry3f view_anchor_pose = Eigen::Isometry3f::Identity();  
-    view_anchor_pose.translation() = Eigen::Vector3f(new_pos(0), new_pos(1), 0);
+    view_anchor_pose.translation() = Eigen::Vector3f(transformed_new_pos(0), transformed_new_pos(1), 0);
     pangolin::OpenGlMatrix Twa = makeGlMatrix(view_anchor_pose.matrix());
 
-    // s_cam1->SetModelViewMatrix(pangolin::ModelViewLookAt(new_pos(0), new_pos(1), viewpoint_height, new_pos(0), new_pos(1), 0, pangolin::AxisY));
+    // s_cam1->SetModelViewMatrix(pangolin::ModelViewLookAt(transformed_new_pos(0), transformed_new_pos(1), viewpoint_height, transformed_new_pos(0), transformed_new_pos(1), 0, pangolin::AxisY));
     s_cam1->Follow(Twa);
     pangolin::Display("cam1").Activate(*s_cam1);
     drawRobotAndMap(output);    
@@ -170,7 +174,7 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
     // Eigen::Isometry3f view_anchor_pose = _imu_pose * Eigen::AngleAxisf(0.5*M_PI, Eigen::Vector3f::UnitX());
     // Z is upward for view_anchor_pose.
 
-    pangolin::OpenGlMatrix Twa = makeGlMatrix(view_anchor_pose.matrix());
+    pangolin::OpenGlMatrix Twa = makeGlMatrix(fT_MtoG * view_anchor_pose.matrix());
     s_cam2->Follow(Twa);
     pangolin::Display("cam2").Activate(*s_cam2);
     drawRobotAndMap(output);
@@ -209,11 +213,6 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   std::string imu_time_str = get_time_str(imu_time);
   std::string image_time_str = get_time_str(image_time);
   char tmp_buf[100];
-  Eigen::Matrix4f fT_MtoG = output->status.T_MtoG.cast<float>();
-  Eigen::Matrix3f R_MtoG = fT_MtoG.block<3,3>(0,0);
-  Eigen::Vector3f t_MinG = fT_MtoG.block<3,1>(0,3);
-
-  Eigen::Vector3f transformed_new_pos = R_MtoG * new_pos + t_MinG;
 
   sprintf(tmp_buf, "%.3f, %.3f, %.3f", transformed_new_pos(0), transformed_new_pos(1), transformed_new_pos(2));
   std::string slam_pos_str(tmp_buf);
@@ -287,11 +286,6 @@ void Viewer::classifyPoints(std::shared_ptr<VioManager::Output> output) {
 void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
   using namespace slam_viz::pangolin_helper;
 
-  glPushMatrix();
-  Eigen::Matrix4f fT_MtoG = output->status.T_MtoG.cast<float>();
-  glMultMatrixf(fT_MtoG.data());
-
-
   Eigen::Vector3f new_pos = _imu_pose.translation();
   // draw grid
   drawGrids2D(
@@ -301,7 +295,11 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
 
   drawFrame(2.0, 10.0, 80);
 
-  // draw line connecting the origin point and current pos.
+  glPushMatrix();
+  Eigen::Matrix4f fT_MtoG = output->status.T_MtoG.cast<float>();
+  glMultMatrixf(fT_MtoG.data());
+
+  // draw line connecting the origin point (of the mission, not of the global map) and current pos.
   glLineWidth(1.0);
   glColor4ub(255, 255, 0, 80);
   glBegin(GL_LINES);
