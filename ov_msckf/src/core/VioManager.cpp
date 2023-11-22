@@ -586,6 +586,12 @@ void VioManager::dealwith_one_localization(const ov_core::LocalizationData& relo
 // std::cout << "DEBUG dealwith_localization: q_MtoI_inv = [" << q_MtoI_inv.transpose() << "]" << std::endl;
 
     LocalizationAnchor base;
+    base.q_MtoI = q_MtoI;
+    base.R_MtoI = R_MtoI;
+    base.p_IinM = p_IinM;
+    base.q_GtoI = q_GtoI;
+    base.R_GtoI = R_GtoI;
+    base.p_IinG = p_IinG;
     base.R_GtoM = R_MtoI.transpose() * R_GtoI;  // R_M_G = R_M_I * R_I_G
     base.q_GtoM = ov_core::quat_multiply(q_MtoI_inv, q_GtoI);
     base.p_MinG = p_IinG - base.R_GtoM.transpose() * p_IinM;
@@ -612,8 +618,16 @@ void VioManager::dealwith_one_localization(const ov_core::LocalizationData& relo
     double max_theta_diff = 0.0;
     for (const LocalizationAnchor& a : initial_loc_buffer_) {
       Eigen::Matrix<double, 4, 1> q_diff = ov_core::quat_multiply(a.q_GtoM, base_q_GtoM_inv);
+      // Eigen::Matrix<double, 3, 1> p_diff = a.p_MinG - a.R_GtoM.transpose() * base.R_GtoM * base.p_MinG;
+      // Eigen::Matrix<double, 3, 1> p_diff = a.p_MinG - base.p_MinG;
+      Eigen::Matrix<double, 3, 1> p_diff =
+          base.R_GtoI * (a.p_IinG - base.p_IinG)  // measured vec3 'base -> a' (expressed in base)
+            -
+          base.R_MtoI * (a.p_IinM - base.p_IinM);  // predicted vec3 'base -> a' (expressed in base)
+
       Eigen::Matrix<double, 3, 1> theta_diff(2.0 * q_diff[0], 2.0 * q_diff[1], 2.0 * q_diff[2]);
-      Eigen::Matrix<double, 3, 1> p_diff = a.p_MinG - base.p_MinG;
+
+      
       double theta_diff_norm = theta_diff.norm();
       double p_diff_norm = p_diff.norm();
       PRINT_INFO(BLUE "dealwith_localization: check initial: theta_diff_norm = %.4f, p_diff_norm = %.4f\n" RESET, theta_diff_norm, p_diff_norm);

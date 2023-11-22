@@ -357,6 +357,13 @@ protected:
     Eigen::Matrix<double, 4, 1> q_GtoM;  // in JPL convention
     Eigen::Matrix3d R_GtoM;
     Eigen::Matrix<double, 3, 1> p_MinG;
+
+    Eigen::Matrix<double, 4, 1> q_MtoI;
+    Eigen::Matrix3d R_MtoI;
+    Eigen::Matrix<double, 3, 1> p_IinM;
+    Eigen::Matrix<double, 4, 1> q_GtoI;
+    Eigen::Matrix3d R_GtoI;
+    Eigen::Matrix<double, 3, 1> p_IinG;
   };
   std::deque<LocalizationAnchor> initial_loc_buffer_;
 
