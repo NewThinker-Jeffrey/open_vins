@@ -822,7 +822,7 @@ void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, 
     if (x - min_px_dist >= 0 && x + min_px_dist < img0pyr.at(0).cols && y - min_px_dist >= 0 && y + min_px_dist < img0pyr.at(0).rows) {
       cv::Point pt1(x - min_px_dist, y - min_px_dist);
       cv::Point pt2(x + min_px_dist, y + min_px_dist);
-      cv::rectangle(mask0_updated, pt1, pt2, cv::Scalar(255));
+      cv::rectangle(mask0_updated, pt1, pt2, cv::Scalar(255), cv::FILLED);
     }
     it0++;
     it1++;
@@ -908,6 +908,7 @@ void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, con
   cv::Size size_grid0(grid_x, grid_y); // width x height
   cv::Mat grid_2d_grid0 = cv::Mat::zeros(size_grid0, CV_8UC1);
   cv::Mat mask0_updated = mask0.clone();
+  cv::Mat mask1_updated = mask1.clone();
   auto it0 = pts0.begin();
   auto it1 = ids0.begin();
   while (it0 != pts0.end()) {
@@ -960,7 +961,7 @@ void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, con
     if (x - min_px_dist >= 0 && x + min_px_dist < img0pyr.at(0).cols && y - min_px_dist >= 0 && y + min_px_dist < img0pyr.at(0).rows) {
       cv::Point pt1(x - min_px_dist, y - min_px_dist);
       cv::Point pt2(x + min_px_dist, y + min_px_dist);
-      cv::rectangle(mask0_updated, pt1, pt2, cv::Scalar(255));
+      cv::rectangle(mask0_updated, pt1, pt2, cv::Scalar(255), cv::FILLED);
     }
     it0++;
     it1++;
@@ -1129,7 +1130,7 @@ void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, con
     // Check if this keypoint is near another point
     // NOTE: if it is *not* a stereo point, then we will not delete the feature
     // NOTE: this means we might have a mono and stereo feature near each other, but that is ok
-    // if (grid_2d_close1.at<uint8_t>(y_grid, x_grid) > 127 && !is_stereo) {
+    // if (grid_2d_close1.at<uint8_t>(y_close, x_close) > 127 && !is_stereo) {
     //   it0 = pts1.erase(it0);
     //   it1 = ids1.erase(it1);
     //   continue;
@@ -1143,9 +1144,15 @@ void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, con
       continue;
     }
     // Else we are good, move forward to the next point
-    grid_2d_close1.at<uint8_t>(y_grid, x_grid) = 255;
+    grid_2d_close1.at<uint8_t>(y_close, x_close) = 255;
     if (grid_2d_grid1.at<uint8_t>(y_grid, x_grid) < 255) {
       grid_2d_grid1.at<uint8_t>(y_grid, x_grid) += 1;
+    }
+    // Append this to the local mask of the image
+    if (x - min_px_dist >= 0 && x + min_px_dist < img1pyr.at(0).cols && y - min_px_dist >= 0 && y + min_px_dist < img1pyr.at(0).rows) {
+      cv::Point pt1(x - min_px_dist, y - min_px_dist);
+      cv::Point pt2(x + min_px_dist, y + min_px_dist);
+      cv::rectangle(mask1_updated, pt1, pt2, cv::Scalar(255), -1);
     }
     it0++;
     it1++;
@@ -1159,7 +1166,7 @@ void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, con
     // This is old extraction code that would extract from the whole image
     // This can be slow as this will recompute extractions for grid areas that we have max features already
     // std::vector<cv::KeyPoint> pts1_ext;
-    // Grider_FAST::perform_griding(img1pyr.at(0), mask1, pts1_ext, num_features, grid_x, grid_y, threshold, true);
+    // Grider_FAST::perform_griding(img1pyr.at(0), mask1_updated, pts1_ext, num_features, grid_x, grid_y, threshold, true);
 
     // We also check a downsampled mask such that we don't extract in areas where it is all masked!
     cv::Mat mask1_grid;
@@ -1177,7 +1184,7 @@ void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, con
       }
     }
     std::vector<cv::KeyPoint> pts1_ext;
-    Grider_GRID::perform_griding(img1pyr.at(0), mask1, valid_locs, pts1_ext, num_features, grid_x, grid_y, threshold, true);
+    Grider_GRID::perform_griding(img1pyr.at(0), mask1_updated, valid_locs, pts1_ext, num_features, grid_x, grid_y, threshold, true);
 
     // Now, reject features that are close a current feature
     for (auto &kpt : pts1_ext) {
