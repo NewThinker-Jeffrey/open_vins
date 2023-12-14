@@ -433,6 +433,7 @@ void VioManager::update_thread_func() {
     }
 
     do_update(c);
+    assert(!is_initialized_vio || !state->_clones_IMU.empty());
     has_drift = check_drift();
     dealwith_localizations();
     update_output(c->message->timestamp);
@@ -744,7 +745,9 @@ void VioManager::dealwith_localizations() {
   for (const auto &clone_imu : state->_clones_IMU) {
     cloned_times.push_back(clone_imu.first);
   }
-  if (cloned_times.empty()) {
+
+  assert(!is_initialized_vio || !cloned_times.empty());
+  if (cloned_times.empty()) {  // vio not initialized yet.
     return;
   }
   assert(did_zupt_update || cloned_times.back() == state_time);
@@ -1001,6 +1004,7 @@ void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
     PRINT_DEBUG("Run feature tracking and state update in the same thread\n");
     do_feature_tracking(c);
     do_update(c);
+    assert(!is_initialized_vio || !state->_clones_IMU.empty());
     has_drift = check_drift();
     dealwith_localizations();
     update_output(c->message->timestamp);
