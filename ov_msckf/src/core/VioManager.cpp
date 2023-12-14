@@ -740,12 +740,14 @@ void VioManager::dealwith_one_localization(const ov_core::LocalizationData& relo
 void VioManager::dealwith_localizations() {
   // find the closest clone
   std::vector<double> cloned_times;
+  double state_time = state->_timestamp;
   for (const auto &clone_imu : state->_clones_IMU) {
     cloned_times.push_back(clone_imu.first);
   }
   if (cloned_times.empty()) {
     return;
   }
+  assert(did_zupt_update || cloned_times.back() == state_time);
 
   const double TIME_PRECISION = 0.000001;  // in seconds.
 
@@ -757,10 +759,11 @@ void VioManager::dealwith_localizations() {
         return;
       }
       oldest_loc = localization_queue_.front();
-      if (oldest_loc.timestamp > cloned_times.back() + TIME_PRECISION) {
+
+      if (oldest_loc.timestamp > state_time + TIME_PRECISION) {
         PRINT_WARNING(YELLOW "Localization earlier than vio estimates! But it's ok, "
                       "we'll deal with it later when newer estimates become available. "
-                      "(time advanced: %f)\n" RESET, oldest_loc.timestamp - cloned_times.back());
+                      "(time advanced: %f)\n" RESET, oldest_loc.timestamp - state_time);
         return;
       }
       if (oldest_loc.timestamp + TIME_PRECISION < cloned_times.front()) {
@@ -769,16 +772,21 @@ void VioManager::dealwith_localizations() {
         localization_queue_.pop_front();
         continue;
       }
-
+      
       localization_queue_.pop_front();
     }
 
     // find the corresponding clone time.
     double target_clone_time = -1.0;
-    for (double clone_time : cloned_times) {
-      if (fabs(clone_time - oldest_loc.timestamp) <= TIME_PRECISION) {
-        target_clone_time = clone_time;
-        break;
+    if (oldest_loc.timestamp > cloned_times.back() + TIME_PRECISION) {
+      assert(did_zupt_update && oldest_loc.timestamp <= state_time + TIME_PRECISION);
+      target_clone_time = cloned_times.back();
+    } else {
+      for (double clone_time : cloned_times) {
+        if (fabs(clone_time - oldest_loc.timestamp) <= TIME_PRECISION) {
+          target_clone_time = clone_time;
+          break;
+        }
       }
     }
 
