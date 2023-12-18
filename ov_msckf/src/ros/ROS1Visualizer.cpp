@@ -362,11 +362,13 @@ void ROS1Visualizer::visualize_odometry(double timestamp) {
 
   // Loop through each camera calibration and publish it
   for (const auto &calib : state->_calib_IMUtoCAM) {
-    tf::StampedTransform trans_calib = ROSVisualizerHelper::get_stamped_transform_from_pose(calib.second, true);
-    trans_calib.frame_id_ = "imu";
-    trans_calib.child_frame_id_ = "cam" + std::to_string(calib.first);
-    if (publish_calibration_tf) {
-      mTfBr->sendTransform(trans_calib);
+    if (calib.first < state->_options.num_cameras) {
+      tf::StampedTransform trans_calib = ROSVisualizerHelper::get_stamped_transform_from_pose(calib.second, true);
+      trans_calib.frame_id_ = "imu";
+      trans_calib.child_frame_id_ = "cam" + std::to_string(calib.first);
+      if (publish_calibration_tf) {
+        mTfBr->sendTransform(trans_calib);
+      }
     }
   }
 }

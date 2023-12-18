@@ -241,7 +241,6 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
     assert(last_obs.find(cam_id) != last_obs.end());
     assert(last_ids.find(cam_id) != last_ids.end());
     for (size_t i = 0; i < last_obs.at(cam_id).size(); i++) {
-
       // Record this feature uv if is seen from cam0
       size_t featid = last_ids.at(cam_id).at(i);
       cv::Point2f pt_d = last_obs.at(cam_id).at(i).pt;

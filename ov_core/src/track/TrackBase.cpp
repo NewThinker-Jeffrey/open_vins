@@ -173,13 +173,18 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
   // bool is_small = (std::min(max_width, max_height) < 400);
   bool is_small = (std::min(max_width, max_height) < 600);
 
+  int img_last_cache_size = (int)img_last_cache.size();
+  if (use_rgbd) {
+    img_last_cache_size = 1;
+  }
+
   // If the image is "new" then draw the images from scratch
   // Otherwise, we grab the subset of the main image and draw on top of it
-  bool image_new = ((int)img_last_cache.size() * max_width != img_out.cols || max_height != img_out.rows);
+  bool image_new = (img_last_cache_size * max_width != img_out.cols || max_height != img_out.rows);
 
   // If new, then resize the current image
   if (image_new)
-    img_out = cv::Mat(max_height, (int)img_last_cache.size() * max_width, CV_8UC3, cv::Scalar(0, 0, 0));
+    img_out = cv::Mat(max_height, img_last_cache_size * max_width, CV_8UC3, cv::Scalar(0, 0, 0));
 
   // Max tracks to show (otherwise it clutters up the screen)
   size_t maxtracks = 50;
@@ -215,12 +220,36 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
   // Loop through each image, and draw
   int index_cam = 0;
   for (auto const &pair : img_last_cache) {
-    // select the subset of the image
+    if (use_rgbd && pair.first != 0) {
+      // for rgbd tracking, we only visualize the image with id 0 (corresponding to the rgb image)
+      continue;
+    }
+
+    // select the subset of the image    
     cv::Mat img_temp;
-    if (image_new)
-      cv::cvtColor(img_last_cache[pair.first], img_temp, cv::COLOR_GRAY2RGB);
-    else
+    if (image_new) {
+      // // Always display gray images even if the input has 3 channels.
+      // cv::Mat gray;
+      // if (img_last_cache[pair.first].channels() == 3) {
+      //   cv::cvtColor(img_last_cache[pair.first], gray, cv::COLOR_BGR2GRAY);
+      //   // cv::cvtColor(img_last_cache[pair.first], gray, cv::COLOR_RGB2GRAY);
+      // } else {
+      //   assert(img_last_cache[pair.first].channels() == 1);
+      //   gray = img_last_cache[pair.first];
+      // }
+      // cv::cvtColor(gray, img_temp, cv::COLOR_GRAY2RGB);
+
+      // Display rgb image if the input has 3 channels; Otherwise display gray.
+      if (img_last_cache[pair.first].channels() == 3) {
+        cv::cvtColor(img_last_cache[pair.first], img_temp, cv::COLOR_BGR2RGB);
+        // img_temp = img_last_cache[pair.first].clone();
+      } else {
+        assert(img_last_cache[pair.first].channels() == 1);
+        cv::cvtColor(img_last_cache[pair.first], img_temp, cv::COLOR_GRAY2RGB);
+      }
+    } else {
       img_temp = img_out(cv::Rect(max_width * index_cam, 0, max_width, max_height));
+    }
 
     // draw, loop through all keypoints
 
@@ -791,7 +820,12 @@ void TrackBase::fundamental_ransac(
 void TrackBase::add_rgbd_virtual_keypoints_nolock(
     const CameraData &message,
     const std::vector<size_t>& good_ids_left,
-    const std::vector<cv::KeyPoint>& good_left) {
+    const std::vector<cv::KeyPoint>& good_left,
+    std::vector<size_t>& good_ids_right,
+    std::vector<cv::KeyPoint>& good_right) {
+
+  good_ids_right.clear();
+  good_right.clear();
 
   size_t cam_id = message.sensor_ids.at(0);
   size_t virtual_right_cam_id = message.sensor_ids.at(1);
@@ -833,6 +867,25 @@ void TrackBase::add_rgbd_virtual_keypoints_nolock(
     Eigen::Vector3d p_in_r = T_left_in_right * p_in_l;
     cv::Point2f npt_r(p_in_r.x() / p_in_r.z(),  p_in_r.y() / p_in_r.z());
     cv::Point2f pt_r = camera_calib.at(virtual_right_cam_id)->distort_cv(npt_r);
+    cv::KeyPoint kp_r;
+    kp_r.pt = pt_r;
+
+    good_ids_right.push_back(good_ids_left.at(i));
+    good_right.push_back(kp_r);
     database->update_feature_nolock(good_ids_left.at(i), message.timestamp, virtual_right_cam_id, pt_r.x, pt_r.y, npt_r.x, npt_r.y);
   }
+}
+
+
+void TrackBase::add_rgbd_last_cache_nolock(
+    const CameraData &message,
+    std::vector<size_t>& good_ids_right,
+    std::vector<cv::KeyPoint>& good_right) {
+
+  size_t cam_id = message.sensor_ids.at(0);
+  size_t virtual_right_cam_id = message.sensor_ids.at(1);
+  pts_last[virtual_right_cam_id] = good_right;
+  ids_last[virtual_right_cam_id] = good_ids_right;
+  // we don't set 'img_last[virtual_right_cam_id]' and 'img_mask_last[virtual_right_cam_id]'
+  // for the virtual right cam.
 }

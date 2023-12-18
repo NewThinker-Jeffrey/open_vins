@@ -272,10 +272,18 @@ protected:
       const double fundamental_inlier_thr,
       std::vector<uchar> & inliers_mask);
 
+
   void add_rgbd_virtual_keypoints_nolock(
       const CameraData &message,
       const std::vector<size_t>& good_ids_left,
-      const std::vector<cv::KeyPoint>& good_left);
+      const std::vector<cv::KeyPoint>& good_left,
+      std::vector<size_t>& good_ids_right,
+      std::vector<cv::KeyPoint>& good_right);
+
+  void add_rgbd_last_cache_nolock(
+      const CameraData &message,
+      std::vector<size_t>& good_ids_right,
+      std::vector<cv::KeyPoint>& good_right);
 
 protected:
   /// Camera object which has all calibration in it

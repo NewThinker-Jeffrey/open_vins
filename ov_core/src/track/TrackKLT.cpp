@@ -52,6 +52,10 @@ void TrackKLT::feed_new_camera(const CameraData &message) {
   // NOTE: These seem to be much slower if you parallelize them...
   rT1 = std::chrono::high_resolution_clock::now();
   size_t num_images = message.images.size();
+  if (use_rgbd) {
+    assert(num_images == 2);
+    num_images = 1;
+  }
   for (size_t msg_id = 0; msg_id < num_images; msg_id++) {
 
     // Lock this data feed for this camera
@@ -214,6 +218,8 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
 
 
   // Update our feature database, with theses new observations
+  std::vector<size_t> good_ids_right;
+  std::vector<cv::KeyPoint> good_right;
   {
     std::unique_lock<std::mutex> lck(database->get_mutex());
     for (size_t i = 0; i < good_left.size(); i++) {
@@ -222,7 +228,7 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     }
 
     if (use_rgbd) {
-      add_rgbd_virtual_keypoints_nolock(message, good_ids_left, good_left);
+      add_rgbd_virtual_keypoints_nolock(message, good_ids_left, good_left, good_ids_right, good_right);
     }
   }
 
@@ -235,6 +241,9 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     img_mask_last[cam_id] = mask;
     pts_last[cam_id] = good_left;
     ids_last[cam_id] = good_ids_left;
+    if (use_rgbd) {
+      add_rgbd_last_cache_nolock(message, good_ids_right, good_right);
+    }
     internal_add_last_to_history(message.timestamp);
   }
   rT5 = std::chrono::high_resolution_clock::now();

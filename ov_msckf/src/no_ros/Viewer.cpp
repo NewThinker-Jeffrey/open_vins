@@ -122,6 +122,7 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   cv::Mat img_history = _interal_app->get_historical_viz_image(output);
+  std::cout << "Viewer::show:  img_history size: " << img_history.cols << "x" << img_history.rows << ",  channels " << img_history.channels() << std::endl;
   drawCvImageOnView(
       img_history,
       pangolin::Display("feature_tracking"),

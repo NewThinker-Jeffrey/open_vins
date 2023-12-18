@@ -250,6 +250,49 @@ struct InertialInitializerOptions {
 
   /// Map between camid and camera extrinsics (q_ItoC, p_IinC).
   std::map<size_t, Eigen::VectorXd> camera_extrinsics;
+  std::map<size_t, Eigen::Matrix4d> T_CtoIs;
+
+  /// Whether our mono-camera supports rgb-d
+  bool use_rgbd = false;  // only when we have 1 camera
+  double virtual_baseline_for_rgbd = 0.095;
+  double depth_unit_for_rgbd = 0.001;
+
+  void set_camera_intrinsics(size_t cam_id,
+                             const std::string& dist_model, // radtan or equidistant
+                             int width, int height,
+                             Eigen::VectorXd cam_calib) {
+    cam_calib(0) /= (downsample_cameras) ? 2.0 : 1.0;
+    cam_calib(1) /= (downsample_cameras) ? 2.0 : 1.0;
+    cam_calib(2) /= (downsample_cameras) ? 2.0 : 1.0;
+    cam_calib(3) /= (downsample_cameras) ? 2.0 : 1.0;
+    width /= (downsample_cameras) ? 2.0 : 1.0;
+    height /= (downsample_cameras) ? 2.0 : 1.0;
+    std::pair<int, int> wh(width, height);
+
+    // Create intrinsics model
+    if (dist_model == "equidistant") {
+      camera_intrinsics.insert({cam_id, std::make_shared<ov_core::CamEqui>(width, height)});
+      camera_intrinsics.at(cam_id)->set_value(cam_calib);
+    } else {
+      camera_intrinsics.insert({cam_id, std::make_shared<ov_core::CamRadtan>(width, height)});
+      camera_intrinsics.at(cam_id)->set_value(cam_calib);
+    }
+  }
+
+  void set_camera_extrinsics(size_t cam_id, const Eigen::Matrix4d& T_CtoI) {
+    T_CtoIs.insert({cam_id, T_CtoI});
+    Eigen::Matrix<double, 7, 1> cam_eigen;
+    cam_eigen.block(0, 0, 4, 1) = ov_core::rot_2_quat(T_CtoI.block(0, 0, 3, 3).transpose());
+    cam_eigen.block(4, 0, 3, 1) = -T_CtoI.block(0, 0, 3, 3).transpose() * T_CtoI.block(0, 3, 3, 1);
+    camera_extrinsics.insert({cam_id, cam_eigen});
+    {
+      std::ostringstream oss;
+      oss << "DEBUG T_CtoIs: " << cam_id << std::endl;
+      oss << T_CtoI << std::endl;
+      PRINT_INFO("%s", oss.str().c_str());
+    }
+  }
+
 
   /**
    * @brief This function will load and print all state parameters (e.g. sensor extrinsics)
@@ -263,6 +306,11 @@ struct InertialInitializerOptions {
       parser->parse_config("max_cameras", num_cameras); // might be redundant
       parser->parse_config("use_stereo", use_stereo);
       parser->parse_config("downsample_cameras", downsample_cameras);
+
+      parser->parse_config("use_rgbd", use_rgbd, false);
+      parser->parse_config("virtual_baseline_for_rgbd", virtual_baseline_for_rgbd, use_rgbd);
+      parser->parse_config("depth_unit_for_rgbd", depth_unit_for_rgbd, use_rgbd);
+
       for (int i = 0; i < num_cameras; i++) {
 
         // Time offset (use the first one)
@@ -283,36 +331,80 @@ struct InertialInitializerOptions {
         Eigen::VectorXd cam_calib = Eigen::VectorXd::Zero(8);
         cam_calib << cam_calib1.at(0), cam_calib1.at(1), cam_calib1.at(2), cam_calib1.at(3), cam_calib2.at(0), cam_calib2.at(1),
             cam_calib2.at(2), cam_calib2.at(3);
-        cam_calib(0) /= (downsample_cameras) ? 2.0 : 1.0;
-        cam_calib(1) /= (downsample_cameras) ? 2.0 : 1.0;
-        cam_calib(2) /= (downsample_cameras) ? 2.0 : 1.0;
-        cam_calib(3) /= (downsample_cameras) ? 2.0 : 1.0;
 
         // FOV / resolution
         std::vector<int> matrix_wh = {1, 1};
         parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "resolution", matrix_wh);
-        matrix_wh.at(0) /= (downsample_cameras) ? 2.0 : 1.0;
-        matrix_wh.at(1) /= (downsample_cameras) ? 2.0 : 1.0;
 
         // Extrinsics
         Eigen::Matrix4d T_CtoI = Eigen::Matrix4d::Identity();
         parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "T_imu_cam", T_CtoI);
 
         // Load these into our state
-        Eigen::Matrix<double, 7, 1> cam_eigen;
-        cam_eigen.block(0, 0, 4, 1) = ov_core::rot_2_quat(T_CtoI.block(0, 0, 3, 3).transpose());
-        cam_eigen.block(4, 0, 3, 1) = -T_CtoI.block(0, 0, 3, 3).transpose() * T_CtoI.block(0, 3, 3, 1);
 
-        // Create intrinsics model
-        if (dist_model == "equidistant") {
-          camera_intrinsics.insert({i, std::make_shared<ov_core::CamEqui>(matrix_wh.at(0), matrix_wh.at(1))});
-          camera_intrinsics.at(i)->set_value(cam_calib);
-        } else {
-          camera_intrinsics.insert({i, std::make_shared<ov_core::CamRadtan>(matrix_wh.at(0), matrix_wh.at(1))});
-          camera_intrinsics.at(i)->set_value(cam_calib);
-        }
-        camera_extrinsics.insert({i, cam_eigen});
+        set_camera_intrinsics(i, dist_model, matrix_wh[0], matrix_wh[1], cam_calib);
+
+        set_camera_extrinsics(i, T_CtoI);
       }
+
+      if (use_rgbd) {
+        assert(num_cameras == 1);
+        camera_intrinsics.insert({1, camera_intrinsics.at(0)->clone()});
+        Eigen::Matrix4d T_virtual_rightcam_to_leftcam = Eigen::Matrix4d::Identity();
+        T_virtual_rightcam_to_leftcam(0, 3) = virtual_baseline_for_rgbd;
+        set_camera_extrinsics(1, T_CtoIs.at(0) * T_virtual_rightcam_to_leftcam);
+      }
+
+      // for (int i = 0; i < num_cameras; i++) {
+
+      //   // Time offset (use the first one)
+      //   // TODO: support multiple time offsets between cameras
+      //   if (i == 0) {
+      //     parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "timeshift_cam_imu", calib_camimu_dt, false);
+      //   }
+
+      //   // Distortion model
+      //   std::string dist_model = "radtan";
+      //   parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "distortion_model", dist_model);
+
+      //   // Distortion parameters
+      //   std::vector<double> cam_calib1 = {1, 1, 0, 0};
+      //   std::vector<double> cam_calib2 = {0, 0, 0, 0};
+      //   parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "intrinsics", cam_calib1);
+      //   parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "distortion_coeffs", cam_calib2);
+      //   Eigen::VectorXd cam_calib = Eigen::VectorXd::Zero(8);
+      //   cam_calib << cam_calib1.at(0), cam_calib1.at(1), cam_calib1.at(2), cam_calib1.at(3), cam_calib2.at(0), cam_calib2.at(1),
+      //       cam_calib2.at(2), cam_calib2.at(3);
+      //   cam_calib(0) /= (downsample_cameras) ? 2.0 : 1.0;
+      //   cam_calib(1) /= (downsample_cameras) ? 2.0 : 1.0;
+      //   cam_calib(2) /= (downsample_cameras) ? 2.0 : 1.0;
+      //   cam_calib(3) /= (downsample_cameras) ? 2.0 : 1.0;
+
+      //   // FOV / resolution
+      //   std::vector<int> matrix_wh = {1, 1};
+      //   parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "resolution", matrix_wh);
+      //   matrix_wh.at(0) /= (downsample_cameras) ? 2.0 : 1.0;
+      //   matrix_wh.at(1) /= (downsample_cameras) ? 2.0 : 1.0;
+
+      //   // Extrinsics
+      //   Eigen::Matrix4d T_CtoI = Eigen::Matrix4d::Identity();
+      //   parser->parse_external("relative_config_imucam", "cam" + std::to_string(i), "T_imu_cam", T_CtoI);
+
+      //   // Load these into our state
+      //   Eigen::Matrix<double, 7, 1> cam_eigen;
+      //   cam_eigen.block(0, 0, 4, 1) = ov_core::rot_2_quat(T_CtoI.block(0, 0, 3, 3).transpose());
+      //   cam_eigen.block(4, 0, 3, 1) = -T_CtoI.block(0, 0, 3, 3).transpose() * T_CtoI.block(0, 3, 3, 1);
+
+      //   // Create intrinsics model
+      //   if (dist_model == "equidistant") {
+      //     camera_intrinsics.insert({i, std::make_shared<ov_core::CamEqui>(matrix_wh.at(0), matrix_wh.at(1))});
+      //     camera_intrinsics.at(i)->set_value(cam_calib);
+      //   } else {
+      //     camera_intrinsics.insert({i, std::make_shared<ov_core::CamRadtan>(matrix_wh.at(0), matrix_wh.at(1))});
+      //     camera_intrinsics.at(i)->set_value(cam_calib);
+      //   }
+      //   camera_extrinsics.insert({i, cam_eigen});
+      // }
     }
     PRINT_DEBUG("STATE PARAMETERS:\n");
     PRINT_DEBUG("  - gravity_mag: %.4f\n", gravity_mag);
@@ -320,7 +412,11 @@ struct InertialInitializerOptions {
     PRINT_DEBUG("  - num_cameras: %d\n", num_cameras);
     PRINT_DEBUG("  - use_stereo: %d\n", use_stereo);
     PRINT_DEBUG("  - downsize cameras: %d\n", downsample_cameras);
-    if (num_cameras != (int)camera_intrinsics.size() || num_cameras != (int)camera_extrinsics.size()) {
+    if (use_rgbd) {
+      assert(num_cameras == 1);
+      assert(camera_intrinsics.size() == 2);
+      assert(camera_extrinsics.size() == 2);
+    } else if (num_cameras != (int)camera_intrinsics.size() || num_cameras != (int)camera_extrinsics.size()) {
       PRINT_ERROR(RED "[SIM]: camera calib size does not match max cameras...\n" RESET);
       PRINT_ERROR(RED "[SIM]: got %d but expected %d max cameras (camera_intrinsics)\n" RESET, (int)camera_intrinsics.size(), num_cameras);
       PRINT_ERROR(RED "[SIM]: got %d but expected %d max cameras (camera_extrinsics)\n" RESET, (int)camera_extrinsics.size(), num_cameras);

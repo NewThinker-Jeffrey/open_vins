@@ -229,6 +229,8 @@ int main(int argc, char **argv) {
 
   sys = std::make_shared<ov_interface::VIO>(config_path.c_str());
   auto& internal_params = getVioParamsFromVioInterface(sys.get());
+  bool stereo = (internal_params.state_options.num_cameras == 2);
+  bool rgbd = internal_params.use_rgbd;
 
   if (dataset.empty()) {
     PRINT_WARNING(YELLOW "dataset is not set! use live streaming ...\n" RESET);
@@ -246,7 +248,7 @@ int main(int argc, char **argv) {
       bs.gyro_framerate = 400;
       bs.accel_framerate = 250;
     }
-    if (record_rgbd) {
+    if (record_rgbd || rgbd) {
       bs.depth_framerate = 5;
       bs.color_framerate = 5;
       bs.depth_width = 848;
@@ -274,8 +276,6 @@ int main(int argc, char **argv) {
     capture->changeVisualSensorType(
         slam_dataset::ViCapture::VisualSensorType::RGBD);
   } else {
-    bool stereo = (internal_params.state_options.num_cameras == 2);
-    bool rgbd = internal_params.use_rgbd;
     if (rgbd) {
       capture->changeVisualSensorType(
           slam_dataset::ViCapture::VisualSensorType::RGBD);

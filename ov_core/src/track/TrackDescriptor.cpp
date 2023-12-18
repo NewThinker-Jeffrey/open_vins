@@ -160,6 +160,8 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
   rT4 = std::chrono::high_resolution_clock::now();
 
   // Update our feature database, with theses new observations
+  std::vector<size_t> good_ids_right;
+  std::vector<cv::KeyPoint> good_right;
   {
     std::unique_lock<std::mutex> lck(database->get_mutex());
 
@@ -168,7 +170,7 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
       database->update_feature_nolock(good_ids_left.at(i), message.timestamp, cam_id, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x, npt_l.y);
     }
     if (use_rgbd) {
-      add_rgbd_virtual_keypoints_nolock(message, good_ids_left, good_left);
+      add_rgbd_virtual_keypoints_nolock(message, good_ids_left, good_left, good_ids_right, good_right);
     }
   }
 
@@ -183,6 +185,9 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
     pts_last[cam_id] = good_left;
     ids_last[cam_id] = good_ids_left;
     desc_last[cam_id] = good_desc_left;
+    if (use_rgbd) {
+      add_rgbd_last_cache_nolock(message, good_ids_right, good_right);
+    }
     internal_add_last_to_history(message.timestamp);
   }
   rT5 = std::chrono::high_resolution_clock::now();
