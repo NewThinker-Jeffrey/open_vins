@@ -60,15 +60,23 @@ void TrackKLT::feed_new_camera(const CameraData &message) {
 
     // Histogram equalize
     cv::Mat img;
+    cv::Mat gray;
+    if (message.images.at(msg_id).channels() == 3) {
+      cv::cvtColor(message.images.at(msg_id), gray, cv::COLOR_BGR2GRAY);
+    } else {
+      assert(message.images.at(msg_id).channels() == 1);
+      gray = message.images.at(msg_id);
+    }
+
     if (histogram_method == HistogramMethod::HISTOGRAM) {
-      cv::equalizeHist(message.images.at(msg_id), img);
+      cv::equalizeHist(gray, img);
     } else if (histogram_method == HistogramMethod::CLAHE) {
       double eq_clip_limit = 10.0;
       cv::Size eq_win_size = cv::Size(8, 8);
       cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(eq_clip_limit, eq_win_size);
-      clahe->apply(message.images.at(msg_id), img);
+      clahe->apply(gray, img);
     } else {
-      img = message.images.at(msg_id);
+      img = gray;
     }
 
     // Extract image pyramid
@@ -82,7 +90,7 @@ void TrackKLT::feed_new_camera(const CameraData &message) {
 
   // Either call our stereo or monocular version
   // If we are doing binocular tracking, then we should parallize our tracking
-  if (num_images == 1) {
+  if (num_images == 1 || use_rgbd) {
     feed_monocular(message, 0);
   } else if (num_images == 2 && use_stereo) {
     if (left_major_stereo) {
@@ -211,6 +219,10 @@ void TrackKLT::feed_monocular(const CameraData &message, size_t msg_id) {
     for (size_t i = 0; i < good_left.size(); i++) {
       cv::Point2f npt_l = camera_calib.at(cam_id)->undistort_cv(good_left.at(i).pt);
       database->update_feature_nolock(good_ids_left.at(i), message.timestamp, cam_id, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x, npt_l.y);
+    }
+
+    if (use_rgbd) {
+      add_rgbd_virtual_keypoints_nolock(message, good_ids_left, good_left);
     }
   }
 
@@ -754,7 +766,6 @@ void TrackKLT::feed_stereo2(const CameraData &message, size_t msg_id_left, size_
             (int)good_left.size());
   PRINT_ALL("[TIME-KLT]: %.4f seconds for total\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT7 - rT1).count());
 }
-
 
 void TrackKLT::perform_detection_monocular(const std::vector<cv::Mat> &img0pyr, const cv::Mat &mask0, std::vector<cv::KeyPoint> &pts0,
                                            std::vector<size_t> &ids0) {

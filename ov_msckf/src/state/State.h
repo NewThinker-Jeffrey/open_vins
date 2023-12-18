@@ -52,7 +52,7 @@ public:
    * @brief Default Constructor (will initialize variables to defaults)
    * @param options_ Options structure containing filter options
    */
-  State(const StateOptions &options_);
+  State(const StateOptions &options_, bool rgbd = false);
 
   ~State() {}
 

@@ -275,7 +275,11 @@ int main(int argc, char **argv) {
         slam_dataset::ViCapture::VisualSensorType::RGBD);
   } else {
     bool stereo = (internal_params.state_options.num_cameras == 2);
-    if (stereo) {
+    bool rgbd = internal_params.use_rgbd;
+    if (rgbd) {
+      capture->changeVisualSensorType(
+          slam_dataset::ViCapture::VisualSensorType::RGBD);
+    } else if (stereo) {
       capture->changeVisualSensorType(
           slam_dataset::ViCapture::VisualSensorType::STEREO);
     } else {

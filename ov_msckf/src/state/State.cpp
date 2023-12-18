@@ -25,7 +25,7 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-State::State(const StateOptions &options) {
+State::State(const StateOptions &options, bool rgbd) {
 
   // Save our options
   _options = options;
@@ -71,6 +71,23 @@ State::State(const StateOptions &options) {
       _variables.push_back(intrin);
       current_id += intrin->size();
     }
+  }
+
+  if (rgbd) {
+    assert(_options.num_cameras == 1);
+    int i = _options.num_cameras;
+
+    // Allocate extrinsic transform
+    auto pose = std::make_shared<PoseJPL>();
+
+    // Allocate intrinsics for this camera
+    auto intrin = std::make_shared<Vec>(8);
+
+    // Add these to the corresponding maps
+    _calib_IMUtoCAM.insert({i, pose});
+    _cam_intrinsics.insert({i, intrin});
+
+    // We don't calibrate camera-imu pose or intrinsics for the virtual right camera.
   }
 
   // Finally initialize our covariance to small value

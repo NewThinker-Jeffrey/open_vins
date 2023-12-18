@@ -256,6 +256,11 @@ struct VioManagerOptions {
   /// Mask images for each camera
   std::map<size_t, cv::Mat> masks;
 
+  /// Whether our mono-camera supports rgb-d
+  bool use_rgbd = false;  // only when we have 1 camera
+  double virtual_baseline_for_rgbd = 0.095;
+  double depth_unit_for_rgbd = 0.001;
+
   void set_camera_intrinsics(size_t cam_id,
                              const std::string& dist_model, // radtan or equidistant
                              int width, int height,
@@ -305,6 +310,10 @@ struct VioManagerOptions {
       parser->parse_config("downsample_cameras", downsample_cameras); // might be redundant
       parser->parse_external("relative_config_imu", "imu0", "update_rate", imu_rate);
 
+      parser->parse_config("use_rgbd", use_rgbd, false);
+      parser->parse_config("virtual_baseline_for_rgbd", virtual_baseline_for_rgbd, use_rgbd);
+      parser->parse_config("depth_unit_for_rgbd", depth_unit_for_rgbd, use_rgbd);
+
       for (int i = 0; i < state_options.num_cameras; i++) {
 
         // Time offset (use the first one)
@@ -339,6 +348,14 @@ struct VioManagerOptions {
         set_camera_intrinsics(i, dist_model, matrix_wh[0], matrix_wh[1], cam_calib);
 
         set_camera_extrinsics(i, T_CtoI);
+      }
+
+      if (use_rgbd) {
+        assert(state_options.num_cameras == 1);
+        camera_intrinsics.insert({1, camera_intrinsics.at(0)->clone()});
+        Eigen::Matrix4d T_virtual_rightcam_to_leftcam = Eigen::Matrix4d::Identity();
+        T_virtual_rightcam_to_leftcam(0, 3) = virtual_baseline_for_rgbd;
+        set_camera_extrinsics(1, T_CtoIs.at(0) * T_virtual_rightcam_to_leftcam);
       }
 
       parser->parse_config("use_mask", use_mask);
@@ -497,6 +514,9 @@ struct VioManagerOptions {
     }
     PRINT_DEBUG("FEATURE TRACKING PARAMETERS:\n");
     PRINT_DEBUG("  - use_stereo: %d\n", use_stereo);
+    PRINT_DEBUG("  - use_rgbd: %d\n", use_rgbd);
+    PRINT_DEBUG("  - virtual_baseline_for_rgbd: %.5f\n", virtual_baseline_for_rgbd);
+    PRINT_DEBUG("  - depth_unit_for_rgbd: %.5f\n", depth_unit_for_rgbd);
     PRINT_DEBUG("  - use_klt: %d\n", use_klt);
     PRINT_DEBUG("  - klt_left_major_stereo: %d\n", klt_left_major_stereo);
     PRINT_DEBUG("  - klt_strict_stereo: %d\n", klt_strict_stereo);

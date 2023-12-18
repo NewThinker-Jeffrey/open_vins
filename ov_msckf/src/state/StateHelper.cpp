@@ -192,7 +192,9 @@ void StateHelper::EKFUpdate(std::shared_ptr<State> state, const std::vector<std:
   // NOTE: is this the best place to put this update logic??? probably..
   if (state->_options.do_calib_camera_intrinsics) {
     for (auto const &calib : state->_cam_intrinsics) {
-      state->_cam_intrinsics_cameras.at(calib.first)->set_value(calib.second->value());
+      if (calib.first < state->_options.num_cameras) {
+        state->_cam_intrinsics_cameras.at(calib.first)->set_value(calib.second->value());
+      }
     }
   }
 }

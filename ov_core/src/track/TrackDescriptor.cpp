@@ -44,7 +44,7 @@ void TrackDescriptor::feed_new_camera(const CameraData &message) {
   // Either call our stereo or monocular version
   // If we are doing binocular tracking, then we should parallize our tracking
   size_t num_images = message.images.size();
-  if (num_images == 1) {
+  if (num_images == 1 || use_rgbd) {
     feed_monocular(message, 0);
   } else if (num_images == 2 && use_stereo) {
     feed_stereo(message, 0, 1);
@@ -70,16 +70,26 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
   std::lock_guard<std::mutex> lck(mtx_feeds.at(cam_id));
 
   // Histogram equalize
+  const cv::Mat& vis_img = message.images.at(msg_id);
   cv::Mat img, mask;
+
+  cv::Mat gray;
+  if (message.images.at(msg_id).channels() == 3) {
+    cv::cvtColor(message.images.at(msg_id), gray, cv::COLOR_BGR2GRAY);
+  } else {
+    assert(message.images.at(msg_id).channels() == 1);
+    gray = message.images.at(msg_id);
+  }
+
   if (histogram_method == HistogramMethod::HISTOGRAM) {
-    cv::equalizeHist(message.images.at(msg_id), img);
+    cv::equalizeHist(gray, img);
   } else if (histogram_method == HistogramMethod::CLAHE) {
     double eq_clip_limit = 10.0;
     cv::Size eq_win_size = cv::Size(8, 8);
     cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(eq_clip_limit, eq_win_size);
-    clahe->apply(message.images.at(msg_id), img);
+    clahe->apply(gray, img);
   } else {
-    img = message.images.at(msg_id);
+    img = gray;
   }
   mask = message.masks.at(msg_id);
 
@@ -90,7 +100,7 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
     cv::Mat good_desc_left;
     perform_detection_monocular(img, mask, good_left, good_desc_left, good_ids_left);
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last[cam_id] = img;
+    img_last[cam_id] = vis_img;
     img_mask_last[cam_id] = mask;
     pts_last[cam_id] = good_left;
     ids_last[cam_id] = good_ids_left;
@@ -150,9 +160,16 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
   rT4 = std::chrono::high_resolution_clock::now();
 
   // Update our feature database, with theses new observations
-  for (size_t i = 0; i < good_left.size(); i++) {
-    cv::Point2f npt_l = camera_calib.at(cam_id)->undistort_cv(good_left.at(i).pt);
-    database->update_feature(good_ids_left.at(i), message.timestamp, cam_id, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x, npt_l.y);
+  {
+    std::unique_lock<std::mutex> lck(database->get_mutex());
+
+    for (size_t i = 0; i < good_left.size(); i++) {
+      cv::Point2f npt_l = camera_calib.at(cam_id)->undistort_cv(good_left.at(i).pt);
+      database->update_feature_nolock(good_ids_left.at(i), message.timestamp, cam_id, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x, npt_l.y);
+    }
+    if (use_rgbd) {
+      add_rgbd_virtual_keypoints_nolock(message, good_ids_left, good_left);
+    }
   }
 
   // Debug info
@@ -161,7 +178,7 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
   // Move forward in time
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last[cam_id] = img;
+    img_last[cam_id] = vis_img;
     img_mask_last[cam_id] = mask;
     pts_last[cam_id] = good_left;
     ids_last[cam_id] = good_ids_left;
@@ -192,6 +209,8 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
 
   // Histogram equalize images
   cv::Mat img_left, img_right, mask_left, mask_right;
+  const cv::Mat& vis_img_left = message.images.at(msg_id_left);
+  const cv::Mat& vis_img_right = message.images.at(msg_id_right);
   if (histogram_method == HistogramMethod::HISTOGRAM) {
     cv::equalizeHist(message.images.at(msg_id_left), img_left);
     cv::equalizeHist(message.images.at(msg_id_right), img_right);
@@ -216,8 +235,8 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
     perform_detection_stereo(img_left, img_right, mask_left, mask_right, good_left, good_right, good_desc_left, good_desc_right,
                              cam_id_left, cam_id_right, good_ids_left, good_ids_right);
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last[cam_id_left] = img_left;
-    img_last[cam_id_right] = img_right;
+    img_last[cam_id_left] = vis_img_left;
+    img_last[cam_id_right] = vis_img_right;
     img_mask_last[cam_id_left] = mask_left;
     img_mask_last[cam_id_right] = mask_right;
     pts_last[cam_id_left] = good_left;
@@ -313,17 +332,20 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
   //===================================================================================
 
   // Update our feature database, with theses new observations
-  for (size_t i = 0; i < good_left.size(); i++) {
-    // Assert that our IDs are the same
-    assert(good_ids_left.at(i) == good_ids_right.at(i));
-    // Try to undistort the point
-    cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(good_left.at(i).pt);
-    cv::Point2f npt_r = camera_calib.at(cam_id_right)->undistort_cv(good_right.at(i).pt);
-    // Append to the database
-    database->update_feature(good_ids_left.at(i), message.timestamp, cam_id_left, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x,
-                             npt_l.y);
-    database->update_feature(good_ids_left.at(i), message.timestamp, cam_id_right, good_right.at(i).pt.x, good_right.at(i).pt.y, npt_r.x,
-                             npt_r.y);
+  {
+    std::unique_lock<std::mutex> lck(database->get_mutex());
+    for (size_t i = 0; i < good_left.size(); i++) {
+      // Assert that our IDs are the same
+      assert(good_ids_left.at(i) == good_ids_right.at(i));
+      // Try to undistort the point
+      cv::Point2f npt_l = camera_calib.at(cam_id_left)->undistort_cv(good_left.at(i).pt);
+      cv::Point2f npt_r = camera_calib.at(cam_id_right)->undistort_cv(good_right.at(i).pt);
+      // Append to the database
+      database->update_feature_nolock(good_ids_left.at(i), message.timestamp, cam_id_left, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x,
+                              npt_l.y);
+      database->update_feature_nolock(good_ids_left.at(i), message.timestamp, cam_id_right, good_right.at(i).pt.x, good_right.at(i).pt.y, npt_r.x,
+                              npt_r.y);
+    }
   }
 
   // Debug info
@@ -333,8 +355,8 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
   // Move forward in time
   {
     std::lock_guard<std::mutex> lckv(mtx_last_vars);
-    img_last[cam_id_left] = img_left;
-    img_last[cam_id_right] = img_right;
+    img_last[cam_id_left] = vis_img_left;
+    img_last[cam_id_right] = vis_img_right;
     img_mask_last[cam_id_left] = mask_left;
     img_mask_last[cam_id_right] = mask_right;
     pts_last[cam_id_left] = good_left;

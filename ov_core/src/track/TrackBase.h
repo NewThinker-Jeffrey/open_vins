@@ -87,7 +87,9 @@ public:
    */
   TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
             HistogramMethod histmethod,
-            std::map<size_t, Eigen::VectorXd> camera_extrinsics=std::map<size_t, Eigen::VectorXd>(),
+            bool rgbd = false,
+            double rgbd_depth_unit = 0.001,
+            std::map<size_t, Eigen::Matrix4d> T_CtoIs=std::map<size_t, Eigen::Matrix4d>(),
             bool keypoint_predict = true, bool high_frequency_log = false);
 
   virtual ~TrackBase() {}
@@ -270,6 +272,11 @@ protected:
       const double fundamental_inlier_thr,
       std::vector<uchar> & inliers_mask);
 
+  void add_rgbd_virtual_keypoints_nolock(
+      const CameraData &message,
+      const std::vector<size_t>& good_ids_left,
+      const std::vector<cv::KeyPoint>& good_left);
+
 protected:
   /// Camera object which has all calibration in it
   std::unordered_map<size_t, std::shared_ptr<CamBase>> camera_calib;
@@ -285,6 +292,10 @@ protected:
 
   /// If we should use binocular tracking or stereo tracking for multi-camera
   bool use_stereo;
+
+  /// Whether our mono-camera supports rgb-d.
+  bool use_rgbd;
+  double depth_unit_for_rgbd;
 
   /// What histogram equalization method we should pre-process images with?
   HistogramMethod histogram_method;

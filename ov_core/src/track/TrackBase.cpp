@@ -33,17 +33,19 @@
 using namespace ov_core;
 
 TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
-                     HistogramMethod histmethod, std::map<size_t, Eigen::VectorXd> inp_camera_extrinsics,
+                     HistogramMethod histmethod,
+                     bool rgbd,
+                     double rgbd_depth_unit,
+                     std::map<size_t, Eigen::Matrix4d> T_CtoIs,
                      bool keypoint_predict, bool high_frequency_log)
     : camera_calib(cameras), database(new FeatureDatabase()), num_features(numfeats), 
       use_stereo(stereo), histogram_method(histmethod), 
+      use_rgbd(rgbd), depth_unit_for_rgbd(rgbd_depth_unit),
       t_d(0), gyro_bias(0,0,0), enable_high_frequency_log(high_frequency_log), enable_keypoint_predict(keypoint_predict) {
 
-  for (const auto & item : inp_camera_extrinsics) {
+  for (const auto & item : T_CtoIs) {
     camera_extrinsics[item.first] = Eigen::Isometry3d::Identity();
-    camera_extrinsics[item.first].linear() = quat_2_Rot(item.second.block(0,0,4,1));
-    camera_extrinsics[item.first].translation() = item.second.block(4,0,3,1);
-    camera_extrinsics[item.first] = camera_extrinsics[item.first].inverse();  // todo(isaac): check the transformation.
+    camera_extrinsics[item.first].matrix() = item.second;
     {
       std::ostringstream oss;
       oss << "TrackBase::TrackBase():  extrinsics for camera " << item.first << ": " << std::endl;
@@ -784,4 +786,53 @@ void TrackBase::fundamental_ransac(
     pts1_n[i] = camera_calib.at(cam_id1)->undistort_cv(kpts1.at(i).pt);
   }
   fundamental_ransac(pts0_n, pts1_n, fundamental_inlier_thr, inliers_mask);
+}
+
+void TrackBase::add_rgbd_virtual_keypoints_nolock(
+    const CameraData &message,
+    const std::vector<size_t>& good_ids_left,
+    const std::vector<cv::KeyPoint>& good_left) {
+
+  size_t cam_id = message.sensor_ids.at(0);
+  size_t virtual_right_cam_id = message.sensor_ids.at(1);
+  cv::Mat depth_img = message.images.at(1);
+
+  Eigen::Isometry3d T_left_in_right = camera_extrinsics.at(virtual_right_cam_id).inverse() * camera_extrinsics.at(cam_id);
+
+  auto get_depth = [this, &depth_img](const cv::Point2f& pt) -> double {
+    // todo(jeffrey): interpolate for depth?
+    int int_y = pt.y;
+    int int_x = pt.x;
+    double d = -1.0;
+    if (depth_img.type() == CV_16U) {
+      d = depth_img.at<uint16_t>(int_y, int_x);  // 0 for invalid depth.
+    } else if (depth_img.type() == CV_32F) {
+      d = depth_img.at<float>(int_y, int_x);
+    } else {
+      std::cout << "DEPTH IMAGE ERROR: The type of depth image is neither CV_16U nor CV_32F!!" << std::endl;
+      return -1.0;
+    }
+
+    if (d > 0) {
+      return d * depth_unit_for_rgbd;
+    } else {
+      return -1.0;
+    }
+  };
+
+  for (size_t i = 0; i < good_left.size(); i++) {
+    double depth_l = get_depth(good_left.at(i).pt);
+    if (depth_l <= 0) {
+      continue;
+    }
+
+    cv::Point2f npt_l = camera_calib.at(cam_id)->undistort_cv(good_left.at(i).pt);
+    Eigen::Vector3d p_in_l(npt_l.x, npt_l.y, 1.0);
+    p_in_l *= depth_l;
+
+    Eigen::Vector3d p_in_r = T_left_in_right * p_in_l;
+    cv::Point2f npt_r(p_in_r.x() / p_in_r.z(),  p_in_r.y() / p_in_r.z());
+    cv::Point2f pt_r = camera_calib.at(virtual_right_cam_id)->distort_cv(npt_r);
+    database->update_feature_nolock(good_ids_left.at(i), message.timestamp, virtual_right_cam_id, pt_r.x, pt_r.y, npt_r.x, npt_r.y);
+  }
 }
