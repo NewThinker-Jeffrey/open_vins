@@ -271,7 +271,7 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
         cv::Point2f pt_l_top = cv::Point2f(pt_c.x - ((is_small) ? 5 : 7), pt_c.y - ((is_small) ? 5 : 7));
         cv::Point2f pt_l_bot = cv::Point2f(pt_c.x + ((is_small) ? 5 : 7), pt_c.y + ((is_small) ? 5 : 7));
         bool is_stereo = (feat.uvs.size() > 1);
-        cv::Scalar color = is_stereo ? cv::Scalar(255, 0, 0) : cv::Scalar(0, 255, 0);
+        cv::Scalar color = is_stereo ? cv::Scalar(255, 0, 0) : cv::Scalar(0, 0, 255);
         cv::rectangle(img_temp, pt_l_top, pt_l_bot, color, 1);
         // cv::circle(img_temp, pt_c, (is_small) ? 1 : 2, color, cv::FILLED);
         cv::circle(img_temp, pt_c, (is_small) ? 2 : 3, color, cv::FILLED);
@@ -832,6 +832,8 @@ void TrackBase::add_rgbd_virtual_keypoints_nolock(
   Eigen::Isometry3d T_left_in_right = camera_extrinsics.at(virtual_right_cam_id).inverse() * camera_extrinsics.at(cam_id);
 
   auto get_depth = [this, &depth_img](const cv::Point2f& pt) -> double {
+    // return -1.0;  // to disable depth.
+
     // todo(jeffrey): interpolate for depth?
     int int_y = pt.y;
     int int_x = pt.x;
