@@ -187,7 +187,8 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
     img_out = cv::Mat(max_height, img_last_cache_size * max_width, CV_8UC3, cv::Scalar(0, 0, 0));
 
   // Max tracks to show (otherwise it clutters up the screen)
-  size_t maxtracks = 50;
+  // size_t maxtracks = 50;
+  size_t maxtracks = 5;
   // size_t maxtracks = 11;
 
   // get time_str
@@ -262,6 +263,29 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
       if (!database->get_feature_clone(ids_last_cache[pair.first].at(i), feat, true))
         continue;
       feat.clean_future_measurements(timestamp);
+      bool is_stereo = (feat.uvs.size() > 1);
+
+      // find the corresponding feature in right image.
+      int right_pt_idx = -1;
+      if (is_stereo) {
+        if (pair.first == 0 && ids_last_cache.count(1)) {
+          size_t featid = ids_last_cache[0].at(i);
+          auto& right_ids_cache = ids_last_cache[1];
+          for (size_t j=0; j<right_ids_cache.size(); j++) {
+            if (right_ids_cache[j] == featid) {
+              right_pt_idx = j;
+              break;
+            }
+          }
+        }
+      }
+
+      if (is_stereo && pair.first == 0 && right_pt_idx >= 0) {
+        // draw disparity for stereo feature
+        cv::Point2f pt_l = pts_last_cache[pair.first].at(i).pt;
+        cv::Point2f pt_r = pts_last_cache[1].at(right_pt_idx).pt;
+        cv::line(img_temp, pt_l, pt_r, cv::Scalar(0, 255, 0));
+      }
 
       // If a highlighted point, then put a nice box around it
       if (std::find(highlighted.begin(), highlighted.end(), ids_last_cache[pair.first].at(i)) != highlighted.end()) {
@@ -292,7 +316,6 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
         if (feat.uvs[pair.first].size() - z > maxtracks)
           break;
         // Calculate what color we are drawing in
-        bool is_stereo = (feat.uvs.size() > 1);
         int color_r = (is_stereo ? b2 : r2) - (int)(1.0 * (is_stereo ? b1 : r1) / feat.uvs[pair.first].size() * z);
         int color_g = (is_stereo ? r2 : g2) - (int)(1.0 * (is_stereo ? r1 : g1) / feat.uvs[pair.first].size() * z);
         int color_b = (is_stereo ? g2 : b2) - (int)(1.0 * (is_stereo ? g1 : b1) / feat.uvs[pair.first].size() * z);
@@ -830,18 +853,18 @@ void TrackBase::add_rgbd_virtual_keypoints_nolock(
   cv::Mat depth_img = message.images.at(1);
 
   Eigen::Isometry3d T_left_in_right = camera_extrinsics.at(virtual_right_cam_id).inverse() * camera_extrinsics.at(cam_id);
+  // std::cout << "DEBUG T_left_in_right:" << std::endl << T_left_in_right.matrix() << std::endl;
 
-  auto get_depth = [this, &depth_img](const cv::Point2f& pt) -> double {
-    // return -1.0;  // to disable depth.
-
-    // todo(jeffrey): interpolate for depth?
-    int int_y = pt.y;
-    int int_x = pt.x;
+  auto get_raw_depth = [this, &depth_img](int x, int y) -> double {
     double d = -1.0;
+    if (x >= depth_img.cols || y >= depth_img.rows) {
+      return -1.0;
+    }
+
     if (depth_img.type() == CV_16U) {
-      d = depth_img.at<uint16_t>(int_y, int_x);  // 0 for invalid depth.
+      d = depth_img.at<uint16_t>(y, x);  // 0 for invalid depth.
     } else if (depth_img.type() == CV_32F) {
-      d = depth_img.at<float>(int_y, int_x);
+      d = depth_img.at<float>(y, x);
     } else {
       std::cout << "DEPTH IMAGE ERROR: The type of depth image is neither CV_16U nor CV_32F!! "
                 << "depth_img.type() = " << depth_img.type() << ", "
@@ -853,6 +876,32 @@ void TrackBase::add_rgbd_virtual_keypoints_nolock(
 
     if (d > 0) {
       return d * depth_unit_for_rgbd;
+    } else {
+      return -1.0;
+    }
+  };
+
+  auto get_depth = [this, get_raw_depth](const cv::Point2f& pt) {
+    // Only use depth values in smooth area.
+    const double depth_smooth_thr = 0.1;  // meter
+    std::vector<double> values;
+    values.reserve(9);
+    int y = pt.y;
+    int x = pt.x;
+    for (int i=y-1; i<y+2; i++) {
+      for (int j=x-1; j<x+2; j++) {
+        double depth = get_raw_depth(j,i);
+        if (depth < 0) {
+          return -1.0;
+        }
+        values.push_back(depth);
+      }
+    }
+
+    double max = *std::max_element(std::begin(values), std::end(values));
+    double min = *std::min_element(std::begin(values), std::end(values));
+    if (max - min < depth_smooth_thr) {
+      return values[4];
     } else {
       return -1.0;
     }
