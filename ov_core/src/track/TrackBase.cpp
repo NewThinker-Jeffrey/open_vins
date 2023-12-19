@@ -231,8 +231,7 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
       // // Always display gray images even if the input has 3 channels.
       // cv::Mat gray;
       // if (img_last_cache[pair.first].channels() == 3) {
-      //   cv::cvtColor(img_last_cache[pair.first], gray, cv::COLOR_BGR2GRAY);
-      //   // cv::cvtColor(img_last_cache[pair.first], gray, cv::COLOR_RGB2GRAY);
+      //   cv::cvtColor(img_last_cache[pair.first], gray, cv::COLOR_RGB2GRAY);
       // } else {
       //   assert(img_last_cache[pair.first].channels() == 1);
       //   gray = img_last_cache[pair.first];
@@ -241,8 +240,7 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
 
       // Display rgb image if the input has 3 channels; Otherwise display gray.
       if (img_last_cache[pair.first].channels() == 3) {
-        cv::cvtColor(img_last_cache[pair.first], img_temp, cv::COLOR_BGR2RGB);
-        // img_temp = img_last_cache[pair.first].clone();
+        img_temp = img_last_cache[pair.first].clone();
       } else {
         assert(img_last_cache[pair.first].channels() == 1);
         cv::cvtColor(img_last_cache[pair.first], img_temp, cv::COLOR_GRAY2RGB);
@@ -843,7 +841,11 @@ void TrackBase::add_rgbd_virtual_keypoints_nolock(
     } else if (depth_img.type() == CV_32F) {
       d = depth_img.at<float>(int_y, int_x);
     } else {
-      std::cout << "DEPTH IMAGE ERROR: The type of depth image is neither CV_16U nor CV_32F!!" << std::endl;
+      std::cout << "DEPTH IMAGE ERROR: The type of depth image is neither CV_16U nor CV_32F!! "
+                << "depth_img.type() = " << depth_img.type() << ", "
+                << "depth_img.rows = " << depth_img.rows << ", "
+                << "depth_img.cols = " << depth_img.cols << ", "
+                << "depth_img.channels() = " << depth_img.channels() << std::endl;
       return -1.0;
     }
 

@@ -66,7 +66,7 @@ void TrackKLT::feed_new_camera(const CameraData &message) {
     cv::Mat img;
     cv::Mat gray;
     if (message.images.at(msg_id).channels() == 3) {
-      cv::cvtColor(message.images.at(msg_id), gray, cv::COLOR_BGR2GRAY);
+      cv::cvtColor(message.images.at(msg_id), gray, cv::COLOR_RGB2GRAY);
     } else {
       assert(message.images.at(msg_id).channels() == 1);
       gray = message.images.at(msg_id);
