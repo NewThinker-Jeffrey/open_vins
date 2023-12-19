@@ -55,7 +55,7 @@ public:
                     HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist,
                     bool rgbd = false,
                     double rgbd_depth_unit = 0.001,
-                    std::map<size_t, Eigen::Matrix4d> T_CtoIs=std::map<size_t, Eigen::Matrix4d>(),
+                    std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> T_CtoIs=std::map<size_t, std::shared_ptr<Eigen::Matrix4d>>(),
                     bool leftmajor_stereo=true, bool strictstereo=false, bool use_fundamental_check=false,
                     bool keypoint_predict = true, bool high_frequency_log = false)
       : TrackBase(cameras, numfeats, numaruco, stereo, histmethod,

@@ -89,7 +89,7 @@ public:
             HistogramMethod histmethod,
             bool rgbd = false,
             double rgbd_depth_unit = 0.001,
-            std::map<size_t, Eigen::Matrix4d> T_CtoIs=std::map<size_t, Eigen::Matrix4d>(),
+            std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> T_CtoIs=std::map<size_t, std::shared_ptr<Eigen::Matrix4d>>(),
             bool keypoint_predict = true, bool high_frequency_log = false);
 
   virtual ~TrackBase() {}
@@ -375,8 +375,8 @@ protected:
   std::vector<ImuData> imu_data;
   std::mutex imu_data_mtx;
 
-  /// Map between camid and camera extrinsics (q_ItoC, p_IinC).
-  std::map<size_t, Eigen::Isometry3d> camera_extrinsics;
+  /// Map between camid and camera extrinsics
+  std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> T_CtoIs;
 
   double t_d;
   Eigen::Vector3d gyro_bias;

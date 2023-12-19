@@ -88,6 +88,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
 
   // Loop through and load each of the cameras
   state->_cam_intrinsics_cameras = params.camera_intrinsics;
+  state->_T_CtoIs = params.T_CtoIs;
   for (int i = 0; i < state->_options.num_cameras; i++) {
     state->_cam_intrinsics.at(i)->set_value(params.camera_intrinsics.at(i)->get_value());
     state->_cam_intrinsics.at(i)->set_fej(params.camera_intrinsics.at(i)->get_value());
@@ -148,7 +149,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
                                                          state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
                                                          params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist,
                                                          params.use_rgbd, params.depth_unit_for_rgbd,
-                                                         params.T_CtoIs,
+                                                         state->_T_CtoIs,
                                                          params.klt_left_major_stereo, params.klt_strict_stereo, params.klt_force_fundamental,
                                                          params.feattrack_predict_keypoints,
                                                          params.feattrack_high_frequency_log));
@@ -157,7 +158,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
         params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio,
         params.use_rgbd, params.depth_unit_for_rgbd,
-        params.T_CtoIs,
+        state->_T_CtoIs,
         params.feattrack_predict_keypoints,
         params.feattrack_high_frequency_log));
   }
@@ -1206,7 +1207,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   const double ref_focallength = std::max(ref_K(0, 0), ref_K(1, 1));
 
   Eigen::Matrix3d cur_imu_rotation = gyro_integrated_rotations_window.at(message.timestamp);
-  Eigen::Matrix3d R_Cref_in_I = params.T_CtoIs.at(message.sensor_ids[0]).block(0,0,3,3);
+  Eigen::Matrix3d R_Cref_in_I = params.T_CtoIs.at(message.sensor_ids[0])->block(0,0,3,3);
   // const auto & extrinsic = params.camera_extrinsics.at(message.sensor_ids[0]);
   // R_Cref_in_I = ov_core::quat_2_Rot(extrinsic.block(0,0,4,1)).transpose();
   if (params.vio_manager_high_frequency_log) {
@@ -1222,7 +1223,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
 
     std::unordered_map<size_t, Eigen::Matrix3d> camid_to_r;
     for (const auto& item : params.T_CtoIs) {
-      Eigen::Matrix3d R_C_in_I = item.second.block(0,0,3,3);
+      Eigen::Matrix3d R_C_in_I = item.second->block(0,0,3,3);
       camid_to_r [item.first] = R_Cref_in_I.transpose() * R_Iold_in_Icur * R_C_in_I;
     }
     R_Cold_in_Ccurs.push_back(camid_to_r);

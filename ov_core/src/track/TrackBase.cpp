@@ -36,23 +36,13 @@ TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> camera
                      HistogramMethod histmethod,
                      bool rgbd,
                      double rgbd_depth_unit,
-                     std::map<size_t, Eigen::Matrix4d> T_CtoIs,
+                     std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> input_T_CtoIs,
                      bool keypoint_predict, bool high_frequency_log)
     : camera_calib(cameras), database(new FeatureDatabase()), num_features(numfeats), 
       use_stereo(stereo), histogram_method(histmethod), 
       use_rgbd(rgbd), depth_unit_for_rgbd(rgbd_depth_unit),
+      T_CtoIs(input_T_CtoIs),
       t_d(0), gyro_bias(0,0,0), enable_high_frequency_log(high_frequency_log), enable_keypoint_predict(keypoint_predict) {
-
-  for (const auto & item : T_CtoIs) {
-    camera_extrinsics[item.first] = Eigen::Isometry3d::Identity();
-    camera_extrinsics[item.first].matrix() = item.second;
-    {
-      std::ostringstream oss;
-      oss << "TrackBase::TrackBase():  extrinsics for camera " << item.first << ": " << std::endl;
-      oss << camera_extrinsics[item.first].matrix() << std::endl;
-      PRINT_INFO("%s", oss.str().c_str());
-    }
-  }
 
   // Our current feature ID should be larger then the number of aruco tags we have (each has 4 corners)
   currid = 4 * (size_t)numaruco + 1;
@@ -427,7 +417,7 @@ Eigen::Matrix3d TrackBase::predict_rotation(size_t cam_id, double new_time) {
 
   double old_time = img_time_last.at(cam_id);
   Eigen::Matrix3d R_I1_in_I0 = integrate_gryo(old_time, new_time);
-  Eigen::Matrix3d R_C_in_I = camera_extrinsics[cam_id].linear();
+  Eigen::Matrix3d R_C_in_I = T_CtoIs[cam_id]->block(0,0,3,3);
   Eigen::Matrix3d R_C1_in_C0 = R_C_in_I.transpose() * R_I1_in_I0 * R_C_in_I;
   Eigen::Matrix3d R_C0_in_C1 = R_C1_in_C0.transpose();
   return R_C0_in_C1;
@@ -482,8 +472,12 @@ void TrackBase::predict_keypoints_stereo(
     Eigen::Matrix3d& R_left_in_right,
     Eigen::Vector3d& t_left_in_right) {
   
-  Eigen::Isometry3d T_Cleft_in_I = camera_extrinsics[cam_id_left];
-  Eigen::Isometry3d T_Cright_in_I = camera_extrinsics[cam_id_right];
+  Eigen::Isometry3d T_Cleft_in_I;
+  Eigen::Isometry3d T_Cright_in_I;
+  
+  T_Cleft_in_I.matrix() = *T_CtoIs[cam_id_left];
+  T_Cright_in_I.matrix() = *T_CtoIs[cam_id_right];
+
   Eigen::Isometry3d T_left_in_right = T_Cright_in_I.inverse() * T_Cleft_in_I;
   // R_left_in_right = R_Cright_in_I.transpose() * R_Cleft_in_I;
   R_left_in_right = T_left_in_right.linear();
@@ -852,7 +846,13 @@ void TrackBase::add_rgbd_virtual_keypoints_nolock(
   size_t virtual_right_cam_id = message.sensor_ids.at(1);
   cv::Mat depth_img = message.images.at(1);
 
-  Eigen::Isometry3d T_left_in_right = camera_extrinsics.at(virtual_right_cam_id).inverse() * camera_extrinsics.at(cam_id);
+  Eigen::Isometry3d T_Cleft_in_I;
+  Eigen::Isometry3d T_Cright_in_I;
+  
+  T_Cleft_in_I.matrix() = *T_CtoIs[cam_id];
+  T_Cright_in_I.matrix() = *T_CtoIs[virtual_right_cam_id];
+
+  Eigen::Isometry3d T_left_in_right = T_Cright_in_I.inverse() * T_Cleft_in_I;
   // std::cout << "DEBUG T_left_in_right:" << std::endl << T_left_in_right.matrix() << std::endl;
 
   auto get_raw_depth = [this, &depth_img](int x, int y) -> double {

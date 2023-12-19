@@ -26,6 +26,8 @@
 #include "types/Landmark.h"
 #include "utils/colors.h"
 #include "utils/print.h"
+#include "utils/quat_ops.h"
+
 #include "utils/chi_square/chi_squared_quantile_table_0_95.h"
 
 // #include <boost/math/distributions/chi_squared.hpp>
@@ -194,6 +196,17 @@ void StateHelper::EKFUpdate(std::shared_ptr<State> state, const std::vector<std:
     for (auto const &calib : state->_cam_intrinsics) {
       if (calib.first < state->_options.num_cameras) {
         state->_cam_intrinsics_cameras.at(calib.first)->set_value(calib.second->value());
+      }
+    }
+  }
+
+  if (state->_options.do_calib_camera_pose) {
+    for (auto const &calib : state->_calib_IMUtoCAM) {
+      if (calib.first < state->_options.num_cameras) {
+        Eigen::Matrix4d T_CtoI = Eigen::Matrix4d::Identity();
+        T_CtoI.block(0, 0, 3, 3) = ov_core::quat_2_Rot(calib.second->quat()).transpose();
+        T_CtoI.block(0, 3, 3, 1) = - T_CtoI.block(0, 0, 3, 3) * calib.second->pos();
+        *(state->_T_CtoIs.at(calib.first)) = T_CtoI;
       }
     }
   }

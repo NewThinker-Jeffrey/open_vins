@@ -250,7 +250,7 @@ struct InertialInitializerOptions {
 
   /// Map between camid and camera extrinsics (q_ItoC, p_IinC).
   std::map<size_t, Eigen::VectorXd> camera_extrinsics;
-  std::map<size_t, Eigen::Matrix4d> T_CtoIs;
+  std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> T_CtoIs;
 
   /// Whether our mono-camera supports rgb-d
   bool use_rgbd = false;  // only when we have 1 camera
@@ -280,7 +280,7 @@ struct InertialInitializerOptions {
   }
 
   void set_camera_extrinsics(size_t cam_id, const Eigen::Matrix4d& T_CtoI) {
-    T_CtoIs.insert({cam_id, T_CtoI});
+    T_CtoIs.insert({cam_id, std::make_shared<Eigen::Matrix4d>(T_CtoI)});
     Eigen::Matrix<double, 7, 1> cam_eigen;
     cam_eigen.block(0, 0, 4, 1) = ov_core::rot_2_quat(T_CtoI.block(0, 0, 3, 3).transpose());
     cam_eigen.block(4, 0, 3, 1) = -T_CtoI.block(0, 0, 3, 3).transpose() * T_CtoI.block(0, 3, 3, 1);
@@ -352,7 +352,7 @@ struct InertialInitializerOptions {
         camera_intrinsics.insert({1, camera_intrinsics.at(0)->clone()});
         Eigen::Matrix4d T_virtual_rightcam_to_leftcam = Eigen::Matrix4d::Identity();
         T_virtual_rightcam_to_leftcam(0, 3) = virtual_baseline_for_rgbd;
-        set_camera_extrinsics(1, T_CtoIs.at(0) * T_virtual_rightcam_to_leftcam);
+        set_camera_extrinsics(1, (*T_CtoIs.at(0)) * T_virtual_rightcam_to_leftcam);
       }
 
       // for (int i = 0; i < num_cameras; i++) {

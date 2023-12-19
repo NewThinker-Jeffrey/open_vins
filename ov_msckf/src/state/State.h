@@ -158,6 +158,9 @@ public:
   /// Camera intrinsics camera objects
   std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> _cam_intrinsics_cameras;
 
+  /// Map between camid and camera extrinsics
+  std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> _T_CtoIs;
+
 private:
   // Define that the state helper is a friend class of this class
   // This will allow it to access the below functions which should normally not be called

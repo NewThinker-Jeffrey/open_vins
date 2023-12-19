@@ -246,9 +246,16 @@ struct VioManagerOptions {
   /// Map between camid and camera intrinsics (fx, fy, cx, cy, d1...d4, cam_w, cam_h)
   std::unordered_map<size_t, std::shared_ptr<ov_core::CamBase>> camera_intrinsics;
 
+  // todo(jeffrey 19/12/2023):
+  //     camera_intrinsics will be updated by the filter if online intrinsics calibration is
+  //     enabled;  however, the camera_extrinsics below won't be updated by the filter now.
+  //     to update camera_extrinsics, we need to redfine it as:
+  //          'std::map<size_t, std::shared_ptr<Eigen::VectorXd>> camera_extrinsics;'
+  //     but this change affects too many parts of the code.
+  //     instead, we update the new added member:  T_CtoIs;
   /// Map between camid and camera extrinsics (q_ItoC, p_IinC).
   std::map<size_t, Eigen::VectorXd> camera_extrinsics;
-  std::map<size_t, Eigen::Matrix4d> T_CtoIs;
+  std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> T_CtoIs;
 
   /// If we should try to load a mask and use it to reject invalid features
   bool use_mask = false;
@@ -284,7 +291,7 @@ struct VioManagerOptions {
   }
 
   void set_camera_extrinsics(size_t cam_id, const Eigen::Matrix4d& T_CtoI) {
-    T_CtoIs.insert({cam_id, T_CtoI});
+    T_CtoIs.insert({cam_id, std::make_shared<Eigen::Matrix4d>(T_CtoI)});
     Eigen::Matrix<double, 7, 1> cam_eigen;
     cam_eigen.block(0, 0, 4, 1) = ov_core::rot_2_quat(T_CtoI.block(0, 0, 3, 3).transpose());
     cam_eigen.block(4, 0, 3, 1) = -T_CtoI.block(0, 0, 3, 3).transpose() * T_CtoI.block(0, 3, 3, 1);
@@ -355,7 +362,7 @@ struct VioManagerOptions {
         camera_intrinsics.insert({1, camera_intrinsics.at(0)->clone()});
         Eigen::Matrix4d T_virtual_rightcam_to_leftcam = Eigen::Matrix4d::Identity();
         T_virtual_rightcam_to_leftcam(0, 3) = virtual_baseline_for_rgbd;
-        set_camera_extrinsics(1, T_CtoIs.at(0) * T_virtual_rightcam_to_leftcam);
+        set_camera_extrinsics(1, (*T_CtoIs.at(0)) * T_virtual_rightcam_to_leftcam);
       }
 
       parser->parse_config("use_mask", use_mask);
