@@ -429,7 +429,7 @@ void VioManager::update_thread_func() {
       update_task_queue_cond_.wait(locker, [this](){
         return ! update_task_queue_.empty() || stop_request_;
       });
-      while (update_task_queue_.size() > 2) {
+      while (update_task_queue_.size() > 5) {
         update_task_queue_.pop_front();
         abandon ++;
       }
