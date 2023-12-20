@@ -249,12 +249,13 @@ int main(int argc, char **argv) {
       bs.accel_framerate = 250;
     }
     if (record_rgbd || rgbd) {
-      bs.depth_framerate = 5;
-      bs.color_framerate = 5;
-      bs.depth_width = 848;
-      bs.depth_height = 480;
-      bs.color_width = 848;
-      bs.color_height = 480;
+      bs.depth_width = image_width;
+      bs.depth_height = image_height;
+      bs.color_width = image_width;
+      bs.color_height = image_height;
+#ifdef USE_HEAR_SLAM
+      bs.rgbd_align_interval = 15;
+#endif
     }
     bs.infra_width = image_width;
     bs.infra_height = image_height;
