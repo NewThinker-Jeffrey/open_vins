@@ -989,7 +989,16 @@ void VioManager::feed_measurement_camera(ov_core::CameraData message) {
   for (auto & msg : pending_messages) {
     // Check if we should drop this image
     int cam_id0 = msg.sensor_ids[0];
-    if (camera_last_timestamp.find(cam_id0) != camera_last_timestamp.end() && msg.timestamp < camera_last_timestamp.at(cam_id0) + time_delta) {
+
+    // Ensure frames with depth image be accepted.
+    bool has_depth = false;
+    if (params.use_rgbd) {
+      if (!msg.images[1].empty() && cv::countNonZero(msg.images[1]) > 0) {
+        has_depth = true;
+      }
+    }
+
+    if (!has_depth && camera_last_timestamp.find(cam_id0) != camera_last_timestamp.end() && msg.timestamp < camera_last_timestamp.at(cam_id0) + time_delta) {
       return;
     }
     track_image_and_update(std::move(msg));
