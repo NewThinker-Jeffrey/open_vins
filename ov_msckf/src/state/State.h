@@ -90,6 +90,13 @@ public:
       clone->_cam_intrinsics_cameras[pair.first] = pair.second->clone();
     }
 
+    // clone _T_CtoIs
+    // std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> _T_CtoIs;
+    clone->_T_CtoIs.clear();
+    for (auto& pair : _T_CtoIs) {
+      clone->_T_CtoIs[pair.first] = std::make_shared<Eigen::Matrix4d>(*pair.second);
+    }
+
     // clone _variables, and record the old_to_new map
     std::map<std::shared_ptr<ov_type::Type>, std::shared_ptr<ov_type::Type>> old_to_new;
     clone->_variables.clear();
@@ -101,31 +108,61 @@ public:
     }
 
     // _imu and _clones_IMU
-    clone->_imu = std::dynamic_pointer_cast<ov_type::IMU>(old_to_new[_imu]);
+    clone->_imu = std::dynamic_pointer_cast<ov_type::IMU>(old_to_new.at(_imu));
     clone->_clones_IMU.clear();
     for (auto& pair : _clones_IMU) {
-      clone->_clones_IMU[pair.first] = std::dynamic_pointer_cast<ov_type::PoseJPL>(old_to_new[pair.second]);
+      clone->_clones_IMU[pair.first] = std::dynamic_pointer_cast<ov_type::PoseJPL>(old_to_new.at(pair.second));
     }
 
     // _features_SLAM
     clone->_features_SLAM.clear();
     for (auto& pair : _features_SLAM) {
-      clone->_features_SLAM[pair.first] = std::dynamic_pointer_cast<ov_type::Landmark>(old_to_new[pair.second]);
+      size_t n_marginalized = 0;
+      size_t n_null = 0;
+      if(old_to_new.count(pair.second)) {
+        clone->_features_SLAM[pair.first] = std::dynamic_pointer_cast<ov_type::Landmark>(old_to_new.at(pair.second));
+      } else {
+        if (pair.second) {
+          n_marginalized ++;
+          clone->_features_SLAM[pair.first] = std::dynamic_pointer_cast<ov_type::Landmark>(pair.second->clone());
+        } else {
+          n_null ++;
+          clone->_features_SLAM[pair.first] = nullptr;
+        }
+      }
+
+      if (n_marginalized > 0 || n_null > 0) {
+        // // Some slam features have already been marginalized but still stay in _features_SLAM?
+        // PRINT_WARNING(YELLOW "State::clone(): Might be a bug? Some slam features are null (%d) or have already been "
+        //                       "marginalized but still stay in _features_SLAM (%d).\n" RESET, n_null, n_marginalized)
+      }
     }
 
     // _calib_dt_CAMtoIMU
-    clone->_calib_dt_CAMtoIMU = std::dynamic_pointer_cast<ov_type::Vec>(old_to_new[_calib_dt_CAMtoIMU]);
+    if (old_to_new.count(_calib_dt_CAMtoIMU)) {
+      clone->_calib_dt_CAMtoIMU = std::dynamic_pointer_cast<ov_type::Vec>(old_to_new.at(_calib_dt_CAMtoIMU));
+    } else {
+      clone->_calib_dt_CAMtoIMU = std::dynamic_pointer_cast<ov_type::Vec>(_calib_dt_CAMtoIMU->clone());
+    }
 
     // _calib_IMUtoCAM
     clone->_calib_IMUtoCAM.clear();
     for (auto& pair : _calib_IMUtoCAM) {
-      clone->_calib_IMUtoCAM[pair.first] = std::dynamic_pointer_cast<ov_type::PoseJPL>(old_to_new[pair.second]);
+      if (old_to_new.count(pair.second)) {
+        clone->_calib_IMUtoCAM[pair.first] = std::dynamic_pointer_cast<ov_type::PoseJPL>(old_to_new.at(pair.second));
+      } else {
+        clone->_calib_IMUtoCAM[pair.first] = std::dynamic_pointer_cast<ov_type::PoseJPL>(pair.second->clone());
+      }
     }
 
     // _cam_intrinsics
     clone->_cam_intrinsics.clear();
     for (auto& pair : _cam_intrinsics) {
-      clone->_cam_intrinsics[pair.first] = std::dynamic_pointer_cast<ov_type::Vec>(old_to_new[pair.second]);
+      if (old_to_new.count(pair.second)) {
+        clone->_cam_intrinsics[pair.first] = std::dynamic_pointer_cast<ov_type::Vec>(old_to_new.at(pair.second));
+      } else {
+        clone->_cam_intrinsics[pair.first] = std::dynamic_pointer_cast<ov_type::Vec>(pair.second->clone());
+      }
     }
 
     return clone;
