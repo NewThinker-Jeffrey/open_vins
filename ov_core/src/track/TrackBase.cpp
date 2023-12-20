@@ -38,11 +38,13 @@ TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> camera
                      double rgbd_depth_unit,
                      std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> input_T_CtoIs,
                      bool keypoint_predict, bool high_frequency_log)
-    : camera_calib(cameras), database(new FeatureDatabase()), num_features(numfeats), 
+    : database(new FeatureDatabase()), num_features(numfeats), 
       use_stereo(stereo), histogram_method(histmethod), 
       use_rgbd(rgbd), depth_unit_for_rgbd(rgbd_depth_unit),
-      T_CtoIs(input_T_CtoIs),
       t_d(0), gyro_bias(0,0,0), enable_high_frequency_log(high_frequency_log), enable_keypoint_predict(keypoint_predict) {
+
+  set_camera_calib(cameras);
+  set_T_CtoIs(input_T_CtoIs);
 
   // Our current feature ID should be larger then the number of aruco tags we have (each has 4 corners)
   currid = 4 * (size_t)numaruco + 1;
@@ -53,6 +55,21 @@ TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> camera
     mtx_feeds.swap(list);
   }
 }
+
+void TrackBase::set_camera_calib(const std::unordered_map<size_t, std::shared_ptr<CamBase>>& cameras) {
+  camera_calib.clear();
+  for (const auto& pair : cameras) {
+    camera_calib[pair.first] = pair.second->clone();
+  }
+}
+
+void TrackBase::set_T_CtoIs(const std::map<size_t, std::shared_ptr<Eigen::Matrix4d>>& T_CtoIs) {
+  this->T_CtoIs.clear();
+  for (const auto& pair : T_CtoIs) {
+    this->T_CtoIs[pair.first] = std::make_shared<Eigen::Matrix4d>(*pair.second);
+  }
+}
+
 
 void TrackBase::display_active(double timestamp, cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::string overlay) {
 

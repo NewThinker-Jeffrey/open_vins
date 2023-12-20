@@ -493,6 +493,8 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
   // Perform our feature tracking!
   trackFEATS->set_t_d(t_d);
   trackFEATS->set_gyro_bias(gyro_bias);
+  trackFEATS->set_camera_calib(output->state_clone->_cam_intrinsics_cameras);
+  trackFEATS->set_T_CtoIs(output->state_clone->_T_CtoIs);
   trackFEATS->feed_new_camera(message);
 
   // If the aruco tracker is available, the also pass to it

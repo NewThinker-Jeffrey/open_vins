@@ -99,6 +99,10 @@ public:
 
   void set_gyro_bias(const Eigen::Vector3d& gyro_bias) {this->gyro_bias = gyro_bias;}
 
+  void set_camera_calib(const std::unordered_map<size_t, std::shared_ptr<CamBase>>& cameras);
+
+  void set_T_CtoIs(const std::map<size_t, std::shared_ptr<Eigen::Matrix4d>>& T_CtoIs);
+  
   /**
    * @brief Process a new image
    * @param message Contains our timestamp, images, and camera ids
