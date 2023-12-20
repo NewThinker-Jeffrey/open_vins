@@ -164,6 +164,7 @@ std::shared_ptr<State> State::clone() const {
         clone->_features_SLAM[pair.first] = std::dynamic_pointer_cast<ov_type::Landmark>(pair.second->clone());
       } else {
         n_null ++;
+        PRINT_WARNING(YELLOW "State::clone(): Might be a bug? get null landmark for feature id %d\n" RESET, pair.first);
         clone->_features_SLAM[pair.first] = nullptr;
       }
     }

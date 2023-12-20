@@ -21,6 +21,8 @@
 
 #include "VioManager.h"
 
+#include <glog/logging.h>
+
 #include "feat/Feature.h"
 #include "feat/FeatureDatabase.h"
 #include "feat/FeatureInitializer.h"
@@ -1183,6 +1185,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   // NOTE: we only enforce this if the current camera message is where the feature was seen from
   // NOTE: if you do not use FEJ, these types of slam features *degrade* the estimator performance....
   // NOTE: we will also marginalize SLAM features if they have failed their update a couple times in a row
+  int n_old_slam_feats = 0;
   for (std::pair<const size_t, std::shared_ptr<Landmark>> &landmark : state->_features_SLAM) {
     if (trackARUCO != nullptr) {
       std::shared_ptr<Feature> feat1 = trackARUCO->get_feature_database()->get_feature(landmark.second->_featid);
@@ -1190,22 +1193,25 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
         feats_slam.push_back(feat1);
     }
     std::shared_ptr<Feature> feat2 = trackFEATS->get_feature_database()->get_feature(landmark.second->_featid);
-    if (feat2 != nullptr)
-      feats_slam.push_back(feat2);
     assert(landmark.second->_unique_camera_id != -1);
     bool current_unique_cam =
         std::find(message.sensor_ids.begin(), message.sensor_ids.end(), landmark.second->_unique_camera_id) != message.sensor_ids.end();
     if (feat2 == nullptr && current_unique_cam)
       landmark.second->should_marg = true;
-    if (landmark.second->update_fail_count > 1)
+    if (landmark.second->update_fail_count > 1) {
+      PRINT_WARNING(YELLOW "Marginalize outlier feature (id %d)" RESET, landmark.second->_featid);
       landmark.second->should_marg = true;
+    }
+    if (feat2 != nullptr && !landmark.second->should_marg) {
+      feats_slam.push_back(feat2);
+      n_old_slam_feats ++;
+    }
   }
 
   // Lets marginalize out all old SLAM features here
   // These are ones that where not successfully tracked into the current frame
   // We do *NOT* marginalize out our aruco tags landmarks
   StateHelper::marginalize_slam(state);
-
 
   // add new slam features.
   
@@ -1280,6 +1286,9 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
       curr_aruco_tags++;
     it0++;
   }
+
+  CHECK_EQ(n_old_slam_feats + curr_aruco_tags, state->_features_SLAM.size());
+
 
   // Append a new SLAM feature if we have the room to do so
   // Also check that we have waited our delay amount (normally prevents bad first set of slam points)
@@ -1377,6 +1386,15 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
                     feats_slam.size(), amount_to_add, valid_amount, amount_to_add2, valid_amount2);
     }
   }
+
+
+  if (feats_slam.size() > state->_options.max_slam_features) {
+    PRINT_WARNING(YELLOW "VioManager::do_feature_propagate_update():  Might be a bug???? "
+                         "We have feats_slam.size()=%d > %d=state->_options.max_slam_features!" RESET,
+                         feats_slam.size(), state->_options.max_slam_features);
+  }
+
+  assert(feats_slam.size() <= state->_options.max_slam_features);
 
   // Separate our SLAM features into new ones, and old ones
   std::vector<std::shared_ptr<Feature>> feats_slam_DELAYED, feats_slam_UPDATE;

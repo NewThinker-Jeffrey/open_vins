@@ -649,7 +649,9 @@ void StateHelper::marginalize_slam(std::shared_ptr<State> state) {
   int ct_marginalized = 0;
   auto it0 = state->_features_SLAM.begin();
   while (it0 != state->_features_SLAM.end()) {
-    if ((*it0).second->should_marg && (int)(*it0).first > 4 * state->_options.max_aruco_features) {
+    if ((*it0).second->should_marg &&
+        // todo(jeffrey): consider whether it should be ">=" or ">" in the line below.
+        (int)(*it0).first > 4 * state->_options.max_aruco_features) {
       StateHelper::marginalize(state, (*it0).second);
       it0 = state->_features_SLAM.erase(it0);
       ct_marginalized++;
