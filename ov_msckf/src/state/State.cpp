@@ -23,6 +23,9 @@
 #include "utils/colors.h"
 #include "utils/print.h"
 
+#include <sstream>
+#include <glog/logging.h>
+
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
@@ -116,7 +119,7 @@ State::State(const StateOptions &options, bool rgbd) {
   }
 }
 
-std::shared_ptr<State> State::clone() const {
+std::shared_ptr<State> State::clone(bool print_variable_types) const {
   auto clone = std::make_shared<State>(_options);
   clone->_timestamp = _timestamp;
   clone->_Cov = _Cov;
@@ -137,11 +140,41 @@ std::shared_ptr<State> State::clone() const {
   // clone _variables, and record the old_to_new map
   std::map<std::shared_ptr<ov_type::Type>, std::shared_ptr<ov_type::Type>> old_to_new;
   clone->_variables.clear();
+
+  std::ostringstream oss;
+  size_t ivar = 0;
+  size_t n_landmark = 0;
+  if (print_variable_types) {
+    oss << "Variable types: ";
+  }
   for (auto& variable : _variables) {
     auto new_variable = variable->clone();
     new_variable->set_local_id(variable->id());
     clone->_variables.push_back(new_variable);
     old_to_new[variable] = new_variable;
+
+    if (print_variable_types) {
+      if (std::dynamic_pointer_cast<IMU>(variable)) {
+        oss << ivar << "(IMU) ";
+      } else if (std::dynamic_pointer_cast<PoseJPL>(variable)) {
+        oss << ivar << "(PoseJPL) ";
+      } else if (std::dynamic_pointer_cast<Landmark>(variable)) {
+        oss << ivar << "(Landmark) ";
+        n_landmark ++;
+      } else if (std::dynamic_pointer_cast<Vec>(variable)) {
+        oss << ivar << "(Vec) ";
+      } else {
+        oss << ivar << "(Unknown) ";
+      }
+      ivar++;
+    }
+
+  }
+  if (print_variable_types) {
+    oss << ",  _features_SLAM.size() = " << _features_SLAM.size()
+        << ", n_landmark = " << n_landmark << std::endl;
+    PRINT_INFO("%s", oss.str().c_str());
+    CHECK_EQ(n_landmark, _features_SLAM.size());
   }
 
   // _imu and _clones_IMU
@@ -153,7 +186,7 @@ std::shared_ptr<State> State::clone() const {
 
   // _features_SLAM
   clone->_features_SLAM.clear();
-  for (auto& pair : _features_SLAM) {
+  for (const auto& pair : _features_SLAM) {
     size_t n_marginalized = 0;
     size_t n_null = 0;
     if(old_to_new.count(pair.second)) {
@@ -162,6 +195,7 @@ std::shared_ptr<State> State::clone() const {
       if (pair.second) {
         n_marginalized ++;
         clone->_features_SLAM[pair.first] = std::dynamic_pointer_cast<ov_type::Landmark>(pair.second->clone());
+        CHECK(clone->_features_SLAM.at(pair.first));
       } else {
         n_null ++;
         PRINT_WARNING(YELLOW "State::clone(): Might be a bug? get null landmark for feature id %d\n" RESET, pair.first);

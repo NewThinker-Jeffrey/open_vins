@@ -101,6 +101,8 @@ public:
    * @param isfej Set to true to set the landmark FEJ value
    */
   void set_from_xyz(Eigen::Matrix<double, 3, 1> p_FinG, bool isfej);
+
+  std::shared_ptr<Type> clone() override;
 };
 } // namespace ov_type
 

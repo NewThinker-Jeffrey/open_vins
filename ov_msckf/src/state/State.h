@@ -78,7 +78,7 @@ public:
    */
   int max_covariance_size() const { return (int)_Cov.rows(); }
 
-  std::shared_ptr<State> clone() const;
+  std::shared_ptr<State> clone(bool print_variable_types=false) const;
 
   /// Current timestamp (should be the last update time!)
   double _timestamp = -1;

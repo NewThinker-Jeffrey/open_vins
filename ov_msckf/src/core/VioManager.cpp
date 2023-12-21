@@ -922,7 +922,7 @@ void VioManager::update_output(double timestamp) {
   }
 
   // output.state_clone = std::const_pointer_cast<const State>(state->clone());
-  output.state_clone = std::const_pointer_cast<State>(state->clone());
+  output.state_clone = std::const_pointer_cast<State>(state->clone(true));
   output.visualization.good_features_MSCKF = good_features_MSCKF;
   output.visualization.good_feature_ids_MSCKF = good_feature_ids_MSCKF;
   output.visualization.features_SLAM = get_features_SLAM();
@@ -934,6 +934,8 @@ void VioManager::update_output(double timestamp) {
   output.visualization.active_cam0_image = active_image;
   std::unique_lock<std::mutex> locker(output_mutex_);
   this->output = std::move(output);
+
+
 
   if (timestamp > 0 && update_callback_) {
     update_callback_(this->output);
@@ -1288,7 +1290,6 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   }
 
   CHECK_EQ(n_old_slam_feats + curr_aruco_tags, state->_features_SLAM.size());
-
 
   // Append a new SLAM feature if we have the room to do so
   // Also check that we have waited our delay amount (normally prevents bad first set of slam points)

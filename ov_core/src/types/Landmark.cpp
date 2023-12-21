@@ -142,3 +142,23 @@ void Landmark::set_from_xyz(Eigen::Matrix<double, 3, 1> p_FinG, bool isfej) {
   // Failure
   assert(false);
 }
+
+std::shared_ptr<Type> Landmark::clone() {
+  Landmark* Clone = new Landmark(_size);
+  Clone->set_value(value());
+  Clone->set_fej(fej());
+
+  Clone->_featid = _featid;
+  Clone->_unique_camera_id = _unique_camera_id;
+  Clone->_anchor_cam_id = _anchor_cam_id;
+  Clone->_anchor_clone_timestamp = _anchor_clone_timestamp;
+  Clone->has_had_anchor_change = has_had_anchor_change;
+  Clone->should_marg = should_marg;
+  Clone->update_fail_count = update_fail_count;
+  Clone->uv_norm_zero = uv_norm_zero;
+  Clone->uv_norm_zero_fej = uv_norm_zero_fej;
+  Clone->_feat_representation = _feat_representation;
+
+  return std::shared_ptr<Type>(Clone);
+}
+
