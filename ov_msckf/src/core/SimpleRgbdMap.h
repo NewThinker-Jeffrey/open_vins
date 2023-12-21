@@ -98,9 +98,11 @@ public:
   void insert_rgbd_frame(const cv::Mat& color, const cv::Mat& depth,
                          ov_core::CamBase* cam,
                          const Eigen::Isometry3f& T_W_C,
-                         const Timestamp& time) {
-    for (size_t y=0; y<color.rows; y++) {
-      for (size_t x=0; x<color.cols; x++) {
+                         const Timestamp& time,
+                         int pixel_downsample = 1,
+                         int start_row = 0) {
+    for (size_t y=start_row; y<color.rows; y+=pixel_downsample) {
+      for (size_t x=0; x<color.cols; x+=pixel_downsample) {
         const uint16_t d = depth.at<uint16_t>(y,x);
         if (d == 0) continue;
         float depth = d / 1000.0f;

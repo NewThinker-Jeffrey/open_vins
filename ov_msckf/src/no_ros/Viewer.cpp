@@ -74,8 +74,8 @@ void Viewer::init() {
 
 std::cout << "Viewer::init(): Before pangolin::OpenGlRenderState" << std::endl;
 
-  auto modelview1 = pangolin::ModelViewLookAt(0, -viewpoint_height, viewpoint_height * 0.85, 0, 0, 0, pangolin::AxisY);
-  // auto modelview1 = pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY);
+  // auto modelview1 = pangolin::ModelViewLookAt(0, -viewpoint_height, viewpoint_height * 0.85, 0, 0, 0, pangolin::AxisY);
+  auto modelview1 = pangolin::ModelViewLookAt(0, 0, viewpoint_height, 0, 0, 0, pangolin::AxisY);
 
 std::cout << "Viewer::init(): modelview1 created." << std::endl;
 
@@ -168,7 +168,7 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
     // s_cam1->SetModelViewMatrix(pangolin::ModelViewLookAt(transformed_new_pos(0), transformed_new_pos(1), viewpoint_height, transformed_new_pos(0), transformed_new_pos(1), 0, pangolin::AxisY));
     s_cam1->Follow(Twa);
     pangolin::Display("cam1").Activate(*s_cam1);
-    drawRobotAndMap(output);    
+    drawRobotAndMap(output, true);    
   }
 
   {
@@ -296,12 +296,15 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
   Eigen::Vector3f transformed_new_pos = R_MtoG * new_pos + t_MinG;
 
   // draw grid
-  drawGrids2D(
-      transformed_new_pos(0), transformed_new_pos(1),
-      100, 100,
-      Color(255, 255, 255, 40), 1.0f);
+  if (!draw_rgbd || !output->visualization.rgbd_map) {
+    drawGrids2D(
+        transformed_new_pos(0), transformed_new_pos(1),
+        100, 100,
+        Color(255, 255, 255, 40), 1.0f);
+    drawFrame(2.0, 10.0, 80);
 
-  drawFrame(2.0, 10.0, 80);
+  }
+
 
   // draw blue line connecting the origin point (of the global map) and current pos.
   glLineWidth(1.0);
@@ -315,21 +318,6 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
   glPushMatrix();
   glMultMatrixf(fT_MtoG.data());
 
-  // draw rgbd map
-  using Voxel = SimpleRgbdMap::Voxel;
-  if (draw_rgbd && output->visualization.rgbd_map) {
-    std::vector<Voxel> voxels = output->visualization.rgbd_map->get_occupied_voxels();
-    glPointSize(1.0);
-    glBegin(GL_POINTS);
-    for (const Voxel& v : voxels) {
-      glColor4ub(v.c[0], v.c[1], v.c[2], 255);
-      Eigen::Vector3f p(v.p.x(), v.p.y(), v.p.z());
-      p *= output->visualization.rgbd_map->resolution();
-      glVertex3f(p.x(), p.y(), p.z());
-    }
-    glEnd();
-  }
-
   // draw yellow line connecting the origin point (of the mission, not of the global map) and current pos.
   glLineWidth(1.0);
   glColor4ub(255, 255, 0, 80);
@@ -337,7 +325,6 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
   glVertex3f(0,0,0);
   glVertex3f(new_pos(0), new_pos(1), new_pos(2));
   glEnd();
-
 
   drawMultiTextLines(
       {TextLine("起点", false, getChineseFont()),
@@ -353,13 +340,27 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
     return;
   }
 
-  // draw points
-
-  // drawPointCloud2(_old_points, Color(127,127,127,80), 3.0);
-  drawPointCloud2(_old_points, Color(200,200,200,80), 3.0);
-  drawPointCloud2(_active_points, Color(255,255,255,150), 3.0);
-  drawPointCloud2(_slam_points, Color(255,0,0,255), 5.0);
-  drawPointCloud2(_msckf_points, Color(0,0,255,255), 5.0);
+  // draw rgbd map
+  using Voxel = SimpleRgbdMap::Voxel;
+  if (draw_rgbd && output->visualization.rgbd_map) {
+    std::vector<Voxel> voxels = output->visualization.rgbd_map->get_occupied_voxels();
+    glPointSize(2.0);
+    glBegin(GL_POINTS);
+    for (const Voxel& v : voxels) {
+      glColor4ub(v.c[0], v.c[1], v.c[2], 255);
+      Eigen::Vector3f p(v.p.x(), v.p.y(), v.p.z());
+      p *= output->visualization.rgbd_map->resolution();
+      glVertex3f(p.x(), p.y(), p.z());
+    }
+    glEnd();
+  } else {
+    // draw points
+    // drawPointCloud2(_old_points, Color(127,127,127,80), 3.0);
+    drawPointCloud2(_old_points, Color(200,200,200,80), 3.0);
+    drawPointCloud2(_active_points, Color(255,255,255,150), 3.0);
+    drawPointCloud2(_slam_points, Color(255,0,0,255), 5.0);
+    drawPointCloud2(_msckf_points, Color(0,0,255,255), 5.0);
+  }
 
   // draw traj
   drawPointTrajectory(_traj, Color(255,0,0,127), 4.0);

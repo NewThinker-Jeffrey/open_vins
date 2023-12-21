@@ -74,8 +74,11 @@ VioManager::VioManager(VioManagerOptions &params_) :
   params.print_and_load_state();
   params.print_and_load_trackers();
 
-  if (params.use_rgbd) {
-    rgbd_map = std::make_shared<SimpleRgbdMap>(1000000, 0.02);
+  if (params.use_rgbd && params.rgbd_mapping) {
+    // rgbd_map = std::make_shared<SimpleRgbdMap>(1000000, 0.02);
+    rgbd_map = std::make_shared<SimpleRgbdMap>(
+        params.rgbd_mapping_max_voxels,
+        params.rgbd_mapping_resolution);
   }
 
   // This will globally set the thread count we will use
@@ -582,7 +585,9 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
       Eigen::Isometry3f T_M_C = T_M_I * T_I_C;
       rgbd_map->insert_rgbd_frame(color, depth,
                                   params.camera_intrinsics.at(color_cam_id).get(),
-                                  T_M_C, c->message->timestamp);
+                                  T_M_C, c->message->timestamp,
+                                  params.rgbd_mapping_pixel_downsample,
+                                  params.rgbd_mapping_pixel_start_row);
     }
   }
 }

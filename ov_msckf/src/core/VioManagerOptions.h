@@ -268,6 +268,12 @@ struct VioManagerOptions {
   double virtual_baseline_for_rgbd = 0.095;
   double depth_unit_for_rgbd = 0.001;
 
+  bool rgbd_mapping = true;
+  int  rgbd_mapping_pixel_downsample = 3;
+  int  rgbd_mapping_pixel_start_row = 0;
+  double rgbd_mapping_resolution = 0.01;
+  int rgbd_mapping_max_voxels = 500000;
+
   void set_camera_intrinsics(size_t cam_id,
                              const std::string& dist_model, // radtan or equidistant
                              int width, int height,
@@ -320,6 +326,12 @@ struct VioManagerOptions {
       parser->parse_config("use_rgbd", use_rgbd, false);
       parser->parse_config("virtual_baseline_for_rgbd", virtual_baseline_for_rgbd, use_rgbd);
       parser->parse_config("depth_unit_for_rgbd", depth_unit_for_rgbd, use_rgbd);
+
+      parser->parse_config("rgbd_mapping", rgbd_mapping, false);
+      parser->parse_config("rgbd_mapping_pixel_downsample", rgbd_mapping_pixel_downsample, false);
+      parser->parse_config("rgbd_mapping_pixel_start_row", rgbd_mapping_pixel_start_row, false);
+      parser->parse_config("rgbd_mapping_resolution", rgbd_mapping_resolution, false);
+      parser->parse_config("rgbd_mapping_max_voxels", rgbd_mapping_max_voxels, false);
 
       for (int i = 0; i < state_options.num_cameras; i++) {
 
@@ -528,6 +540,13 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - use_rgbd: %d\n", use_rgbd);
     PRINT_DEBUG("  - virtual_baseline_for_rgbd: %.5f\n", virtual_baseline_for_rgbd);
     PRINT_DEBUG("  - depth_unit_for_rgbd: %.5f\n", depth_unit_for_rgbd);
+
+    PRINT_DEBUG("  - rgbd_mapping: %d\n", rgbd_mapping);
+    PRINT_DEBUG("  - rgbd_mapping_pixel_downsample: %d\n", rgbd_mapping_pixel_downsample);
+    PRINT_DEBUG("  - rgbd_mapping_pixel_start_row: %d\n", rgbd_mapping_pixel_start_row);
+    PRINT_DEBUG("  - rgbd_mapping_resolution: %.5f\n", rgbd_mapping_resolution);
+    PRINT_DEBUG("  - rgbd_mapping_max_voxels: %d\n", rgbd_mapping_max_voxels);
+
     PRINT_DEBUG("  - use_klt: %d\n", use_klt);
     PRINT_DEBUG("  - klt_left_major_stereo: %d\n", klt_left_major_stereo);
     PRINT_DEBUG("  - klt_strict_stereo: %d\n", klt_strict_stereo);
