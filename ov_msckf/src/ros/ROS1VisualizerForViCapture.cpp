@@ -67,7 +67,10 @@ ROS1VisualizerForViCapture::ROS1VisualizerForViCapture(
 
   auto cam_data_cb = [this, print_queue](int image_idx, const ov_interface::IMG_MSG& msg) {
     print_queue(image_idx, msg.timestamp);
-    sys_->ReceiveCamera(msg);
+    int down_sample = 3;
+    if (image_idx % down_sample == 0) {
+      sys_->ReceiveCamera(msg);
+    }
   };
 
   // auto stereo_cam_data_cb = [this, print_queue](int image_idx, const ov_interface::STEREO_IMG_MSG& msg) {
