@@ -33,6 +33,7 @@
 
 #include "slam_viz/pangolin_helper.h"
 #include "state/Propagator.h"
+#include "core/SimpleRgbdMap.h"
 
 
 using namespace ov_core;
@@ -178,7 +179,7 @@ void Viewer::show(std::shared_ptr<VioManager::Output> output) {
     pangolin::OpenGlMatrix Twa = makeGlMatrix(fT_MtoG * view_anchor_pose.matrix());
     s_cam2->Follow(Twa);
     pangolin::Display("cam2").Activate(*s_cam2);
-    drawRobotAndMap(output);
+    drawRobotAndMap(output, true);
   }
 
   pangolin::Display("cam1").Activate();
@@ -284,7 +285,7 @@ void Viewer::classifyPoints(std::shared_ptr<VioManager::Output> output) {
   }
 }
 
-void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
+void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool draw_rgbd) {
   using namespace slam_viz::pangolin_helper;
 
   Eigen::Vector3f new_pos = _imu_pose.translation();
@@ -313,6 +314,21 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output) {
   // then draw everything in mission frame
   glPushMatrix();
   glMultMatrixf(fT_MtoG.data());
+
+  // draw rgbd map
+  using Voxel = SimpleRgbdMap::Voxel;
+  if (draw_rgbd && output->visualization.rgbd_map) {
+    std::vector<Voxel> voxels = output->visualization.rgbd_map->get_occupied_voxels();
+    glPointSize(1.0);
+    glBegin(GL_POINTS);
+    for (const Voxel& v : voxels) {
+      glColor4ub(v.c[0], v.c[1], v.c[2], 255);
+      Eigen::Vector3f p(v.p.x(), v.p.y(), v.p.z());
+      p *= output->visualization.rgbd_map->resolution();
+      glVertex3f(p.x(), p.y(), p.z());
+    }
+    glEnd();
+  }
 
   // draw yellow line connecting the origin point (of the mission, not of the global map) and current pos.
   glLineWidth(1.0);

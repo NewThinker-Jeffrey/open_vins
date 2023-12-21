@@ -42,7 +42,7 @@ private:
 
   void classifyPoints(std::shared_ptr<VioManager::Output> task);
 
-  void drawRobotAndMap(std::shared_ptr<VioManager::Output> task);
+  void drawRobotAndMap(std::shared_ptr<VioManager::Output> task, bool draw_rgbd=false);
 
 
   /// Core application of the filter system

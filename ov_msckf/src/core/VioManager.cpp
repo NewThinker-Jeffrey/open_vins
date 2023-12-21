@@ -20,6 +20,7 @@
  */
 
 #include "VioManager.h"
+#include "SimpleRgbdMap.h"
 
 #include <glog/logging.h>
 
@@ -72,6 +73,10 @@ VioManager::VioManager(VioManagerOptions &params_) :
   params.print_and_load_noise();
   params.print_and_load_state();
   params.print_and_load_trackers();
+
+  if (params.use_rgbd) {
+    rgbd_map = std::make_shared<SimpleRgbdMap>(1000000, 0.02);
+  }
 
   // This will globally set the thread count we will use
   // -1 will reset to the system default threading (usually the num of cores)
@@ -453,6 +458,7 @@ void VioManager::update_thread_func() {
     assert(!is_initialized_vio || !state->_clones_IMU.empty());
     has_drift = check_drift();
     dealwith_localizations();
+    update_rgbd_map(c);
     update_output(c->message->timestamp);
   }
 }
@@ -556,8 +562,30 @@ void VioManager::do_update(ImgProcessContextPtr c) {
   do_feature_propagate_update(c);
 }
 
+void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
+  if (params.use_rgbd && rgbd_map && output.state_clone && output.state_clone->_imu) {
+    const size_t color_cam_id = 0;
+    const size_t depth_cam_id = 1;
+    const cv::Mat& color = c->message->images.at(color_cam_id);
+    const cv::Mat& depth = c->message->images.at(depth_cam_id);
 
-
+    if (cv::countNonZero(depth) > 0) {
+      auto jpl_q = output.state_clone->_imu->quat();
+      auto pos = output.state_clone->_imu->pos();
+      Eigen::Quaternionf q(jpl_q[3], jpl_q[0], jpl_q[1], jpl_q[2]);
+      Eigen::Vector3f p(pos[0], pos[1], pos[2]);
+      Eigen::Isometry3f T_M_I = Eigen::Isometry3f::Identity();
+      T_M_I.translation() = p;
+      T_M_I.rotate(q);
+      Eigen::Isometry3f T_I_C;
+      T_I_C.matrix() = params.T_CtoIs.at(color_cam_id)->cast<float>();
+      Eigen::Isometry3f T_M_C = T_M_I * T_I_C;
+      rgbd_map->insert_rgbd_frame(color, depth,
+                                  params.camera_intrinsics.at(color_cam_id).get(),
+                                  T_M_C, c->message->timestamp);
+    }
+  }
+}
 
 void VioManager::dealwith_one_localization(const ov_core::LocalizationData& reloc, std::shared_ptr<ov_type::PoseJPL> target_clone) {
 
@@ -932,10 +960,9 @@ void VioManager::update_output(double timestamp) {
   output.visualization.active_tracks_posinG = active_tracks_posinG;
   output.visualization.active_tracks_uvd = active_tracks_uvd;
   output.visualization.active_cam0_image = active_image;
+  output.visualization.rgbd_map = rgbd_map;
   std::unique_lock<std::mutex> locker(output_mutex_);
   this->output = std::move(output);
-
-
 
   if (timestamp > 0 && update_callback_) {
     update_callback_(this->output);
@@ -1044,6 +1071,7 @@ void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
     assert(!is_initialized_vio || !state->_clones_IMU.empty());
     has_drift = check_drift();
     dealwith_localizations();
+    update_rgbd_map(c);
     update_output(c->message->timestamp);
   }
 }

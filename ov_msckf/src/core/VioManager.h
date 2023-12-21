@@ -52,6 +52,7 @@ class UpdaterMSCKF;
 class UpdaterSLAM;
 class UpdaterZeroVelocity;
 class Propagator;
+class SimpleRgbdMap;
 
 /**
  * @brief Core class that manages the entire system
@@ -104,6 +105,9 @@ public:
 
       /// Return the image used when projecting the active tracks
       cv::Mat active_cam0_image;
+
+      /// rgbd map
+      std::shared_ptr<const SimpleRgbdMap> rgbd_map;
     } visualization;
   };
 
@@ -209,6 +213,7 @@ protected:
 
   void do_feature_tracking(ImgProcessContextPtr c);
   void do_update(ImgProcessContextPtr c);
+  void update_rgbd_map(ImgProcessContextPtr c);
   void dealwith_localizations();
   void dealwith_one_localization(const ov_core::LocalizationData& reloc, std::shared_ptr<ov_type::PoseJPL> target_clone);
 
@@ -421,6 +426,9 @@ protected:
 
   // imu filter
   std::deque<ov_core::ImuData> imu_filter_buffer;
+
+  // rgbd map
+  std::shared_ptr<SimpleRgbdMap> rgbd_map;
 };
 
 } // namespace ov_msckf
