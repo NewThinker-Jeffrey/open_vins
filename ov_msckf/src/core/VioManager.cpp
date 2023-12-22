@@ -78,6 +78,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
     rgbd_map = std::make_shared<SimpleRgbdMap>(
         params.rgbd_mapping_max_voxels,
         params.rgbd_mapping_resolution,
+        params.rgbd_mapping_max_depth,
         params.rgbd_mapping_max_dispaly_voxels);
   }
 

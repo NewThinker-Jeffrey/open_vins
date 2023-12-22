@@ -272,8 +272,10 @@ struct VioManagerOptions {
   int  rgbd_mapping_pixel_downsample = 3;
   int  rgbd_mapping_pixel_start_row = 0;
   double rgbd_mapping_resolution = 0.01;
+  double rgbd_mapping_max_depth = 5.0;
   int rgbd_mapping_max_voxels = 500000;
   int rgbd_mapping_max_dispaly_voxels = 500000;
+
 
   void set_camera_intrinsics(size_t cam_id,
                              const std::string& dist_model, // radtan or equidistant
@@ -332,6 +334,7 @@ struct VioManagerOptions {
       parser->parse_config("rgbd_mapping_pixel_downsample", rgbd_mapping_pixel_downsample, false);
       parser->parse_config("rgbd_mapping_pixel_start_row", rgbd_mapping_pixel_start_row, false);
       parser->parse_config("rgbd_mapping_resolution", rgbd_mapping_resolution, false);
+      parser->parse_config("rgbd_mapping_max_depth", rgbd_mapping_max_depth, false);
       parser->parse_config("rgbd_mapping_max_voxels", rgbd_mapping_max_voxels, false);
       parser->parse_config("rgbd_mapping_max_dispaly_voxels", rgbd_mapping_max_dispaly_voxels, false);
       
@@ -548,6 +551,7 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - rgbd_mapping_pixel_downsample: %d\n", rgbd_mapping_pixel_downsample);
     PRINT_DEBUG("  - rgbd_mapping_pixel_start_row: %d\n", rgbd_mapping_pixel_start_row);
     PRINT_DEBUG("  - rgbd_mapping_resolution: %.5f\n", rgbd_mapping_resolution);
+    PRINT_DEBUG("  - rgbd_mapping_max_depth: %.5f\n", rgbd_mapping_max_depth);
     PRINT_DEBUG("  - rgbd_mapping_max_voxels: %d\n", rgbd_mapping_max_voxels);
     PRINT_DEBUG("  - rgbd_mapping_max_dispaly_voxels: %d\n", rgbd_mapping_max_dispaly_voxels);    
 

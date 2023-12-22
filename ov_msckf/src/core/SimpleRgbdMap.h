@@ -61,11 +61,11 @@ public:
     Timestamp time;
   };
 
-  SimpleRgbdMap(size_t max_voxels=1000000, float resolution = 0.01, int max_display = -1) : 
+  SimpleRgbdMap(size_t max_voxels=1000000, float resolution = 0.01, float max_depth = 5.0, int max_display = -1) : 
       stop_insert_thread_request_(false),
       max_display_(max_display),
       output_mutex_(new std::mutex()),
-      max_voxels_(max_voxels), resolution_(resolution) {
+      max_voxels_(max_voxels), resolution_(resolution), max_depth_(max_depth) {
     voxels_.resize(max_voxels);
     for (size_t i=0; i<voxels_.size(); i++) {
       unused_entries_.insert(i);
@@ -206,6 +206,9 @@ protected:
         const uint16_t d = depth.at<uint16_t>(y,x);
         if (d == 0) continue;
         float depth = d / 1000.0f;
+        if (max_depth_ < depth) {
+          continue;
+        }
 
         Eigen::Vector2f p_normal = cam.undistort_f(Eigen::Vector2f(x, y));
         Eigen::Vector3f p3d_c(p_normal.x(), p_normal.y(), 1.0f);
@@ -255,6 +258,7 @@ protected:
   std::shared_ptr<const std::vector<Voxel>> output_;
 
   const size_t max_voxels_ = 1000000;
+  const float max_depth_ = 5.0;
   const float resolution_ = 0.01;
   int max_display_ = -1;
 };
