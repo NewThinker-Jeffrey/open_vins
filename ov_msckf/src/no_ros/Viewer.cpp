@@ -40,7 +40,7 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-const double viewpoint_height = 5.0;
+const double viewpoint_height = 8.0;
 
 Viewer::Viewer(VioManager* interal_app) : _interal_app(interal_app) {
   std::cout << "Viewer::Viewer():  Use Pangolin!" << std::endl;
@@ -80,7 +80,7 @@ std::cout << "Viewer::init(): Before pangolin::OpenGlRenderState" << std::endl;
 std::cout << "Viewer::init(): modelview1 created." << std::endl;
 
 
-  auto modelview2 = pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, -viewpoint_height, 0, 0, 0, pangolin::AxisZ);
+  auto modelview2 = pangolin::ModelViewLookAt(0, -viewpoint_height * 0.5, -viewpoint_height, 0, 0, 0, pangolin::AxisZ);
   // auto modelview2 = pangolin::ModelViewLookAt(0, -viewpoint_height * 0.85, viewpoint_height, 0, 0, 0,   0, 0, -1);
 
 std::cout << "Viewer::init(): modelview2 created." << std::endl;
@@ -288,6 +288,8 @@ void Viewer::classifyPoints(std::shared_ptr<VioManager::Output> output) {
 void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool draw_rgbd) {
   using namespace slam_viz::pangolin_helper;
 
+  bool need_draw_rgbd = draw_rgbd && output->visualization.rgbd_map;
+
   Eigen::Vector3f new_pos = _imu_pose.translation();
 
   Eigen::Matrix4f fT_MtoG = output->status.T_MtoG.cast<float>();
@@ -296,13 +298,12 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
   Eigen::Vector3f transformed_new_pos = R_MtoG * new_pos + t_MinG;
 
   // draw grid
-  if (!draw_rgbd || !output->visualization.rgbd_map) {
+  if (!need_draw_rgbd) {
     drawGrids2D(
         transformed_new_pos(0), transformed_new_pos(1),
         100, 100,
         Color(255, 255, 255, 40), 1.0f);
     drawFrame(2.0, 10.0, 80);
-
   }
 
 
@@ -326,13 +327,15 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
   glVertex3f(new_pos(0), new_pos(1), new_pos(2));
   glEnd();
 
-  drawMultiTextLines(
-      {TextLine("起点", false, getChineseFont()),
-       TextLine("0 point", false, getChineseFont())
-       },
-      Eigen::Vector3f(0, 0, 0),
-      Eigen::Matrix3f::Identity(),
-      1.0 / 36.0);
+  if (!need_draw_rgbd) {
+    drawMultiTextLines(
+        {TextLine("起点", false, getChineseFont()),
+        TextLine("0 point", false, getChineseFont())
+        },
+        Eigen::Vector3f(0, 0, 0),
+        Eigen::Matrix3f::Identity(),
+        1.0 / 36.0);
+  }
 
   // Return if we have not inited
   if (!output->status.initialized) {
@@ -342,8 +345,9 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
 
   // draw rgbd map
   using Voxel = SimpleRgbdMap::Voxel;
-  if (draw_rgbd && output->visualization.rgbd_map) {
-    auto voxels_ptr = output->visualization.rgbd_map->get_occupied_voxels();
+  if (need_draw_rgbd) {
+    // auto voxels_ptr = output->visualization.rgbd_map->get_occupied_voxels();
+    auto voxels_ptr = output->visualization.rgbd_map->get_display_voxels();
     if (voxels_ptr) {
       const std::vector<Voxel>& voxels = *voxels_ptr;
       glPointSize(2.0);

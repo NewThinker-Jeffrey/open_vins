@@ -61,8 +61,9 @@ public:
     Timestamp time;
   };
 
-  SimpleRgbdMap(size_t max_voxels=1000000, float resolution = 0.01) : 
+  SimpleRgbdMap(size_t max_voxels=1000000, float resolution = 0.01, int max_display = -1) : 
       stop_insert_thread_request_(false),
+      max_display_(max_display),
       output_mutex_(new std::mutex()),
       max_voxels_(max_voxels), resolution_(resolution) {
     voxels_.resize(max_voxels);
@@ -73,7 +74,7 @@ public:
   }
 
   ~SimpleRgbdMap() {
-
+    stop_insert_thread();
   }
 
   float resolution() const {
@@ -95,10 +96,34 @@ public:
     insert_thread_cv_.notify_one();
   }
 
+  // Return occupied voxels sorted by latest update time.
   std::shared_ptr<const std::vector<Voxel>>
   get_occupied_voxels() const {
     std::unique_lock<std::mutex> lk(*output_mutex_);
     return output_;
+  }
+
+  std::shared_ptr<const std::vector<Voxel>>
+  get_display_voxels() const {
+    auto voxels = get_occupied_voxels();
+    if (!voxels) {
+      return nullptr;
+    }
+    if (max_display_ > 0 && voxels->size() > max_display_) {
+      std::vector<Voxel> voxels_copy;
+      voxels_copy.reserve(max_display_);
+      // Add the newest half max_display_ voxels
+      voxels_copy.insert(voxels_copy.end(), voxels->end() - max_display_ / 2, voxels->end());
+
+      // and half max_display_ sampled older voxels
+      for (size_t i=0; i<max_display_ / 2; i++) {
+        int idx = rand() % (voxels->size() - max_display_ / 2);
+        voxels_copy.push_back(voxels->at(idx));
+      }
+      return std::make_shared<const std::vector<Voxel>>(std::move(voxels_copy));
+    } else {
+      return voxels;
+    }
   }
 
 protected:
@@ -131,9 +156,14 @@ protected:
   }
 
   void stop_insert_thread() {
-    std::unique_lock<std::mutex> lk(insert_thread_mutex_);
-    stop_insert_thread_request_ = true;
-    insert_thread_cv_.notify_all();
+    {
+      std::unique_lock<std::mutex> lk(insert_thread_mutex_);
+      stop_insert_thread_request_ = true;
+      insert_thread_cv_.notify_all();
+    }
+    if (insert_thread_.joinable()) {
+      insert_thread_.join();
+    }
   }
 
   void insert_voxel(const Position& p, const Color& c, const Timestamp& time) {
@@ -196,8 +226,8 @@ protected:
   void update_output() {
     std::vector<Voxel> output;
     output.reserve(voxels_.size() - unused_entries_.size());
-    for (size_t i=0; i<voxels_.size(); i++) {
-      if (unused_entries_.count(i) == 0) {
+    for (const auto& pair : time_to_voxels_) {
+      for (size_t i : pair.second) {
         output.push_back(voxels_[i]);
       }
     }
@@ -226,6 +256,7 @@ protected:
 
   const size_t max_voxels_ = 1000000;
   const float resolution_ = 0.01;
+  int max_display_ = -1;
 };
 
 

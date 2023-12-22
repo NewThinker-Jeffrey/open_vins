@@ -75,10 +75,10 @@ VioManager::VioManager(VioManagerOptions &params_) :
   params.print_and_load_trackers();
 
   if (params.use_rgbd && params.rgbd_mapping) {
-    // rgbd_map = std::make_shared<SimpleRgbdMap>(1000000, 0.02);
     rgbd_map = std::make_shared<SimpleRgbdMap>(
         params.rgbd_mapping_max_voxels,
-        params.rgbd_mapping_resolution);
+        params.rgbd_mapping_resolution,
+        params.rgbd_mapping_max_dispaly_voxels);
   }
 
   // This will globally set the thread count we will use
@@ -566,15 +566,15 @@ void VioManager::do_update(ImgProcessContextPtr c) {
 }
 
 void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
-  if (params.use_rgbd && rgbd_map && output.state_clone && output.state_clone->_imu) {
+  if (params.use_rgbd && rgbd_map && is_initialized_vio && state && state->_imu) {
     const size_t color_cam_id = 0;
     const size_t depth_cam_id = 1;
     const cv::Mat& color = c->message->images.at(color_cam_id);
     const cv::Mat& depth = c->message->images.at(depth_cam_id);
 
     if (cv::countNonZero(depth) > 0) {
-      auto jpl_q = output.state_clone->_imu->quat();
-      auto pos = output.state_clone->_imu->pos();
+      auto jpl_q = state->_imu->quat();
+      auto pos = state->_imu->pos();
       Eigen::Quaternionf q(jpl_q[3], jpl_q[0], jpl_q[1], jpl_q[2]);
       Eigen::Vector3f p(pos[0], pos[1], pos[2]);
       Eigen::Isometry3f T_M_I = Eigen::Isometry3f::Identity();
