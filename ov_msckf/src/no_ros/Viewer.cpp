@@ -343,16 +343,19 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
   // draw rgbd map
   using Voxel = SimpleRgbdMap::Voxel;
   if (draw_rgbd && output->visualization.rgbd_map) {
-    std::vector<Voxel> voxels = output->visualization.rgbd_map->get_occupied_voxels();
-    glPointSize(2.0);
-    glBegin(GL_POINTS);
-    for (const Voxel& v : voxels) {
-      glColor4ub(v.c[0], v.c[1], v.c[2], 255);
-      Eigen::Vector3f p(v.p.x(), v.p.y(), v.p.z());
-      p *= output->visualization.rgbd_map->resolution();
-      glVertex3f(p.x(), p.y(), p.z());
+    auto voxels_ptr = output->visualization.rgbd_map->get_occupied_voxels();
+    if (voxels_ptr) {
+      const std::vector<Voxel>& voxels = *voxels_ptr;
+      glPointSize(2.0);
+      glBegin(GL_POINTS);
+      for (const Voxel& v : voxels) {
+        glColor4ub(v.c[0], v.c[1], v.c[2], 255);
+        Eigen::Vector3f p(v.p.x(), v.p.y(), v.p.z());
+        p *= output->visualization.rgbd_map->resolution();
+        glVertex3f(p.x(), p.y(), p.z());
+      }
+      glEnd();
     }
-    glEnd();
   } else {
     // draw points
     // drawPointCloud2(_old_points, Color(127,127,127,80), 3.0);

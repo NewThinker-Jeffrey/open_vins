@@ -583,11 +583,13 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
       Eigen::Isometry3f T_I_C;
       T_I_C.matrix() = params.T_CtoIs.at(color_cam_id)->cast<float>();
       Eigen::Isometry3f T_M_C = T_M_I * T_I_C;
-      rgbd_map->insert_rgbd_frame(color, depth,
-                                  params.camera_intrinsics.at(color_cam_id).get(),
-                                  T_M_C, c->message->timestamp,
-                                  params.rgbd_mapping_pixel_downsample,
-                                  params.rgbd_mapping_pixel_start_row);
+
+
+      rgbd_map->feed_rgbd_frame(color, depth,
+                                std::move(*params.camera_intrinsics.at(color_cam_id)->clone()),
+                                T_M_C, c->message->timestamp,
+                                params.rgbd_mapping_pixel_downsample,
+                                params.rgbd_mapping_pixel_start_row);
     }
   }
 }
