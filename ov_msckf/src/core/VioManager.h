@@ -204,6 +204,12 @@ public:
     return update_task_queue_.size();
   }
 
+  void begin_rgbd_mapping();
+
+  void stop_rgbd_mapping();
+
+  void clear_rgbd_map();
+
 protected:
   struct ImgProcessContext {
     std::chrono::high_resolution_clock::time_point rT1, rT2, rT3, rT4, rT5, rT6, rT7;

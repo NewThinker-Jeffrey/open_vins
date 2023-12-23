@@ -74,13 +74,8 @@ VioManager::VioManager(VioManagerOptions &params_) :
   params.print_and_load_state();
   params.print_and_load_trackers();
 
-  if (params.use_rgbd && params.rgbd_mapping) {
-    rgbd_map = std::make_shared<SimpleRgbdMap>(
-        params.rgbd_mapping_max_voxels,
-        params.rgbd_mapping_resolution,
-        params.rgbd_mapping_max_depth,
-        params.rgbd_mapping_max_dispaly_voxels);
-  }
+  // If rgbd_mapping is enabled
+  begin_rgbd_mapping();
 
   // This will globally set the thread count we will use
   // -1 will reset to the system default threading (usually the num of cores)
@@ -206,6 +201,29 @@ VioManager::VioManager(VioManagerOptions &params_) :
   if (params.async_img_process)  {
     feature_tracking_thread_.reset(new std::thread(std::bind(&VioManager::feature_tracking_thread_func, this)));
     update_thread_.reset(new std::thread(std::bind(&VioManager::update_thread_func, this)));
+  }
+}
+
+void VioManager::begin_rgbd_mapping() {
+  if (params.use_rgbd && params.rgbd_mapping && !rgbd_map) {
+    rgbd_map = std::make_shared<SimpleRgbdMap>(
+        params.rgbd_mapping_max_voxels,
+        params.rgbd_mapping_resolution,
+        params.rgbd_mapping_max_depth,
+        params.rgbd_mapping_max_dispaly_voxels);
+  }
+}
+
+void VioManager::stop_rgbd_mapping() {
+  if (rgbd_map) {
+    rgbd_map->clear_map();
+    rgbd_map.reset();
+  }
+}
+
+void VioManager::clear_rgbd_map() {
+  if (rgbd_map) {
+    rgbd_map->clear_map();
   }
 }
 
@@ -567,7 +585,11 @@ void VioManager::do_update(ImgProcessContextPtr c) {
 }
 
 void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
-  if (params.use_rgbd && rgbd_map && is_initialized_vio && state && state->_imu) {
+  // this->rgbd_map might be reset in other threads,
+  // so we need to loat it atomicly.
+  auto rgbd_map = this->rgbd_map;
+
+  if (rgbd_map && is_initialized_vio && state && state->_imu) {
     const size_t color_cam_id = 0;
     const size_t depth_cam_id = 1;
     const cv::Mat& color = c->message->images.at(color_cam_id);
@@ -974,7 +996,7 @@ void VioManager::update_output(double timestamp) {
   output.visualization.active_tracks_posinG = active_tracks_posinG;
   output.visualization.active_tracks_uvd = active_tracks_uvd;
   output.visualization.active_cam0_image = active_image;
-  output.visualization.rgbd_map = rgbd_map;
+  output.visualization.rgbd_map = this->rgbd_map;  // Note this->rgbd_map might be reset in other threads.
   std::unique_lock<std::mutex> locker(output_mutex_);
   this->output = std::move(output);
 

@@ -90,6 +90,7 @@ public:
     std::unique_lock<std::mutex> lk(insert_thread_mutex_);
     auto cam_clone = cam.clone();
     insert_tasks_.push_back([=](){
+      std::unique_lock<std::mutex> lk(mapping_mutex_);
       insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, start_row);
       update_output();
     });
@@ -123,6 +124,29 @@ public:
       return std::make_shared<const std::vector<Voxel>>(std::move(voxels_copy));
     } else {
       return voxels;
+    }
+  }
+
+  void clear_map() {
+    std::deque<std::function<void()>> insert_tasks;    
+    std::vector<Voxel> voxels;
+    std::set<size_t> unused_entries;
+    std::map<Timestamp, std::set<size_t>> time_to_voxels;
+    std::map<Position, size_t> pos_to_voxel;
+    auto output = std::make_shared<const std::vector<Voxel>>();
+    {
+      std::unique_lock<std::mutex> lk1(insert_thread_mutex_);
+      std::swap(insert_tasks, insert_tasks_);
+    }
+
+    {
+      std::unique_lock<std::mutex> lk2(mapping_mutex_);
+      std::unique_lock<std::mutex> lk3(*output_mutex_);
+      std::swap(voxels, voxels_);
+      std::swap(unused_entries, unused_entries_);
+      std::swap(time_to_voxels, time_to_voxels_);
+      std::swap(pos_to_voxel, pos_to_voxel_);
+      std::swap(output, output_);
     }
   }
 
@@ -241,6 +265,7 @@ protected:
 
 
 protected:
+  std::mutex mapping_mutex_;
   std::vector<Voxel> voxels_;
   std::set<size_t> unused_entries_;
   std::map<Timestamp, std::set<size_t>> time_to_voxels_;
