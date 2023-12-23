@@ -791,6 +791,11 @@ void VioManager::dealwith_one_localization(const ov_core::LocalizationData& relo
   accepted_localization_cnt_ ++;
   PRINT_INFO(BLUE "dealwith_localization: accecp the localization @%f, total accepted %d!\n" RESET, reloc.timestamp, accepted_localization_cnt_);
   StateHelper::EKFUpdate(state, {predict_pose}, H, residual, reloc.qp_cov);
+
+  // update last_accepted_reloc_TItoG_
+  last_accepted_reloc_TItoG_ = Eigen::Matrix4d::Identity();
+  last_accepted_reloc_TItoG_.block<3, 3>(0, 0) = R_GtoI_observe.transpose();
+  last_accepted_reloc_TItoG_.block<3, 1>(0, 3) = p_IinG_observe;
 }
 
 void VioManager::dealwith_localizations() {
@@ -955,6 +960,7 @@ void VioManager::update_output(double timestamp) {
   if (localized_) {
     output.status.T_MtoG.block<3,3>(0,0) = R_GtoM_.transpose();
     output.status.T_MtoG.block<3,1>(0,3) = p_MinG_;
+    output.status.last_accepted_reloc_TItoG = last_accepted_reloc_TItoG_;
   }
 
   // output.state_clone = std::const_pointer_cast<const State>(state->clone());

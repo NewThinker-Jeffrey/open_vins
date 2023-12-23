@@ -78,6 +78,7 @@ public:
       bool localized = false;
       Eigen::Matrix4d T_MtoG;
       int accepted_localization_cnt = 0;
+      Eigen::Matrix4d last_accepted_reloc_TItoG;
     } status;
 
     /////// The state ///////
@@ -371,6 +372,7 @@ protected:
     Eigen::Matrix<double, 3, 1> p_IinG;
   };
   std::deque<LocalizationAnchor> initial_loc_buffer_;
+  Eigen::Matrix4d last_accepted_reloc_TItoG_;
 
   ImgProcessContextQueue feature_tracking_task_queue_;
   std::mutex feature_tracking_task_queue_mutex_;
