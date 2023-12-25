@@ -263,11 +263,6 @@ struct VioManagerOptions {
   /// Mask images for each camera
   std::map<size_t, cv::Mat> masks;
 
-  /// Whether our mono-camera supports rgb-d
-  bool use_rgbd = false;  // only when we have 1 camera
-  double virtual_baseline_for_rgbd = 0.095;
-  double depth_unit_for_rgbd = 0.001;
-
   bool rgbd_mapping = true;
   int  rgbd_mapping_pixel_downsample = 3;
   int  rgbd_mapping_pixel_start_row = 0;
@@ -326,9 +321,9 @@ struct VioManagerOptions {
       parser->parse_config("downsample_cameras", downsample_cameras); // might be redundant
       parser->parse_external("relative_config_imu", "imu0", "update_rate", imu_rate);
 
-      parser->parse_config("use_rgbd", use_rgbd, false);
-      parser->parse_config("virtual_baseline_for_rgbd", virtual_baseline_for_rgbd, use_rgbd);
-      parser->parse_config("depth_unit_for_rgbd", depth_unit_for_rgbd, use_rgbd);
+      parser->parse_config("use_rgbd", state_options.use_rgbd, false);
+      parser->parse_config("virtual_baseline_for_rgbd", state_options.virtual_baseline_for_rgbd, state_options.use_rgbd);
+      parser->parse_config("depth_unit_for_rgbd", state_options.depth_unit_for_rgbd, state_options.use_rgbd);
 
       parser->parse_config("rgbd_mapping", rgbd_mapping, false);
       parser->parse_config("rgbd_mapping_pixel_downsample", rgbd_mapping_pixel_downsample, false);
@@ -375,11 +370,11 @@ struct VioManagerOptions {
         set_camera_extrinsics(i, T_CtoI);
       }
 
-      if (use_rgbd) {
+      if (state_options.use_rgbd) {
         assert(state_options.num_cameras == 1);
         camera_intrinsics.insert({1, camera_intrinsics.at(0)->clone()});
         Eigen::Matrix4d T_virtual_rightcam_to_leftcam = Eigen::Matrix4d::Identity();
-        T_virtual_rightcam_to_leftcam(0, 3) = virtual_baseline_for_rgbd;
+        T_virtual_rightcam_to_leftcam(0, 3) = state_options.virtual_baseline_for_rgbd;
         set_camera_extrinsics(1, (*T_CtoIs.at(0)) * T_virtual_rightcam_to_leftcam);
       }
 
@@ -403,7 +398,7 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - gravity_mag: %.4f\n", gravity_mag);
     PRINT_DEBUG("  - gravity: %.3f, %.3f, %.3f\n", 0.0, 0.0, gravity_mag);
     PRINT_DEBUG("  - camera masks?: %d\n", use_mask);
-    if (use_rgbd) {
+    if (state_options.use_rgbd) {
       assert(state_options.num_cameras == 1);
       assert(camera_intrinsics.size() == 2);
       assert(camera_extrinsics.size() == 2);
@@ -543,9 +538,9 @@ struct VioManagerOptions {
     }
     PRINT_DEBUG("FEATURE TRACKING PARAMETERS:\n");
     PRINT_DEBUG("  - use_stereo: %d\n", use_stereo);
-    PRINT_DEBUG("  - use_rgbd: %d\n", use_rgbd);
-    PRINT_DEBUG("  - virtual_baseline_for_rgbd: %.5f\n", virtual_baseline_for_rgbd);
-    PRINT_DEBUG("  - depth_unit_for_rgbd: %.5f\n", depth_unit_for_rgbd);
+    PRINT_DEBUG("  - use_rgbd: %d\n", state_options.use_rgbd);
+    PRINT_DEBUG("  - virtual_baseline_for_rgbd: %.5f\n", state_options.virtual_baseline_for_rgbd);
+    PRINT_DEBUG("  - depth_unit_for_rgbd: %.5f\n", state_options.depth_unit_for_rgbd);
 
     PRINT_DEBUG("  - rgbd_mapping: %d\n", rgbd_mapping);
     PRINT_DEBUG("  - rgbd_mapping_pixel_downsample: %d\n", rgbd_mapping_pixel_downsample);

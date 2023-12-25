@@ -71,6 +71,15 @@ struct StateOptions {
   /// Number of distinct cameras that we will observe features in
   int num_cameras = 1;
 
+  /// Whether our mono-camera supports rgb-d
+  bool use_rgbd = false;  // only when we have 1 camera
+
+  double virtual_baseline_for_rgbd = 0.095;
+
+  double depth_unit_for_rgbd = 0.001;
+
+
+
   /// What representation our features are in (msckf features)
   ov_type::LandmarkRepresentation::Representation feat_rep_msckf = ov_type::LandmarkRepresentation::Representation::GLOBAL_3D;
 

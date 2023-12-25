@@ -83,7 +83,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
   cv::setRNGSeed(0);
 
   // Create the state!!
-  state = std::make_shared<State>(params.state_options, params.use_rgbd);
+  state = std::make_shared<State>(params.state_options);
 
   // Timeoffset from camera to IMU
   Eigen::VectorXd temp_camimu_dt;
@@ -102,7 +102,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
     state->_calib_IMUtoCAM.at(i)->set_fej(params.camera_extrinsics.at(i));
   }
   
-  if (params.use_rgbd) {
+  if (params.state_options.use_rgbd) {
     // set value for the virtual right camera.
     assert(state->_options.num_cameras == 1);
     int i = state->_options.num_cameras;
@@ -154,7 +154,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
     trackFEATS = std::shared_ptr<TrackBase>(new TrackKLT(state->_cam_intrinsics_cameras, init_max_features,
                                                          state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
                                                          params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist,
-                                                         params.use_rgbd, params.depth_unit_for_rgbd,
+                                                         params.state_options.use_rgbd, params.state_options.depth_unit_for_rgbd,
                                                          state->_T_CtoIs,
                                                          params.klt_left_major_stereo, params.klt_strict_stereo, params.klt_force_fundamental,
                                                          params.feattrack_predict_keypoints,
@@ -163,7 +163,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
     trackFEATS = std::shared_ptr<TrackBase>(new TrackDescriptor(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
         params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio,
-        params.use_rgbd, params.depth_unit_for_rgbd,
+        params.state_options.use_rgbd, params.state_options.depth_unit_for_rgbd,
         state->_T_CtoIs,
         params.feattrack_predict_keypoints,
         params.feattrack_high_frequency_log));
@@ -205,7 +205,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
 }
 
 void VioManager::begin_rgbd_mapping() {
-  if (params.use_rgbd && params.rgbd_mapping && !rgbd_map) {
+  if (params.state_options.use_rgbd && params.rgbd_mapping && !rgbd_map) {
     rgbd_map = std::make_shared<SimpleRgbdMap>(
         params.rgbd_mapping_max_voxels,
         params.rgbd_mapping_resolution,
@@ -1022,7 +1022,7 @@ void VioManager::feed_measurement_camera(ov_core::CameraData message) {
   }
 
   // Force the sensor_ids to be 0 (for color) and 1 (for depth or virtual right-camera) for rgbd camera.
-  if (params.use_rgbd) {
+  if (params.state_options.use_rgbd) {
     assert(message.sensor_ids.size() == 2);
     message.sensor_ids[0] = 0;
     message.sensor_ids[1] = 1;
@@ -1061,7 +1061,7 @@ void VioManager::feed_measurement_camera(ov_core::CameraData message) {
 
     // Ensure frames with depth image be accepted.
     bool has_depth = false;
-    if (params.use_rgbd) {
+    if (params.state_options.use_rgbd) {
       if (!msg.images[1].empty() && cv::countNonZero(msg.images[1]) > 0) {
         has_depth = true;
       }

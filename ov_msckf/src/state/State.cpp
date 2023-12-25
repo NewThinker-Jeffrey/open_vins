@@ -30,7 +30,7 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-State::State(const StateOptions &options, bool rgbd) {
+State::State(const StateOptions &options) {
 
   // Save our options
   _options = options;
@@ -78,7 +78,7 @@ State::State(const StateOptions &options, bool rgbd) {
     }
   }
 
-  if (rgbd) {
+  if (_options.use_rgbd) {
     assert(_options.num_cameras == 1);
     int i = _options.num_cameras;
 

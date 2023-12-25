@@ -230,7 +230,7 @@ int main(int argc, char **argv) {
   sys = std::make_shared<ov_interface::VIO>(config_path.c_str());
   auto& internal_params = getVioParamsFromVioInterface(sys.get());
   bool stereo = (internal_params.state_options.num_cameras == 2);
-  bool rgbd = internal_params.use_rgbd;
+  bool rgbd = internal_params.state_options.use_rgbd;
 
   if (dataset.empty()) {
     PRINT_WARNING(YELLOW "dataset is not set! use live streaming ...\n" RESET);
