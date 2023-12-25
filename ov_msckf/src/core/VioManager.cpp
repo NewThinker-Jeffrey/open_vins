@@ -1683,11 +1683,25 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
       PRINT_INFO("cam%d intrinsics = %.3f,%.3f,%.3f,%.3f | %.3f,%.3f,%.3f,%.3f\n", (int)i, calib->value()(0), calib->value()(1),
                  calib->value()(2), calib->value()(3), calib->value()(4), calib->value()(5), calib->value()(6), calib->value()(7));
     }
+
+    if (state->_options.use_rgbd && state->_options.calib_intrinsics_for_rgbd_virtual_rightcam) {
+      int i = 1;  // Assuming the index of the virtual right cam is 1.
+      std::shared_ptr<Vec> calib = state->_cam_intrinsics.at(i);
+      PRINT_INFO("cam%d intrinsics = %.3f,%.3f,%.3f,%.3f | %.3f,%.3f,%.3f,%.3f\n", (int)i, calib->value()(0), calib->value()(1),
+                 calib->value()(2), calib->value()(3), calib->value()(4), calib->value()(5), calib->value()(6), calib->value()(7));
+    }
   }
 
   // Debug for camera extrinsics
   if (state->_options.do_calib_camera_pose) {
     for (int i = 0; i < state->_options.num_cameras; i++) {
+      std::shared_ptr<PoseJPL> calib = state->_calib_IMUtoCAM.at(i);
+      PRINT_INFO("cam%d extrinsics = %.3f,%.3f,%.3f,%.3f | %.3f,%.3f,%.3f\n", (int)i, calib->quat()(0), calib->quat()(1), calib->quat()(2),
+                 calib->quat()(3), calib->pos()(0), calib->pos()(1), calib->pos()(2));
+    }
+
+    if (state->_options.use_rgbd && state->_options.calib_extrinsics_for_rgbd_virtual_rightcam) {
+      int i = 1;  // Assuming the index of the virtual right cam is 1.
       std::shared_ptr<PoseJPL> calib = state->_calib_IMUtoCAM.at(i);
       PRINT_INFO("cam%d extrinsics = %.3f,%.3f,%.3f,%.3f | %.3f,%.3f,%.3f\n", (int)i, calib->quat()(0), calib->quat()(1), calib->quat()(2),
                  calib->quat()(3), calib->pos()(0), calib->pos()(1), calib->pos()(2));

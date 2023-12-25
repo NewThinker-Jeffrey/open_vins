@@ -92,8 +92,17 @@ State::State(const StateOptions &options) {
     _calib_IMUtoCAM.insert({i, pose});
     _cam_intrinsics.insert({i, intrin});
 
-    // We don't calibrate camera-imu pose or intrinsics for the virtual right camera.
-    // So we don't need to set_local_id for pose and intrin and won't add them to _variables.
+    if (_options.do_calib_camera_pose && _options.calib_extrinsics_for_rgbd_virtual_rightcam) {
+      pose->set_local_id(current_id);
+      _variables.push_back(pose);
+      current_id += pose->size();
+    }
+
+    if (_options.do_calib_camera_intrinsics && _options.calib_intrinsics_for_rgbd_virtual_rightcam) {
+      intrin->set_local_id(current_id);
+      _variables.push_back(intrin);
+      current_id += intrin->size();
+    }
   }
 
   // Finally initialize our covariance to small value
@@ -109,9 +118,21 @@ State::State(const StateOptions &options) {
       _Cov.block(_calib_IMUtoCAM.at(i)->id() + 3, _calib_IMUtoCAM.at(i)->id() + 3, 3, 3) =
           std::pow(0.01, 2) * Eigen::MatrixXd::Identity(3, 3);
     }
+    if (_options.use_rgbd && _options.calib_extrinsics_for_rgbd_virtual_rightcam) {
+      int i = 1;  // Assuming the index of the virtual right cam is 1.
+      _Cov.block(_calib_IMUtoCAM.at(i)->id(), _calib_IMUtoCAM.at(i)->id(), 3, 3) = std::pow(0.005, 2) * Eigen::MatrixXd::Identity(3, 3);
+      _Cov.block(_calib_IMUtoCAM.at(i)->id() + 3, _calib_IMUtoCAM.at(i)->id() + 3, 3, 3) =
+          std::pow(0.01, 2) * Eigen::MatrixXd::Identity(3, 3);
+    }
   }
   if (_options.do_calib_camera_intrinsics) {
     for (int i = 0; i < _options.num_cameras; i++) {
+      _Cov.block(_cam_intrinsics.at(i)->id(), _cam_intrinsics.at(i)->id(), 4, 4) = std::pow(1.0, 2) * Eigen::MatrixXd::Identity(4, 4);
+      _Cov.block(_cam_intrinsics.at(i)->id() + 4, _cam_intrinsics.at(i)->id() + 4, 4, 4) =
+          std::pow(0.005, 2) * Eigen::MatrixXd::Identity(4, 4);
+    }
+    if (_options.use_rgbd && _options.calib_intrinsics_for_rgbd_virtual_rightcam) {
+      int i = 1;  // Assuming the index of the virtual right cam is 1.
       _Cov.block(_cam_intrinsics.at(i)->id(), _cam_intrinsics.at(i)->id(), 4, 4) = std::pow(1.0, 2) * Eigen::MatrixXd::Identity(4, 4);
       _Cov.block(_cam_intrinsics.at(i)->id() + 4, _cam_intrinsics.at(i)->id() + 4, 4, 4) =
           std::pow(0.005, 2) * Eigen::MatrixXd::Identity(4, 4);

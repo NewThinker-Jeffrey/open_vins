@@ -78,6 +78,9 @@ struct StateOptions {
 
   double depth_unit_for_rgbd = 0.001;
 
+  bool calib_intrinsics_for_rgbd_virtual_rightcam = false;
+
+  bool calib_extrinsics_for_rgbd_virtual_rightcam = false;
 
 
   /// What representation our features are in (msckf features)

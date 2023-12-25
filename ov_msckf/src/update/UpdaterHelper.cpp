@@ -106,12 +106,15 @@ void UpdaterHelper::get_feature_jacobian_representation(std::shared_ptr<State> s
   H_x.push_back(H_anc);
 
   // Get calibration Jacobians (for anchor clone)
-  if (feature.anchor_cam_id < state->_options.num_cameras && state->_options.do_calib_camera_pose) {
-    Eigen::Matrix<double, 3, 6> H_calib;
-    H_calib.block(0, 0, 3, 3).noalias() = -R_CtoG * skew_x(p_FinA - p_IinC);
-    H_calib.block(0, 3, 3, 3) = -R_CtoG;
-    x_order.push_back(state->_calib_IMUtoCAM.at(feature.anchor_cam_id));
-    H_x.push_back(H_calib);
+  if (state->_options.do_calib_camera_pose) {
+    if (feature.anchor_cam_id < state->_options.num_cameras ||
+        state->_options.use_rgbd && state->_options.calib_extrinsics_for_rgbd_virtual_rightcam) {
+      Eigen::Matrix<double, 3, 6> H_calib;
+      H_calib.block(0, 0, 3, 3).noalias() = -R_CtoG * skew_x(p_FinA - p_IinC);
+      H_calib.block(0, 3, 3, 3) = -R_CtoG;
+      x_order.push_back(state->_calib_IMUtoCAM.at(feature.anchor_cam_id));
+      H_x.push_back(H_calib);
+    }
   }
 
   // If we are doing anchored XYZ feature
@@ -208,17 +211,24 @@ void UpdaterHelper::get_feature_jacobian_full(std::shared_ptr<State> state, Upda
     std::shared_ptr<Vec> distortion = state->_cam_intrinsics.at(pair.first);
 
     // If doing calibration extrinsics
-    if (pair.first < state->_options.num_cameras && state->_options.do_calib_camera_pose) {
-      map_hx.insert({calibration, total_hx});
-      x_order.push_back(calibration);
-      total_hx += calibration->size();
+    // state->_options.use_rgbd && state->_options.calib_extrinsics_for_rgbd_virtual_rightcam
+    if (state->_options.do_calib_camera_pose) {
+      if (pair.first < state->_options.num_cameras ||
+          state->_options.use_rgbd && state->_options.calib_extrinsics_for_rgbd_virtual_rightcam) {
+        map_hx.insert({calibration, total_hx});
+        x_order.push_back(calibration);
+        total_hx += calibration->size();
+      }
     }
 
     // If doing calibration intrinsics
-    if (pair.first < state->_options.num_cameras && state->_options.do_calib_camera_intrinsics) {
-      map_hx.insert({distortion, total_hx});
-      x_order.push_back(distortion);
-      total_hx += distortion->size();
+    if (state->_options.do_calib_camera_intrinsics) {
+      if (pair.first < state->_options.num_cameras ||
+          state->_options.use_rgbd && state->_options.calib_intrinsics_for_rgbd_virtual_rightcam) {
+        map_hx.insert({distortion, total_hx});
+        x_order.push_back(distortion);
+        total_hx += distortion->size();
+      }
     }
 
     // Loop through all measurements for this specific camera
@@ -249,13 +259,16 @@ void UpdaterHelper::get_feature_jacobian_full(std::shared_ptr<State> state, Upda
     }
 
     // Also add its calibration if we are doing calibration
-    if (feature.anchor_cam_id < state->_options.num_cameras && state->_options.do_calib_camera_pose) {
-      // Add this anchor if it is not added already
-      std::shared_ptr<PoseJPL> clone_calib = state->_calib_IMUtoCAM.at(feature.anchor_cam_id);
-      if (map_hx.find(clone_calib) == map_hx.end()) {
-        map_hx.insert({clone_calib, total_hx});
-        x_order.push_back(clone_calib);
-        total_hx += clone_calib->size();
+    if (state->_options.do_calib_camera_pose) {
+      if (feature.anchor_cam_id < state->_options.num_cameras ||
+          state->_options.use_rgbd && state->_options.calib_extrinsics_for_rgbd_virtual_rightcam) {
+        // Add this anchor if it is not added already
+        std::shared_ptr<PoseJPL> clone_calib = state->_calib_IMUtoCAM.at(feature.anchor_cam_id);
+        if (map_hx.find(clone_calib) == map_hx.end()) {
+          map_hx.insert({clone_calib, total_hx});
+          x_order.push_back(clone_calib);
+          total_hx += clone_calib->size();
+        }
       }
     }
   }
@@ -401,20 +414,25 @@ void UpdaterHelper::get_feature_jacobian_full(std::shared_ptr<State> state, Upda
       //=========================================================================
 
       // Derivative of p_FinCi in respect to camera calibration (R_ItoC, p_IinC)
-      if (pair.first < state->_options.num_cameras && state->_options.do_calib_camera_pose) {
+      if (state->_options.do_calib_camera_pose) {
+        if (pair.first < state->_options.num_cameras ||
+            state->_options.use_rgbd && state->_options.calib_extrinsics_for_rgbd_virtual_rightcam) {
+          // Calculate the Jacobian
+          Eigen::MatrixXd dpfc_dcalib = Eigen::MatrixXd::Zero(3, 6);
+          dpfc_dcalib.block(0, 0, 3, 3) = skew_x(p_FinCi - p_IinC);
+          dpfc_dcalib.block(0, 3, 3, 3) = Eigen::Matrix<double, 3, 3>::Identity();
 
-        // Calculate the Jacobian
-        Eigen::MatrixXd dpfc_dcalib = Eigen::MatrixXd::Zero(3, 6);
-        dpfc_dcalib.block(0, 0, 3, 3) = skew_x(p_FinCi - p_IinC);
-        dpfc_dcalib.block(0, 3, 3, 3) = Eigen::Matrix<double, 3, 3>::Identity();
-
-        // Chainrule it and add it to the big jacobian
-        H_x.block(2 * c, map_hx[calibration], 2, calibration->size()).noalias() += dz_dpfc * dpfc_dcalib;
+          // Chainrule it and add it to the big jacobian
+          H_x.block(2 * c, map_hx[calibration], 2, calibration->size()).noalias() += dz_dpfc * dpfc_dcalib;
+        }
       }
 
       // Derivative of measurement in respect to distortion parameters
-      if (pair.first < state->_options.num_cameras && state->_options.do_calib_camera_intrinsics) {
-        H_x.block(2 * c, map_hx[distortion], 2, distortion->size()) = dz_dzeta;
+      if (state->_options.do_calib_camera_intrinsics) {
+        if (pair.first < state->_options.num_cameras ||
+            state->_options.use_rgbd && state->_options.calib_intrinsics_for_rgbd_virtual_rightcam) {
+          H_x.block(2 * c, map_hx[distortion], 2, distortion->size()) = dz_dzeta;          
+        }
       }
 
       // Move the Jacobian and residual index forward

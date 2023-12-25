@@ -324,6 +324,8 @@ struct VioManagerOptions {
       parser->parse_config("use_rgbd", state_options.use_rgbd, false);
       parser->parse_config("virtual_baseline_for_rgbd", state_options.virtual_baseline_for_rgbd, state_options.use_rgbd);
       parser->parse_config("depth_unit_for_rgbd", state_options.depth_unit_for_rgbd, state_options.use_rgbd);
+      parser->parse_config("calib_intrinsics_for_rgbd_virtual_rightcam", state_options.calib_intrinsics_for_rgbd_virtual_rightcam, false);
+      parser->parse_config("calib_extrinsics_for_rgbd_virtual_rightcam", state_options.calib_extrinsics_for_rgbd_virtual_rightcam, false);
 
       parser->parse_config("rgbd_mapping", rgbd_mapping, false);
       parser->parse_config("rgbd_mapping_pixel_downsample", rgbd_mapping_pixel_downsample, false);

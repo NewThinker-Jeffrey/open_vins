@@ -219,6 +219,42 @@ void VisualizerHelper::sim_save_total_state_to_file(std::shared_ptr<State> state
     }
   }
 
+
+  if (state->_options.use_rgbd) {
+    int i = 1;  // Assuming the index of the virtual right cam is 1.
+    // Intrinsics values
+    of_state_est << state->_cam_intrinsics.at(i)->value()(0) << " " << state->_cam_intrinsics.at(i)->value()(1) << " "
+                 << state->_cam_intrinsics.at(i)->value()(2) << " " << state->_cam_intrinsics.at(i)->value()(3) << " ";
+    of_state_est << state->_cam_intrinsics.at(i)->value()(4) << " " << state->_cam_intrinsics.at(i)->value()(5) << " "
+                 << state->_cam_intrinsics.at(i)->value()(6) << " " << state->_cam_intrinsics.at(i)->value()(7) << " ";
+    // Rotation and position
+    of_state_est << state->_calib_IMUtoCAM.at(i)->value()(0) << " " << state->_calib_IMUtoCAM.at(i)->value()(1) << " "
+                 << state->_calib_IMUtoCAM.at(i)->value()(2) << " " << state->_calib_IMUtoCAM.at(i)->value()(3) << " ";
+    of_state_est << state->_calib_IMUtoCAM.at(i)->value()(4) << " " << state->_calib_IMUtoCAM.at(i)->value()(5) << " "
+                 << state->_calib_IMUtoCAM.at(i)->value()(6) << " ";
+    // Covariance
+    if (state->_options.do_calib_camera_intrinsics && state->_options.calib_intrinsics_for_rgbd_virtual_rightcam) {
+      int index_in = state->_cam_intrinsics.at(i)->id();
+      of_state_std << std::sqrt(cov(index_in + 0, index_in + 0)) << " " << std::sqrt(cov(index_in + 1, index_in + 1)) << " "
+                   << std::sqrt(cov(index_in + 2, index_in + 2)) << " " << std::sqrt(cov(index_in + 3, index_in + 3)) << " ";
+      of_state_std << std::sqrt(cov(index_in + 4, index_in + 4)) << " " << std::sqrt(cov(index_in + 5, index_in + 5)) << " "
+                   << std::sqrt(cov(index_in + 6, index_in + 6)) << " " << std::sqrt(cov(index_in + 7, index_in + 7)) << " ";
+    } else {
+      of_state_std << 0.0 << " " << 0.0 << " " << 0.0 << " " << 0.0 << " ";
+      of_state_std << 0.0 << " " << 0.0 << " " << 0.0 << " " << 0.0 << " ";
+    }
+    if (state->_options.do_calib_camera_pose && state->_options.calib_extrinsics_for_rgbd_virtual_rightcam) {
+      int index_ex = state->_calib_IMUtoCAM.at(i)->id();
+      of_state_std << std::sqrt(cov(index_ex + 0, index_ex + 0)) << " " << std::sqrt(cov(index_ex + 1, index_ex + 1)) << " "
+                   << std::sqrt(cov(index_ex + 2, index_ex + 2)) << " ";
+      of_state_std << std::sqrt(cov(index_ex + 3, index_ex + 3)) << " " << std::sqrt(cov(index_ex + 4, index_ex + 4)) << " "
+                   << std::sqrt(cov(index_ex + 5, index_ex + 5)) << " ";
+    } else {
+      of_state_std << 0.0 << " " << 0.0 << " " << 0.0 << " ";
+      of_state_std << 0.0 << " " << 0.0 << " " << 0.0 << " ";
+    }
+  }
+
   // Done with the estimates!
   of_state_est << endl;
   of_state_std << endl;
