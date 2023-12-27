@@ -78,24 +78,6 @@ State::State(const StateOptions &options) {
     }
   }
 
-  if (_options.use_rgbd) {
-    assert(_options.num_cameras == 1);
-    int i = _options.num_cameras;
-
-    // Allocate extrinsic transform
-    auto pose = std::make_shared<PoseJPL>();
-
-    // Allocate intrinsics for this camera
-    auto intrin = std::make_shared<Vec>(8);
-
-    // Add these to the corresponding maps
-    _calib_IMUtoCAM.insert({i, pose});
-    _cam_intrinsics.insert({i, intrin});
-
-    // We don't calibrate camera-imu pose or intrinsics for the virtual right camera.
-    // So we don't need to set_local_id for pose and intrin and won't add them to _variables.
-  }
-
   // Finally initialize our covariance to small value
   _Cov = std::pow(1e-3, 2) * Eigen::MatrixXd::Identity(current_id, current_id);
 

@@ -132,6 +132,28 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     clones_cam.insert({clone_calib.first, clones_cami});
   }
 
+  if (state->_options.use_rgbd) {
+    assert(state->_calib_IMUtoCAM.size() == 1);
+    const auto &clone_calib = *(state->_calib_IMUtoCAM.begin());
+    assert(clone_calib.first == 0);
+    size_t virtual_rightcamera_id = 1;
+
+    // For this camera, create the vector of camera poses
+    std::unordered_map<double, FeatureInitializer::ClonePose> clones_camr;
+    for (const auto &clone_imu : state->_clones_IMU) {
+      // Get current camera pose
+      Eigen::Matrix<double, 3, 3> R_GtoCr = clone_calib.second->Rot() * clone_imu.second->Rot();
+      Eigen::Matrix<double, 3, 1> p_CroinG = clone_imu.second->pos() - R_GtoCr.transpose() * clone_calib.second->pos();
+      p_CroinG += R_GtoCr.transpose() * Eigen::Vector3d(state->_options.virtual_baseline_for_rgbd, 0, 0);
+
+      // Append to our map
+      clones_camr.insert({clone_imu.first, FeatureInitializer::ClonePose(R_GtoCr, p_CroinG)});
+    }
+
+    // Append to our map
+    clones_cam.insert({virtual_rightcamera_id, clones_camr});
+  }
+
 
   // 3. Try to triangulate all MSCKF or new SLAM features that have measurements
   auto it1 = feature_vec.begin();

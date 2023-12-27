@@ -88,6 +88,7 @@ public:
   TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
             HistogramMethod histmethod,
             bool rgbd = false,
+            double rgbd_virtual_baseline = 0.095,
             double rgbd_depth_unit = 0.001,
             std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> T_CtoIs=std::map<size_t, std::shared_ptr<Eigen::Matrix4d>>(),
             bool keypoint_predict = true, bool high_frequency_log = false);
@@ -307,6 +308,7 @@ protected:
 
   /// Whether our mono-camera supports rgb-d.
   bool use_rgbd;
+  double virtual_baseline_for_rgbd;
   double depth_unit_for_rgbd;
 
   /// What histogram equalization method we should pre-process images with?

@@ -230,8 +230,12 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
     Eigen::Vector3d p_IinG = state->_clones_IMU.at(active_tracks_time)->pos();
 
     // Calibration for this cam_id
-    Eigen::Matrix3d R_ItoC = state->_calib_IMUtoCAM.at(cam_id)->Rot();
-    Eigen::Vector3d p_IinC = state->_calib_IMUtoCAM.at(cam_id)->pos();
+    size_t calib_id = cam_id;
+    if (state->_options.use_rgbd) {
+      calib_id = 0;
+    }
+    Eigen::Matrix3d R_ItoC = state->_calib_IMUtoCAM.at(calib_id)->Rot();
+    Eigen::Vector3d p_IinC = state->_calib_IMUtoCAM.at(calib_id)->pos();
 
     // Convert current CAMERA position relative to global
     Eigen::Matrix3d R_GtoCi = R_ItoC * R_GtoI;
@@ -254,7 +258,7 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
       }
 
       // Get the UV coordinate normal
-      cv::Point2f pt_n = state->_cam_intrinsics_cameras.at(cam_id)->undistort_cv(pt_d);
+      cv::Point2f pt_n = state->_cam_intrinsics_cameras.at(calib_id)->undistort_cv(pt_d);
       Eigen::Matrix<double, 3, 1> b_i;
       b_i << pt_n.x, pt_n.y, 1;
       b_i = R_GtoCi.transpose() * b_i;

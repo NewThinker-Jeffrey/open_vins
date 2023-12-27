@@ -54,12 +54,13 @@ public:
   explicit TrackKLT(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
                     HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist,
                     bool rgbd = false,
+                    double rgbd_virtual_baseline = 0.095,
                     double rgbd_depth_unit = 0.001,
                     std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> T_CtoIs=std::map<size_t, std::shared_ptr<Eigen::Matrix4d>>(),
                     bool leftmajor_stereo=true, bool strictstereo=false, bool use_fundamental_check=false,
                     bool keypoint_predict = true, bool high_frequency_log = false)
       : TrackBase(cameras, numfeats, numaruco, stereo, histmethod,
-                  rgbd, rgbd_depth_unit,
+                  rgbd, rgbd_virtual_baseline, rgbd_depth_unit,
                   T_CtoIs, keypoint_predict, high_frequency_log),
         threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
         min_px_dist(minpxdist), left_major_stereo(leftmajor_stereo), strict_stereo(strictstereo), force_fundamental(use_fundamental_check) {}

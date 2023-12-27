@@ -370,14 +370,6 @@ struct VioManagerOptions {
         set_camera_extrinsics(i, T_CtoI);
       }
 
-      if (state_options.use_rgbd) {
-        assert(state_options.num_cameras == 1);
-        camera_intrinsics.insert({1, camera_intrinsics.at(0)->clone()});
-        Eigen::Matrix4d T_virtual_rightcam_to_leftcam = Eigen::Matrix4d::Identity();
-        T_virtual_rightcam_to_leftcam(0, 3) = state_options.virtual_baseline_for_rgbd;
-        set_camera_extrinsics(1, (*T_CtoIs.at(0)) * T_virtual_rightcam_to_leftcam);
-      }
-
       parser->parse_config("use_mask", use_mask);
       if (use_mask) {
         for (int i = 0; i < state_options.num_cameras; i++) {

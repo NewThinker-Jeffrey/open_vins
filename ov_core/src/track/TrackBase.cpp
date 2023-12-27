@@ -35,12 +35,13 @@ using namespace ov_core;
 TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
                      HistogramMethod histmethod,
                      bool rgbd,
+                     double rgbd_virtual_baseline,
                      double rgbd_depth_unit,
                      std::map<size_t, std::shared_ptr<Eigen::Matrix4d>> input_T_CtoIs,
                      bool keypoint_predict, bool high_frequency_log)
     : database(new FeatureDatabase()), num_features(numfeats), 
       use_stereo(stereo), histogram_method(histmethod), 
-      use_rgbd(rgbd), depth_unit_for_rgbd(rgbd_depth_unit),
+      use_rgbd(rgbd), virtual_baseline_for_rgbd(rgbd_virtual_baseline), depth_unit_for_rgbd(rgbd_depth_unit),
       t_d(0), gyro_bias(0,0,0), enable_high_frequency_log(high_frequency_log), enable_keypoint_predict(keypoint_predict) {
 
   set_camera_calib(cameras);
@@ -863,15 +864,6 @@ void TrackBase::add_rgbd_virtual_keypoints_nolock(
   size_t virtual_right_cam_id = message.sensor_ids.at(1);
   cv::Mat depth_img = message.images.at(1);
 
-  Eigen::Isometry3d T_Cleft_in_I;
-  Eigen::Isometry3d T_Cright_in_I;
-  
-  T_Cleft_in_I.matrix() = *T_CtoIs[cam_id];
-  T_Cright_in_I.matrix() = *T_CtoIs[virtual_right_cam_id];
-
-  Eigen::Isometry3d T_left_in_right = T_Cright_in_I.inverse() * T_Cleft_in_I;
-  // std::cout << "DEBUG T_left_in_right:" << std::endl << T_left_in_right.matrix() << std::endl;
-
   auto get_raw_depth = [this, &depth_img](int x, int y) -> double {
     double d = -1.0;
     if (x >= depth_img.cols || y >= depth_img.rows) {
@@ -934,9 +926,11 @@ void TrackBase::add_rgbd_virtual_keypoints_nolock(
     Eigen::Vector3d p_in_l(npt_l.x, npt_l.y, 1.0);
     p_in_l *= depth_l;
 
-    Eigen::Vector3d p_in_r = T_left_in_right * p_in_l;
+    Eigen::Vector3d p_in_r = p_in_l;
+    p_in_r.x() -= virtual_baseline_for_rgbd;
+
     cv::Point2f npt_r(p_in_r.x() / p_in_r.z(),  p_in_r.y() / p_in_r.z());
-    cv::Point2f pt_r = camera_calib.at(virtual_right_cam_id)->distort_cv(npt_r);
+    cv::Point2f pt_r = camera_calib.at(cam_id)->distort_cv(npt_r);
     cv::KeyPoint kp_r;
     kp_r.pt = pt_r;
 

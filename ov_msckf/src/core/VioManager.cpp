@@ -101,17 +101,6 @@ VioManager::VioManager(VioManagerOptions &params_) :
     state->_calib_IMUtoCAM.at(i)->set_value(params.camera_extrinsics.at(i));
     state->_calib_IMUtoCAM.at(i)->set_fej(params.camera_extrinsics.at(i));
   }
-  
-  if (params.state_options.use_rgbd) {
-    // set value for the virtual right camera.
-    assert(state->_options.num_cameras == 1);
-    int i = state->_options.num_cameras;
-    state->_cam_intrinsics.at(i)->set_value(params.camera_intrinsics.at(i)->get_value());
-    state->_cam_intrinsics.at(i)->set_fej(params.camera_intrinsics.at(i)->get_value());
-    state->_calib_IMUtoCAM.at(i)->set_value(params.camera_extrinsics.at(i));
-    state->_calib_IMUtoCAM.at(i)->set_fej(params.camera_extrinsics.at(i));
-  }
-
 
   //===================================================================================
   //===================================================================================
@@ -154,7 +143,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
     trackFEATS = std::shared_ptr<TrackBase>(new TrackKLT(state->_cam_intrinsics_cameras, init_max_features,
                                                          state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
                                                          params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist,
-                                                         params.state_options.use_rgbd, params.state_options.depth_unit_for_rgbd,
+                                                         params.state_options.use_rgbd, params.state_options.virtual_baseline_for_rgbd, params.state_options.depth_unit_for_rgbd,
                                                          state->_T_CtoIs,
                                                          params.klt_left_major_stereo, params.klt_strict_stereo, params.klt_force_fundamental,
                                                          params.feattrack_predict_keypoints,
@@ -163,7 +152,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
     trackFEATS = std::shared_ptr<TrackBase>(new TrackDescriptor(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
         params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio,
-        params.state_options.use_rgbd, params.state_options.depth_unit_for_rgbd,
+        params.state_options.use_rgbd, params.state_options.virtual_baseline_for_rgbd, params.state_options.depth_unit_for_rgbd,
         state->_T_CtoIs,
         params.feattrack_predict_keypoints,
         params.feattrack_high_frequency_log));
