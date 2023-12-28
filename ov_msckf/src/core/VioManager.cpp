@@ -246,9 +246,18 @@ void VioManager::stop_threads() {
 }
 
 void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
+  CHECK_GT(message.timestamp, 0);
   if (stop_request_) {
     PRINT_WARNING(YELLOW "VioManager::feed_measurement_imu called after the stop_request!\n" RESET);
     return;
+  }
+
+  {
+    std::unique_lock<std::mutex> locker(imu_sync_mutex_);
+    if (last_imu_time_ > 0) {
+      double dt = message.timestamp - last_imu_time_;
+      CHECK_GT(dt, 0.0);
+    }
   }
 
   // The oldest time we need IMU with is the last clone
@@ -306,6 +315,7 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
     initializer->feed_imu(message, oldest_time);
   }
 
+
   // Push back to the zero velocity updater if it is enabled
   // No need to push back if we are just doing the zv-update at the begining and we have moved
   if (is_initialized_vio && updaterZUPT != nullptr && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
@@ -323,9 +333,11 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
       }
       // assert(dt < dt_thr);  // issue a crash for debug
     }
+
     last_imu_time_ = message.timestamp;
     imu_sync_cond_.notify_all();
   }
+
 }
 
 void VioManager::feed_measurement_simulation(double timestamp, const std::vector<int> &camids,
@@ -490,6 +502,7 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
     });
   }
 
+
   c->rT1 = std::chrono::high_resolution_clock::now();
   // Assert we have valid measurement data and ids
   assert(!message.sensor_ids.empty());
@@ -514,6 +527,7 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
   trackFEATS->set_gyro_bias(gyro_bias);
   trackFEATS->set_camera_calib(output->state_clone->_cam_intrinsics_cameras);
   trackFEATS->set_T_CtoIs(output->state_clone->_T_CtoIs);
+
   trackFEATS->feed_new_camera(message);
 
   // If the aruco tracker is available, the also pass to it
@@ -522,6 +536,7 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
   if (is_initialized_vio && trackARUCO != nullptr) {
     trackARUCO->feed_new_camera(message);
   }
+
   c->rT2 = std::chrono::high_resolution_clock::now();
 }
 
@@ -994,6 +1009,25 @@ void VioManager::update_output(double timestamp) {
   }
 }
 
+std::shared_ptr<VioManager::Output> VioManager::getLastOutput(bool need_state, bool need_visualization) {
+  std::unique_lock<std::mutex> locker(output_mutex_);
+  auto output = std::make_shared<Output>();
+  output->status = this->output.status;
+  if (need_state && this->output.state_clone) {
+    output->state_clone = this->output.state_clone->clone();
+    if (output->status.initialized) {
+      CHECK_EQ(output->status.timestamp, output->state_clone->_timestamp);  // time in camera_clock
+      CHECK_GT(output->state_clone->_timestamp, 0);
+      // std::cout << "output->status.timestamp - output->state_clone->_timestamp = " << output->status.timestamp - output->state_clone->_timestamp << std::endl;  // camera_clock vs imu_clock ?
+    }
+  }
+  if (need_visualization) {
+    output->visualization = this->output.visualization;
+  }
+  return output;
+}
+
+
 void VioManager::clear_older_tracking_cache(double timestamp) {
   trackFEATS->clear_older_history(timestamp);
   trackFEATS->get_feature_database()->cleanup_measurements_cache(timestamp - 2.0);  // 2s
@@ -1005,6 +1039,8 @@ void VioManager::clear_older_tracking_cache(double timestamp) {
 }
 
 void VioManager::feed_measurement_camera(ov_core::CameraData message) {
+  CHECK_GT(message.timestamp, 0);
+  
   if (stop_request_) {
     PRINT_WARNING(YELLOW "VioManager::feed_measurement_camera called after the stop_request!\n" RESET);
     return;

@@ -112,22 +112,7 @@ public:
     } visualization;
   };
 
-  std::shared_ptr<Output> getLastOutput(bool need_state=true, bool need_visualization=false) {
-    std::unique_lock<std::mutex> locker(output_mutex_);
-    auto output = std::make_shared<Output>();
-    output->status = this->output.status;
-    if (need_state && this->output.state_clone) {
-      output->state_clone = this->output.state_clone->clone();
-      if (output->status.initialized) {
-        assert(output->status.timestamp == output->state_clone->_timestamp);  // time in camera_clock
-        // std::cout << "output->status.timestamp - output->state_clone->_timestamp = " << output->status.timestamp - output->state_clone->_timestamp << std::endl;  // camera_clock vs imu_clock ?
-      }
-    }
-    if (need_visualization) {
-      output->visualization = this->output.visualization;
-    }
-    return output;
-  }
+  std::shared_ptr<Output> getLastOutput(bool need_state=true, bool need_visualization=false);
 
   void setUpdateCallback(std::function<void(const Output& output)> cb) {
     update_callback_ = cb;

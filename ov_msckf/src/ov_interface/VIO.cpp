@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 #include <mutex>
+#include <glog/logging.h>
+
 #include "core/VioManager.h"
 #include "core/VioManagerOptions.h"
 #include "state/Propagator.h"
@@ -182,6 +184,10 @@ LOC_MSG VIO::Localization(bool predict_with_imu) {
     // vio has not been initilized yet.
     return loc;
   }
+
+  CHECK_EQ(output->status.timestamp, output->state_clone->_timestamp);  // time in camera_clock
+  CHECK_GT(output->state_clone->_timestamp, 0);
+
 
   if (!predict_with_imu) {
     // Eigen::Isometry3d imu_pose(output->state_clone->_imu->Rot().inverse());

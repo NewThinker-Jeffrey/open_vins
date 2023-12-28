@@ -20,6 +20,7 @@
  */
 
 #include "UpdaterZeroVelocity.h"
+#include <glog/logging.h>
 
 #include "UpdaterHelper.h"
 
