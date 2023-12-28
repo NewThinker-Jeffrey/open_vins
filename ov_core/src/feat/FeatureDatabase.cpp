@@ -196,13 +196,12 @@ std::vector<std::shared_ptr<Feature>> FeatureDatabase::features_containing_older
   return feats_old;
 }
 
-std::vector<std::shared_ptr<Feature>> FeatureDatabase::features_containing(double timestamp, bool remove, bool skip_deleted) {
+std::vector<std::shared_ptr<Feature>> FeatureDatabase::features_containing_nolock(double timestamp, bool remove, bool skip_deleted) {
 
   // Our vector of old features
   std::vector<std::shared_ptr<Feature>> feats_has_timestamp;
 
   // Now lets loop through all features, and just make sure they are not
-  std::lock_guard<std::mutex> lck(mtx);
   for (auto it = features_idlookup.begin(); it != features_idlookup.end();) {
     // Skip if already deleted
     if (skip_deleted && (*it).second->to_delete) {
@@ -238,6 +237,11 @@ std::vector<std::shared_ptr<Feature>> FeatureDatabase::features_containing(doubl
   return feats_has_timestamp;
 }
 
+std::vector<std::shared_ptr<Feature>> FeatureDatabase::features_containing(double timestamp, bool remove, bool skip_deleted) {
+  std::lock_guard<std::mutex> lck(mtx);
+  return features_containing_nolock(timestamp, remove, skip_deleted);
+}
+
 void FeatureDatabase::cleanup() {
   // Loop through all features
   // int sizebefore = (int)features_idlookup.size();
@@ -263,8 +267,7 @@ void FeatureDatabase::cleanup() {
   // PRINT_DEBUG("feat db = %d -> %d\n", sizebefore, (int)features_idlookup.size() << std::endl;
 }
 
-void FeatureDatabase::cleanup_measurements(double timestamp) {
-  std::lock_guard<std::mutex> lck(mtx);
+void FeatureDatabase::cleanup_measurements_nolock(double timestamp) {
   for (auto it = features_idlookup.begin(); it != features_idlookup.end();) {
     // Remove the older measurements
     (*it).second->clean_older_measurements(timestamp);
@@ -280,6 +283,11 @@ void FeatureDatabase::cleanup_measurements(double timestamp) {
       it++;
     }
   }
+}
+
+void FeatureDatabase::cleanup_measurements(double timestamp) {
+  std::lock_guard<std::mutex> lck(mtx);
+  cleanup_measurements_nolock(timestamp);
 }
 
 void FeatureDatabase::cleanup_measurements_cache(double timestamp) {
@@ -339,7 +347,7 @@ void FeatureDatabase::append_new_measurements(const std::shared_ptr<FeatureDatab
 
   // Loop through the other database's internal database
   // int sizebefore = (int)features_idlookup.size();
-  for (const auto &feat : database->get_internal_data()) {
+  for (const auto &feat : database->get_internal_data_nolock()) {
     if (features_idlookup.find(feat.first) != features_idlookup.end()) {
 
       // For this feature, now try to append the new measurement data

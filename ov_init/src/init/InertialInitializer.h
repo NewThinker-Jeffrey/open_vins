@@ -105,6 +105,7 @@ protected:
 
   /// Our history of IMU messages (time, angular, linear)
   std::shared_ptr<std::vector<ov_core::ImuData>> imu_data;
+  std::mutex imu_data_mtx;
 
   /// Static initialization helper class
   std::shared_ptr<StaticInitializer> init_static;

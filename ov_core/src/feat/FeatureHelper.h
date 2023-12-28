@@ -61,7 +61,7 @@ public:
                                 double &disp_var, int &total_feats) {
 
     // Get features seen from the first image
-    std::vector<std::shared_ptr<Feature>> feats0 = db->features_containing(time0, false, true);
+    std::vector<std::shared_ptr<Feature>> feats0 = db->features_containing_nolock(time0, false, true);
 
     // Compute the disparity
     std::vector<double> disparities;
@@ -125,7 +125,7 @@ public:
 
     // Compute the disparity
     std::vector<double> disparities;
-    for (auto &feat : db->get_internal_data()) {
+    for (auto &feat : db->get_internal_data_nolock()) {
       for (auto &campairs : feat.second->timestamps) {
 
         // Skip if only one observation
@@ -171,6 +171,7 @@ public:
     for (double disp_i : disparities) {
       disp_mean += disp_i;
     }
+
     disp_mean /= (double)disparities.size();
     disp_var = 0;
     for (double &disp_i : disparities) {

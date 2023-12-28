@@ -64,6 +64,7 @@ UpdaterZeroVelocity::UpdaterZeroVelocity(UpdaterOptions &options, NoiseManager &
 }
 
 bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timestamp) {
+  std::unique_lock<std::mutex> imu_lk(imu_data_mtx);
 
   // Return if we don't have any imu data yet
   if (imu_data.empty()) {
@@ -96,6 +97,7 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
 
   // Select bounding inertial measurements
   std::vector<ov_core::ImuData> imu_recent = ov_core::select_imu_readings(imu_data, time0, time1);
+  imu_lk.unlock();
 
   // Move forward in time
   last_prop_time_offset = t_off_new;
@@ -140,6 +142,11 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
 
     // Precomputed values
     double dt = imu_recent.at(i + 1).timestamp - imu_recent.at(i).timestamp;
+    if (dt <= 0.000001) {
+      std::cout << "DebugZUPT: Holy shit! We might have gotten zero or negative dt! dt = " << dt << ", i=" << i << std::endl;
+      CHECK_GT(dt, 0.0);
+    }
+
     Eigen::Vector3d a_hat = imu_recent.at(i).am - state->_imu->bias_a();
 
     // Measurement noise (convert from continuous to discrete)
@@ -199,6 +206,7 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     P_marg.block(3, 3, 6, 6) += Q_bias;
   }
   Eigen::MatrixXd S = H * P_marg * H.transpose() + R;
+  // std::cout << "DebugZUPT: imu_recent.size() = " << imu_recent.size() << ", res = " << res.transpose() << ", S = " << S << ", S.llt().solve(res) = " << S.llt().solve(res) << std::endl;
   double chi2 = res.dot(S.llt().solve(res));
 
   // Get our threshold (we precompute up to 1000 but handle the case that it is more)
@@ -222,7 +230,10 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     int num_features = 0;
     double disp_avg = 0.0;
     double disp_var = 0.0;
+
+    std::unique_lock<std::mutex> db_lk(_db->get_mutex());
     FeatureHelper::compute_disparity(_db, time0_cam, time1_cam, disp_avg, disp_var, num_features);
+    db_lk.unlock();
 
     // Check if this disparity is enough to be classified as moving
     disparity_passed = (disp_avg < _zupt_max_disparity && num_features > 20);

@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
   // Our initialization class objects
   auto imu_readings = std::make_shared<std::vector<ov_core::ImuData>>();
   auto tracker = std::make_shared<ov_core::TrackSIM>(params.camera_intrinsics, 0);
-  auto initializer = std::make_shared<DynamicInitializer>(params, tracker->get_feature_database(), imu_readings);
+  auto initializer = std::make_shared<DynamicInitializer>(params, tracker->get_feature_database());
 
   //===================================================================================
   //===================================================================================
@@ -177,7 +177,7 @@ int main(int argc, char **argv) {
 
       // First we will try to make sure we have all the data required for our initialization
       std::chrono::high_resolution_clock::time_point rT1 = std::chrono::high_resolution_clock::now();
-      bool success = initializer->initialize(timestamp, covariance, order, _imu, _clones_IMU, _features_SLAM);
+      bool success = initializer->initialize(imu_readings, timestamp, covariance, order, _imu, _clones_IMU, _features_SLAM);
       std::chrono::high_resolution_clock::time_point rT2 = std::chrono::high_resolution_clock::now();
       double time = std::chrono::duration_cast<std::chrono::duration<double>>(rT2 - rT1).count();
       if (success) {
@@ -346,7 +346,7 @@ int main(int argc, char **argv) {
         }
         imu_readings = std::make_shared<std::vector<ov_core::ImuData>>();
         tracker = std::make_shared<ov_core::TrackSIM>(params.camera_intrinsics, 0);
-        initializer = std::make_shared<DynamicInitializer>(params, tracker->get_feature_database(), imu_readings);
+        initializer = std::make_shared<DynamicInitializer>(params, tracker->get_feature_database());
       } else if (timestamp != -1) {
         PRINT_INFO(RED "failed (%.4f seconds)\n\n" RESET, time);
       }

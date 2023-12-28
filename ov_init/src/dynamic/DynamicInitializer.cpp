@@ -41,14 +41,18 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_init;
 
-bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covariance, std::vector<std::shared_ptr<ov_type::Type>> &order,
+bool DynamicInitializer::initialize(std::shared_ptr<std::vector<ov_core::ImuData>> imu_data,
+                                    double &timestamp, Eigen::MatrixXd &covariance, std::vector<std::shared_ptr<ov_type::Type>> &order,
                                     std::shared_ptr<ov_type::IMU> &_imu, std::map<double, std::shared_ptr<ov_type::PoseJPL>> &_clones_IMU,
                                     std::unordered_map<size_t, std::shared_ptr<ov_type::Landmark>> &_features_SLAM) {
 
   // Get the newest and oldest timestamps we will try to initialize between!
   auto rT1 = std::chrono::high_resolution_clock::now();
   double newest_cam_time = -1;
-  for (auto const &feat : _db->get_internal_data()) {
+
+  std::unique_lock<std::mutex> lk_db(_db->get_mutex());
+
+  for (auto const &feat : _db->get_internal_data_nolock()) {
     for (auto const &camtimepair : feat.second->timestamps) {
       for (auto const &time : camtimepair.second) {
         newest_cam_time = std::max(newest_cam_time, time);
@@ -62,15 +66,15 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
 
   // Remove all measurements that are older than our initialization window
   // Then we will try to use all features that are in the feature database!
-  _db->cleanup_measurements(oldest_time);
+  _db->cleanup_measurements_nolock(oldest_time);
   bool have_old_imu_readings = false;
   auto it_imu = imu_data->begin();
   while (it_imu != imu_data->end() && it_imu->timestamp < oldest_time + params.calib_camimu_dt) {
     have_old_imu_readings = true;
     it_imu = imu_data->erase(it_imu);
   }
-  if (_db->get_internal_data().size() < 0.95 * params.init_max_features) {
-    PRINT_WARNING(RED "[init-d]: only %zu valid features of required (%.0f thresh)!!\n" RESET, _db->get_internal_data().size(),
+  if (_db->get_internal_data_nolock().size() < 0.95 * params.init_max_features) {
+    PRINT_WARNING(RED "[init-d]: only %zu valid features of required (%.0f thresh)!!\n" RESET, _db->get_internal_data_nolock().size(),
                   0.95 * params.init_max_features);
     return false;
   }
@@ -84,7 +88,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   // measurements appended to it in an async-manor so this initialization
   // can be performed in a secondary thread while feature tracking is still performed.
   std::unordered_map<size_t, std::shared_ptr<Feature>> features;
-  for (const auto &feat : _db->get_internal_data()) {
+  for (const auto &feat : _db->get_internal_data_nolock()) {
     auto feat_new = std::make_shared<Feature>();
     feat_new->featid = feat.second->featid;
     feat_new->uvs = feat.second->uvs;
@@ -92,6 +96,9 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
     feat_new->timestamps = feat.second->timestamps;
     features.insert({feat.first, feat_new});
   }
+
+  lk_db.unlock();
+
 
   // ======================================================
   // ======================================================

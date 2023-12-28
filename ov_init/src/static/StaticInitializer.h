@@ -54,11 +54,9 @@ public:
    * @brief Default constructor
    * @param params_ Parameters loaded from either ROS or CMDLINE
    * @param db Feature tracker database with all features in it
-   * @param imu_data_ Shared pointer to our IMU vector of historical information
    */
-  explicit StaticInitializer(InertialInitializerOptions &params_, std::shared_ptr<ov_core::FeatureDatabase> db,
-                             std::shared_ptr<std::vector<ov_core::ImuData>> imu_data_)
-      : params(params_), _db(db), imu_data(imu_data_) {}
+  explicit StaticInitializer(InertialInitializerOptions &params_, std::shared_ptr<ov_core::FeatureDatabase> db)
+      : params(params_), _db(db) {}
 
   /**
    * @brief Try to get the initialized system using just the imu
@@ -71,6 +69,7 @@ public:
    * This is only recommended if you have zero velocity update enabled to handle the stationary cases.
    * To initialize in this case, we need to have the average angular variance be below the set threshold (i.e. we need to be stationary).
    *
+   * @param imu_data_ Shared pointer to our IMU vector of historical information
    * @param[out] timestamp Timestamp we have initialized the state at
    * @param[out] covariance Calculated covariance of the returned state
    * @param[out] order Order of the covariance matrix
@@ -78,7 +77,8 @@ public:
    * @param wait_for_jerk If true we will wait for a "jerk"
    * @return True if we have successfully initialized our system
    */
-  bool initialize(double &timestamp, Eigen::MatrixXd &covariance, std::vector<std::shared_ptr<ov_type::Type>> &order,
+  bool initialize(std::shared_ptr<std::vector<ov_core::ImuData>> imu_data,
+                  double &timestamp, Eigen::MatrixXd &covariance, std::vector<std::shared_ptr<ov_type::Type>> &order,
                   std::shared_ptr<ov_type::IMU> t_imu, bool wait_for_jerk = true);
 
 private:
@@ -88,8 +88,8 @@ private:
   /// Feature tracker database with all features in it
   std::shared_ptr<ov_core::FeatureDatabase> _db;
 
-  /// Our history of IMU messages (time, angular, linear)
-  std::shared_ptr<std::vector<ov_core::ImuData>> imu_data;
+  // /// Our history of IMU messages (time, angular, linear)
+  // std::shared_ptr<std::vector<ov_core::ImuData>> imu_data;
 };
 
 } // namespace ov_init

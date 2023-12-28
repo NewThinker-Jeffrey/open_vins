@@ -42,12 +42,12 @@ InertialInitializer::InertialInitializer(InertialInitializerOptions &params_, st
   imu_data = std::make_shared<std::vector<ov_core::ImuData>>();
 
   // Create initializers
-  init_static = std::make_shared<StaticInitializer>(params, _db, imu_data);
-  init_dynamic = std::make_shared<DynamicInitializer>(params, _db, imu_data);
+  init_static = std::make_shared<StaticInitializer>(params, _db);
+  init_dynamic = std::make_shared<DynamicInitializer>(params, _db);
 }
 
 void InertialInitializer::feed_imu(const ov_core::ImuData &message, double oldest_time) {
-
+  std::unique_lock<std::mutex> lk(imu_data_mtx);
   // Append it to our vector
   imu_data->emplace_back(message);
 
@@ -75,7 +75,10 @@ bool InertialInitializer::initialize(double &timestamp, Eigen::MatrixXd &covaria
 
   // Get the newest and oldest timestamps we will try to initialize between!
   double newest_cam_time = -1;
-  for (auto const &feat : _db->get_internal_data()) {
+
+  std::unique_lock<std::mutex> db_lk(_db->get_mutex());
+
+  for (auto const &feat : _db->get_internal_data_nolock()) {
     for (auto const &camtimepair : feat.second->timestamps) {
       for (auto const &time : camtimepair.second) {
         newest_cam_time = std::max(newest_cam_time, time);
@@ -89,11 +92,7 @@ bool InertialInitializer::initialize(double &timestamp, Eigen::MatrixXd &covaria
 
   // Remove all measurements that are older then our initialization window
   // Then we will try to use all features that are in the feature database!
-  _db->cleanup_measurements(oldest_time);
-  auto it_imu = imu_data->begin();
-  while (it_imu != imu_data->end() && it_imu->timestamp < oldest_time + params.calib_camimu_dt) {
-    it_imu = imu_data->erase(it_imu);
-  }
+  _db->cleanup_measurements_nolock(oldest_time);
 
   // Compute the disparity of the system at the current timestep
   // If disparity is zero or negative we will always use the static initializer
@@ -123,6 +122,17 @@ bool InertialInitializer::initialize(double &timestamp, Eigen::MatrixXd &covaria
     disparity_detected_moving_1to0 = (avg_disp0 > params.init_max_disparity);
     disparity_detected_moving_2to1 = (avg_disp1 > params.init_max_disparity);
   }
+  db_lk.unlock();
+
+  std::shared_ptr<std::vector<ov_core::ImuData>> cloned_imu_data;
+  {
+    std::unique_lock<std::mutex> imu_lk(imu_data_mtx);
+    auto it_imu = imu_data->begin();
+    while (it_imu != imu_data->end() && it_imu->timestamp < oldest_time + params.calib_camimu_dt) {
+      it_imu = imu_data->erase(it_imu);
+    }
+    cloned_imu_data = std::make_shared<std::vector<ov_core::ImuData>>(*imu_data);
+  }
 
   // Use our static initializer!
   // CASE1: if our disparity says we were static in last window and have moved in the newest, we have a jerk
@@ -131,12 +141,12 @@ bool InertialInitializer::initialize(double &timestamp, Eigen::MatrixXd &covaria
   bool is_still = (!disparity_detected_moving_1to0 && !disparity_detected_moving_2to1);
   if (((has_jerk && wait_for_jerk) || (is_still && !wait_for_jerk)) && params.init_imu_thresh > 0.0) {
     PRINT_DEBUG(GREEN "[init]: USING STATIC INITIALIZER METHOD!\n" RESET);
-    return init_static->initialize(timestamp, covariance, order, t_imu, wait_for_jerk);
+    return init_static->initialize(cloned_imu_data, timestamp, covariance, order, t_imu, wait_for_jerk);
   } else if (params.init_dyn_use) {
     PRINT_DEBUG(GREEN "[init]: USING DYNAMIC INITIALIZER METHOD!\n" RESET);
     std::map<double, std::shared_ptr<ov_type::PoseJPL>> _clones_IMU;
     std::unordered_map<size_t, std::shared_ptr<ov_type::Landmark>> _features_SLAM;
-    return init_dynamic->initialize(timestamp, covariance, order, t_imu, _clones_IMU, _features_SLAM);
+    return init_dynamic->initialize(cloned_imu_data, timestamp, covariance, order, t_imu, _clones_IMU, _features_SLAM);
   }
   return false;
 }

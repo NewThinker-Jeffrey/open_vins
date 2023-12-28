@@ -67,9 +67,8 @@ public:
    * @param db Feature tracker database with all features in it
    * @param imu_data_ Shared pointer to our IMU vector of historical information
    */
-  explicit DynamicInitializer(const InertialInitializerOptions &params_, std::shared_ptr<ov_core::FeatureDatabase> db,
-                              std::shared_ptr<std::vector<ov_core::ImuData>> imu_data_)
-      : params(params_), _db(db), imu_data(imu_data_) {}
+  explicit DynamicInitializer(const InertialInitializerOptions &params_, std::shared_ptr<ov_core::FeatureDatabase> db)
+      : params(params_), _db(db) {}
 
   /**
    * @brief Try to get the initialized system
@@ -82,7 +81,8 @@ public:
    * @param _features_SLAM Our current set of SLAM features (3d positions)
    * @return True if we have successfully initialized our system
    */
-  bool initialize(double &timestamp, Eigen::MatrixXd &covariance, std::vector<std::shared_ptr<ov_type::Type>> &order,
+  bool initialize(std::shared_ptr<std::vector<ov_core::ImuData>> imu_data,
+                  double &timestamp, Eigen::MatrixXd &covariance, std::vector<std::shared_ptr<ov_type::Type>> &order,
                   std::shared_ptr<ov_type::IMU> &_imu, std::map<double, std::shared_ptr<ov_type::PoseJPL>> &_clones_IMU,
                   std::unordered_map<size_t, std::shared_ptr<ov_type::Landmark>> &_features_SLAM);
 
@@ -93,8 +93,8 @@ private:
   /// Feature tracker database with all features in it
   std::shared_ptr<ov_core::FeatureDatabase> _db;
 
-  /// Our history of IMU messages (time, angular, linear)
-  std::shared_ptr<std::vector<ov_core::ImuData>> imu_data;
+  // /// Our history of IMU messages (time, angular, linear)
+  // std::shared_ptr<std::vector<ov_core::ImuData>> imu_data;
 };
 
 } // namespace ov_init

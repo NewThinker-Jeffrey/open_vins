@@ -115,6 +115,7 @@ public:
    * This would be used to get all features that occurred at a specific clone/state.
    */
   std::vector<std::shared_ptr<Feature>> features_containing(double timestamp, bool remove = false, bool skip_deleted = false);
+  std::vector<std::shared_ptr<Feature>> features_containing_nolock(double timestamp, bool remove = false, bool skip_deleted = false);
 
   /**
    * @brief This function will delete all features that have been used up.
@@ -127,6 +128,7 @@ public:
    * @brief This function will delete all feature measurements that are older then the specified timestamp
    */
   void cleanup_measurements(double timestamp);
+  void cleanup_measurements_nolock(double timestamp);
 
   void cleanup_measurements_cache(double timestamp);
 
@@ -153,6 +155,9 @@ public:
   ////              Maybe we should make this function private latter.
   std::unordered_map<size_t, std::shared_ptr<Feature>> get_internal_data() {
     std::lock_guard<std::mutex> lck(mtx);
+    return features_idlookup;
+  }
+  std::unordered_map<size_t, std::shared_ptr<Feature>> get_internal_data_nolock() {
     return features_idlookup;
   }
 

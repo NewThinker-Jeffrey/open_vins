@@ -71,14 +71,14 @@ public:
 
     // Clean old measurements
     // std::cout << "PROP: imu_data.size() " << imu_data.size() << std::endl;
-    clean_old_imu_measurements(oldest_time - 0.10);
+    clean_old_imu_measurements_nolock(oldest_time - 0.10);
   }
 
   /**
    * @brief This will remove any IMU measurements that are older then the given measurement time
    * @param oldest_time Time that we can discard measurements before (in IMU clock)
    */
-  void clean_old_imu_measurements(double oldest_time) {
+  void clean_old_imu_measurements_nolock(double oldest_time) {
     if (oldest_time < 0)
       return;
     auto it0 = imu_data.begin();
@@ -89,6 +89,10 @@ public:
         it0++;
       }
     }
+  }
+  void clean_old_imu_measurements(double oldest_time) {
+    std::lock_guard<std::mutex> lck(imu_data_mtx);
+    clean_old_imu_measurements_nolock(oldest_time);
   }
 
   /**
