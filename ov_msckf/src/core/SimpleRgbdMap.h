@@ -27,6 +27,8 @@
 #include <condition_variable>
 #include <atomic>
 
+#include <glog/logging.h>
+
 #include <Eigen/Geometry>
 #include "cam/CamBase.h"
 
@@ -66,8 +68,8 @@ public:
       max_display_(max_display),
       output_mutex_(new std::mutex()),
       max_voxels_(max_voxels), resolution_(resolution), max_depth_(max_depth) {
-    voxels_.resize(max_voxels);
-    for (size_t i=0; i<voxels_.size(); i++) {
+    voxels_.resize(max_voxels_);
+    for (size_t i=0; i<max_voxels_; i++) {
       unused_entries_.insert(i);
     }
     insert_thread_ = std::thread(&SimpleRgbdMap::insert_thread_func, this);
@@ -90,10 +92,15 @@ public:
     std::unique_lock<std::mutex> lk(insert_thread_mutex_);
     auto cam_clone = cam.clone();
     insert_tasks_.push_back([=](){
+      LOG(INFO) << "RgbdMapping:  task - begin";
       std::unique_lock<std::mutex> lk(mapping_mutex_);
+      LOG(INFO) << "RgbdMapping:  task - get mutex";
       insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, start_row);
+      LOG(INFO) << "RgbdMapping:  task - map updated";
       update_output();
+      LOG(INFO) << "RgbdMapping:  task - output updated";
     });
+    LOG(INFO) << "RgbdMapping:  add new task - task size = " << insert_tasks_.size();
     insert_thread_cv_.notify_one();
   }
 
@@ -128,26 +135,37 @@ public:
   }
 
   void clear_map() {
-    std::deque<std::function<void()>> insert_tasks;    
-    std::vector<Voxel> voxels;
+    LOG(INFO) << "RgbdMapping::clear_map: begin";
+    std::deque<std::function<void()>> insert_tasks;
     std::set<size_t> unused_entries;
+    for (size_t i=0; i<max_voxels_; i++) {
+      unused_entries.insert(i);
+    }
     std::map<Timestamp, std::set<size_t>> time_to_voxels;
     std::map<Position, size_t> pos_to_voxel;
+
+    LOG(INFO) << "RgbdMapping::clear_map: swapping tasks";
     auto output = std::make_shared<const std::vector<Voxel>>();
     {
       std::unique_lock<std::mutex> lk1(insert_thread_mutex_);
       std::swap(insert_tasks, insert_tasks_);
     }
-
+    LOG(INFO) << "RgbdMapping::clear_map: swapping data";
     {
       std::unique_lock<std::mutex> lk2(mapping_mutex_);
       std::unique_lock<std::mutex> lk3(*output_mutex_);
-      std::swap(voxels, voxels_);
       std::swap(unused_entries, unused_entries_);
       std::swap(time_to_voxels, time_to_voxels_);
       std::swap(pos_to_voxel, pos_to_voxel_);
       std::swap(output, output_);
     }
+
+    LOG(INFO) << "RgbdMapping::clear_map: clearing tasks and data";
+    insert_tasks.clear();
+    unused_entries.clear();
+    time_to_voxels.clear();
+    pos_to_voxel.clear();
+    LOG(INFO) << "RgbdMapping::clear_map: done";
   }
 
 protected:
@@ -169,13 +187,16 @@ protected:
           abandon_count++;
         }
         if (abandon_count > 0) {
-          std::cout << "RgbdMapping:  Abandoned " << abandon_count << " insert tasks." << std::endl;
+          LOG(INFO) << "RgbdMapping:  Abandoned " << abandon_count << " tasks.";
         }
         insert_task = insert_tasks_.front();
         insert_tasks_.pop_front();
+        LOG(INFO) << "RgbdMapping:  remain " << insert_tasks_.size() << " tasks.";
       }
 
+      LOG(INFO) << "RgbdMapping:  Processing  begein ... ";
       insert_task();
+      LOG(INFO) << "RgbdMapping:  Processing finished.";
     }
   }
 
