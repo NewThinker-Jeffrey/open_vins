@@ -20,7 +20,7 @@
  */
 
 #include "VioManager.h"
-#include "SimpleRgbdMap.h"
+#include "SimpleDenseMapping.h"
 
 #include <glog/logging.h>
 
@@ -194,27 +194,36 @@ VioManager::VioManager(VioManagerOptions &params_) :
 }
 
 void VioManager::begin_rgbd_mapping() {
-  if (params.state_options.use_rgbd && params.rgbd_mapping && !rgbd_map) {
-    rgbd_map = std::make_shared<SimpleRgbdMap>(
+  if (params.state_options.use_rgbd && params.rgbd_mapping && !rgbd_dense_map_builder) {
+    rgbd_dense_map_builder = std::make_shared<dense_mapping::SimpleDenseMapBuilder>(
         params.rgbd_mapping_max_voxels,
         params.rgbd_mapping_resolution,
         params.rgbd_mapping_max_depth,
         params.rgbd_mapping_max_dispaly_voxels);
+    rgbd_dense_map_builder->set_output_update_callback(rgbd_dense_map_update_cb);
   }
 }
 
 void VioManager::stop_rgbd_mapping() {
-  if (rgbd_map) {
-    rgbd_map->clear_map();
-    rgbd_map.reset();
+  if (rgbd_dense_map_builder) {
+    rgbd_dense_map_builder->clear_map();
+    rgbd_dense_map_builder.reset();
   }
 }
 
 void VioManager::clear_rgbd_map() {
-  if (rgbd_map) {
-    rgbd_map->clear_map();
+  if (rgbd_dense_map_builder) {
+    rgbd_dense_map_builder->clear_map();
   }
 }
+
+void VioManager::set_rgbd_map_update_callback(std::function<void(std::shared_ptr<const dense_mapping::SimpleDenseMap>)> cb) {
+  rgbd_dense_map_update_cb = cb;
+  if (rgbd_dense_map_builder) {
+    rgbd_dense_map_builder->set_output_update_callback(rgbd_dense_map_update_cb);
+  }
+}
+
 
 void VioManager::stop_threads() {
   stop_request_ = true;
@@ -589,11 +598,11 @@ void VioManager::do_update(ImgProcessContextPtr c) {
 }
 
 void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
-  // this->rgbd_map might be reset in other threads,
+  // this->rgbd_dense_map_builder might be reset in other threads,
   // so we need to loat it atomicly.
-  auto rgbd_map = this->rgbd_map;
+  auto rgbd_dense_map_builder = this->rgbd_dense_map_builder;
 
-  if (rgbd_map && is_initialized_vio && state && state->_imu) {
+  if (rgbd_dense_map_builder && is_initialized_vio && state && state->_imu) {
     const size_t color_cam_id = 0;
     const size_t depth_cam_id = 1;
     const cv::Mat& color = c->message->images.at(color_cam_id);
@@ -612,7 +621,7 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
       Eigen::Isometry3f T_M_C = T_M_I * T_I_C;
 
 
-      rgbd_map->feed_rgbd_frame(color, depth,
+      rgbd_dense_map_builder->feed_rgbd_frame(color, depth,
                                 std::move(*params.camera_intrinsics.at(color_cam_id)->clone()),
                                 T_M_C, c->message->timestamp,
                                 params.rgbd_mapping_pixel_downsample,
@@ -1000,7 +1009,7 @@ void VioManager::update_output(double timestamp) {
   output.visualization.active_tracks_posinG = active_tracks_posinG;
   output.visualization.active_tracks_uvd = active_tracks_uvd;
   output.visualization.active_cam0_image = active_image;
-  output.visualization.rgbd_map = this->rgbd_map;  // Note this->rgbd_map might be reset in other threads.
+  output.visualization.rgbd_dense_map_builder = this->rgbd_dense_map_builder;  // Note this->rgbd_dense_map_builder might be reset in other threads.
   std::unique_lock<std::mutex> locker(output_mutex_);
   this->output = std::move(output);
 

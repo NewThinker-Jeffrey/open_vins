@@ -52,7 +52,11 @@ class UpdaterMSCKF;
 class UpdaterSLAM;
 class UpdaterZeroVelocity;
 class Propagator;
-class SimpleRgbdMap;
+
+namespace dense_mapping {
+struct SimpleDenseMap;
+class SimpleDenseMapBuilder;
+}  // namespace dense_mapping
 
 /**
  * @brief Core class that manages the entire system
@@ -108,7 +112,7 @@ public:
       cv::Mat active_cam0_image;
 
       /// rgbd map
-      std::shared_ptr<const SimpleRgbdMap> rgbd_map;
+      std::shared_ptr<const dense_mapping::SimpleDenseMapBuilder> rgbd_dense_map_builder;
     } visualization;
   };
 
@@ -194,6 +198,8 @@ public:
   void stop_rgbd_mapping();
 
   void clear_rgbd_map();
+
+  void set_rgbd_map_update_callback(std::function<void(std::shared_ptr<const dense_mapping::SimpleDenseMap>)> cb);
 
 protected:
   struct ImgProcessContext {
@@ -420,8 +426,9 @@ protected:
   // imu filter
   std::deque<ov_core::ImuData> imu_filter_buffer;
 
-  // rgbd map
-  std::shared_ptr<SimpleRgbdMap> rgbd_map;
+  // rgbd dense mapping
+  std::shared_ptr<dense_mapping::SimpleDenseMapBuilder> rgbd_dense_map_builder;
+  std::function<void(std::shared_ptr<const dense_mapping::SimpleDenseMap>)> rgbd_dense_map_update_cb;
 };
 
 } // namespace ov_msckf

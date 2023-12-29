@@ -19,8 +19,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef OV_MSCKF_SIMPLE_RGBD_MAP_H
-#define OV_MSCKF_SIMPLE_RGBD_MAP_H
+#ifndef OV_MSCKF_SIMPLE_DENSE_MAPPING_H
+#define OV_MSCKF_SIMPLE_DENSE_MAPPING_H
 
 #include <thread>
 #include <mutex>
@@ -33,37 +33,47 @@
 #include "cam/CamBase.h"
 
 namespace ov_msckf {
+namespace dense_mapping {
 
-class SimpleRgbdMap {
+
+using Color = Eigen::Matrix<uint8_t, 3, 1>;
+
+using Timestamp = double;
+
+struct Position : public Eigen::Matrix<int32_t, 3, 1> {
+  Position(int32_t x=0, int32_t y=0, int32_t z=0) : Eigen::Matrix<int32_t, 3, 1>(x, y, z) {}
+  
+  bool operator< (const Position& other) const {
+    if (x() == other.x()) {
+      if (y() == other.y()) {
+        return z() < other.z();
+      }
+      return y() < other.y();
+    }
+    return x() < other.x();
+  }
+};
+
+struct Voxel {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  Position p;
+  Color c;
+  Timestamp time;
+};
+
+struct SimpleDenseMap {
+  std::vector<Voxel> voxels;
+  double resolution;
+  Timestamp time;
+};
+
+class SimpleDenseMapBuilder {
 
 public:
 
-  struct Position : public Eigen::Matrix<int32_t, 3, 1> {
-    Position(int32_t x=0, int32_t y=0, int32_t z=0) : Eigen::Matrix<int32_t, 3, 1>(x, y, z) {}
-    
-    bool operator< (const Position& other) const {
-      if (x() == other.x()) {
-        if (y() == other.y()) {
-          return z() < other.z();
-        }
-        return y() < other.y();
-      }
-      return x() < other.x();
-    }
-  };
-
-  using Color = Eigen::Matrix<uint8_t, 3, 1>;
-  using Timestamp = double;
-
-  struct Voxel {
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-    Position p;
-    Color c;
-    Timestamp time;
-  };
-
-  SimpleRgbdMap(size_t max_voxels=1000000, float resolution = 0.01, float max_depth = 5.0, int max_display = -1) : 
+  using Voxel = ov_msckf::dense_mapping::Voxel;
+  SimpleDenseMapBuilder(size_t max_voxels=1000000, float resolution = 0.01, float max_depth = 5.0, int max_display = -1) : 
       stop_insert_thread_request_(false),
       max_display_(max_display),
       output_mutex_(new std::mutex()),
@@ -72,11 +82,15 @@ public:
     for (size_t i=0; i<max_voxels_; i++) {
       unused_entries_.insert(i);
     }
-    insert_thread_ = std::thread(&SimpleRgbdMap::insert_thread_func, this);
+    insert_thread_ = std::thread(&SimpleDenseMapBuilder::insert_thread_func, this);
   }
 
-  ~SimpleRgbdMap() {
+  ~SimpleDenseMapBuilder() {
     stop_insert_thread();
+  }
+
+  void set_output_update_callback(std::function<void(std::shared_ptr<const SimpleDenseMap>)> cb) {
+    output_update_callback_ = cb;
   }
 
   float resolution() const {
@@ -93,44 +107,56 @@ public:
     auto cam_clone = cam.clone();
     insert_tasks_.push_back([=](){
       LOG(INFO) << "RgbdMapping:  task - begin";
-      std::unique_lock<std::mutex> lk(mapping_mutex_);
-      LOG(INFO) << "RgbdMapping:  task - get mutex";
-      insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, start_row);
-      LOG(INFO) << "RgbdMapping:  task - map updated";
-      update_output();
+      std::shared_ptr<const SimpleDenseMap> output;
+      {
+        std::unique_lock<std::mutex> lk(mapping_mutex_);
+        LOG(INFO) << "RgbdMapping:  task - get mutex";
+        insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, start_row);
+        if (time > time_) {
+          time_ = time;
+        }
+        LOG(INFO) << "RgbdMapping:  task - map updated";
+        output = update_output();
+      }
       LOG(INFO) << "RgbdMapping:  task - output updated";
+      if (output_update_callback_) {        
+        output_update_callback_(output);
+      }
+      LOG(INFO) << "RgbdMapping:  task - callback invoked";
     });
     LOG(INFO) << "RgbdMapping:  add new task - task size = " << insert_tasks_.size();
     insert_thread_cv_.notify_one();
   }
 
   // Return occupied voxels sorted by latest update time.
-  std::shared_ptr<const std::vector<Voxel>>
-  get_occupied_voxels() const {
+  std::shared_ptr<const SimpleDenseMap>
+  get_output_map() const {
     std::unique_lock<std::mutex> lk(*output_mutex_);
     return output_;
   }
 
-  std::shared_ptr<const std::vector<Voxel>>
-  get_display_voxels() const {
-    auto voxels = get_occupied_voxels();
-    if (!voxels) {
+  std::shared_ptr<const SimpleDenseMap>
+  get_display_map() const {
+    auto output = get_output_map();
+    if (!output) {
       return nullptr;
     }
-    if (max_display_ > 0 && voxels->size() > max_display_) {
-      std::vector<Voxel> voxels_copy;
-      voxels_copy.reserve(max_display_);
+    if (max_display_ > 0 && output->voxels.size() > max_display_) {
+      SimpleDenseMap map_copy;
+      map_copy.voxels.reserve(max_display_);
       // Add the newest half max_display_ voxels
-      voxels_copy.insert(voxels_copy.end(), voxels->end() - max_display_ / 2, voxels->end());
+      map_copy.voxels.insert(map_copy.voxels.end(), output->voxels.end() - max_display_ / 2, output->voxels.end());
 
       // and half max_display_ sampled older voxels
       for (size_t i=0; i<max_display_ / 2; i++) {
-        int idx = rand() % (voxels->size() - max_display_ / 2);
-        voxels_copy.push_back(voxels->at(idx));
+        int idx = rand() % (output->voxels.size() - max_display_ / 2);
+        map_copy.voxels.push_back(output->voxels.at(idx));
       }
-      return std::make_shared<const std::vector<Voxel>>(std::move(voxels_copy));
+      map_copy.resolution = output->resolution;
+      map_copy.time = output->time;
+      return std::make_shared<const SimpleDenseMap>(std::move(map_copy));
     } else {
-      return voxels;
+      return output;
     }
   }
 
@@ -145,7 +171,7 @@ public:
     std::map<Position, size_t> pos_to_voxel;
 
     LOG(INFO) << "RgbdMapping::clear_map: swapping tasks";
-    auto output = std::make_shared<const std::vector<Voxel>>();
+    auto output = std::make_shared<const SimpleDenseMap>();
     {
       std::unique_lock<std::mutex> lk1(insert_thread_mutex_);
       std::swap(insert_tasks, insert_tasks_);
@@ -271,19 +297,21 @@ protected:
     }
   }
 
-  void update_output() {
-    std::vector<Voxel> output;
-    output.reserve(voxels_.size() - unused_entries_.size());
+  std::shared_ptr<const SimpleDenseMap> update_output() {
+    SimpleDenseMap output;
+    output.voxels.reserve(voxels_.size() - unused_entries_.size());
     for (const auto& pair : time_to_voxels_) {
       for (size_t i : pair.second) {
-        output.push_back(voxels_[i]);
+        output.voxels.push_back(voxels_[i]);
       }
     }
+    output.resolution = resolution_;
+    output.time = time_;
 
     std::unique_lock<std::mutex> lk(*output_mutex_);
-    output_ = std::make_shared<const std::vector<Voxel>>(std::move(output));
+    output_ = std::make_shared<const SimpleDenseMap>(std::move(output));
+    return output_;
   }
-
 
 protected:
   std::mutex mapping_mutex_;
@@ -301,16 +329,23 @@ protected:
   
   // output voxels
   std::shared_ptr<std::mutex> output_mutex_;
-  std::shared_ptr<const std::vector<Voxel>> output_;
+  std::shared_ptr<const SimpleDenseMap> output_;
+
+  // output update callback
+  std::function<void(std::shared_ptr<const SimpleDenseMap>)> output_update_callback_;
 
   const size_t max_voxels_ = 1000000;
   const float max_depth_ = 5.0;
   const float resolution_ = 0.01;
   int max_display_ = -1;
+  Timestamp time_ = -1.0;
 };
 
+
+
+}  // namespace dense_mapping
 
 } // namespace ov_msckf
 
 
-#endif // OV_MSCKF_SIMPLE_RGBD_MAP_H
+#endif // OV_MSCKF_SIMPLE_DENSE_MAPPING_H
