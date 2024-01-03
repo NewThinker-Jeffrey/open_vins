@@ -73,11 +73,21 @@ class SimpleDenseMapBuilder {
 public:
 
   using Voxel = ov_msckf::dense_mapping::Voxel;
-  SimpleDenseMapBuilder(size_t max_voxels=1000000, float resolution = 0.01, float max_depth = 5.0, int max_display = -1) : 
+  SimpleDenseMapBuilder(
+    size_t max_voxels=1000000,
+    float resolution = 0.01,
+    float max_depth = 5.0,
+    float max_height = 1.0,
+    float min_height = -1.0,
+    int max_display = -1) :
       stop_insert_thread_request_(false),
       max_display_(max_display),
       output_mutex_(new std::mutex()),
-      max_voxels_(max_voxels), resolution_(resolution), max_depth_(max_depth) {
+      max_voxels_(max_voxels),
+      resolution_(resolution),
+      max_height_(max_height),
+      min_height_(min_height),
+      max_depth_(max_depth) {
     voxels_.resize(max_voxels_);
     for (size_t i=0; i<max_voxels_; i++) {
       unused_entries_.insert(i);
@@ -102,7 +112,10 @@ public:
                        const Eigen::Isometry3f& T_W_C,
                        const Timestamp& time,
                        int pixel_downsample = 1,
-                       int start_row = 0) {
+                       int start_row = 0,
+                       int end_row = -1,
+                       int start_col = 0,
+                       int end_col = -1) {
     std::unique_lock<std::mutex> lk(insert_thread_mutex_);
     auto cam_clone = cam.clone();
     insert_tasks_.push_back([=](){
@@ -111,7 +124,7 @@ public:
       {
         std::unique_lock<std::mutex> lk(mapping_mutex_);
         LOG(INFO) << "RgbdMapping:  task - get mutex";
-        insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, start_row);
+        insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, start_row, end_row, start_col, end_col);
         if (time > time_) {
           time_ = time;
         }
@@ -271,9 +284,18 @@ protected:
                          const Eigen::Isometry3f& T_W_C,
                          const Timestamp& time,
                          int pixel_downsample = 1,
-                         int start_row = 0) {
-    for (size_t y=start_row; y<color.rows; y+=pixel_downsample) {
-      for (size_t x=0; x<color.cols; x+=pixel_downsample) {
+                         int start_row = 0,
+                         int end_row = -1,
+                         int start_col = 0,
+                         int end_col = -1) {
+    if (end_row < 0) {
+      end_row = color.rows;
+    }
+    if (end_col < 0) {
+      end_col = color.cols;
+    }
+    for (size_t y=start_row; y<end_row; y+=pixel_downsample) {
+      for (size_t x=0; x<end_col; x+=pixel_downsample) {
         const uint16_t d = depth.at<uint16_t>(y,x);
         if (d == 0) continue;
         float depth = d / 1000.0f;
@@ -285,6 +307,9 @@ protected:
         Eigen::Vector3f p3d_c(p_normal.x(), p_normal.y(), 1.0f);
         p3d_c = p3d_c * depth;
         Eigen::Vector3f p3d_w = T_W_C * p3d_c;
+        if (p3d_w.z() > max_height_ || p3d_w.z() < min_height_) {
+          continue;
+        }
         p3d_w /= resolution_;
         Position pos(round(p3d_w.x()), round(p3d_w.y()), round(p3d_w.z()));
         auto rgb = color.at<cv::Vec3b>(y,x);
@@ -336,6 +361,8 @@ protected:
 
   const size_t max_voxels_ = 1000000;
   const float max_depth_ = 5.0;
+  const float max_height_ = 5.0;
+  const float min_height_ = 5.0;
   const float resolution_ = 0.01;
   int max_display_ = -1;
   Timestamp time_ = -1.0;
