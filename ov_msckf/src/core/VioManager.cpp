@@ -196,12 +196,10 @@ VioManager::VioManager(VioManagerOptions &params_) :
 void VioManager::begin_rgbd_mapping() {
   if (params.state_options.use_rgbd && params.rgbd_mapping && !rgbd_dense_map_builder) {
     rgbd_dense_map_builder = std::make_shared<dense_mapping::SimpleDenseMapBuilder>(
-        params.rgbd_mapping_max_voxels,
         params.rgbd_mapping_resolution,
-        params.rgbd_mapping_max_depth,
+        params.rgbd_mapping_max_voxels,
         params.rgbd_mapping_max_height,
-        params.rgbd_mapping_min_height,
-        params.rgbd_mapping_max_dispaly_voxels);
+        params.rgbd_mapping_min_height);
     rgbd_dense_map_builder->set_output_update_callback(rgbd_dense_map_update_cb);
   }
 }
@@ -627,6 +625,7 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
                                 std::move(*params.camera_intrinsics.at(color_cam_id)->clone()),
                                 T_M_C, c->message->timestamp,
                                 params.rgbd_mapping_pixel_downsample,
+                                params.rgbd_mapping_max_depth,
                                 params.rgbd_mapping_pixel_start_row,
                                 params.rgbd_mapping_pixel_end_row,
                                 params.rgbd_mapping_pixel_start_col,

@@ -74,20 +74,16 @@ public:
 
   using Voxel = ov_msckf::dense_mapping::Voxel;
   SimpleDenseMapBuilder(
+    float voxel_resolution = 0.01,
     size_t max_voxels=1000000,
-    float resolution = 0.01,
-    float max_depth = 5.0,
-    float max_height = 1.0,
-    float min_height = -1.0,
-    int max_display = -1) :
+    float max_height = FLT_MAX,
+    float min_height = -FLT_MAX) :
       stop_insert_thread_request_(false),
-      max_display_(max_display),
       output_mutex_(new std::mutex()),
       max_voxels_(max_voxels),
-      resolution_(resolution),
+      resolution_(voxel_resolution),
       max_height_(max_height),
-      min_height_(min_height),
-      max_depth_(max_depth) {
+      min_height_(min_height) {
     voxels_.resize(max_voxels_);
     for (size_t i=0; i<max_voxels_; i++) {
       unused_entries_.insert(i);
@@ -112,6 +108,7 @@ public:
                        const Eigen::Isometry3f& T_W_C,
                        const Timestamp& time,
                        int pixel_downsample = 1,
+                       float max_depth = 5.0,
                        int start_row = 0,
                        int end_row = -1,
                        int start_col = 0,
@@ -124,7 +121,7 @@ public:
       {
         std::unique_lock<std::mutex> lk(mapping_mutex_);
         LOG(INFO) << "RgbdMapping:  task - get mutex";
-        insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, start_row, end_row, start_col, end_col);
+        insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, max_depth, start_row, end_row, start_col, end_col);
         if (time > time_) {
           time_ = time;
         }
@@ -149,20 +146,20 @@ public:
   }
 
   std::shared_ptr<const SimpleDenseMap>
-  get_display_map() const {
+  get_display_map(int max_display = -1) const {
     auto output = get_output_map();
     if (!output) {
       return nullptr;
     }
-    if (max_display_ > 0 && output->voxels.size() > max_display_) {
+    if (max_display > 0 && output->voxels.size() > max_display) {
       SimpleDenseMap map_copy;
-      map_copy.voxels.reserve(max_display_);
-      // Add the newest half max_display_ voxels
-      map_copy.voxels.insert(map_copy.voxels.end(), output->voxels.end() - max_display_ / 2, output->voxels.end());
+      map_copy.voxels.reserve(max_display);
+      // Add the newest half max_display voxels
+      map_copy.voxels.insert(map_copy.voxels.end(), output->voxels.end() - max_display / 2, output->voxels.end());
 
-      // and half max_display_ sampled older voxels
-      for (size_t i=0; i<max_display_ / 2; i++) {
-        int idx = rand() % (output->voxels.size() - max_display_ / 2);
+      // and half max_display sampled older voxels
+      for (size_t i=0; i<max_display / 2; i++) {
+        int idx = rand() % (output->voxels.size() - max_display / 2);
         map_copy.voxels.push_back(output->voxels.at(idx));
       }
       map_copy.resolution = output->resolution;
@@ -284,6 +281,7 @@ protected:
                          const Eigen::Isometry3f& T_W_C,
                          const Timestamp& time,
                          int pixel_downsample = 1,
+                         float max_depth = 5.0,
                          int start_row = 0,
                          int end_row = -1,
                          int start_col = 0,
@@ -299,7 +297,7 @@ protected:
         const uint16_t d = depth.at<uint16_t>(y,x);
         if (d == 0) continue;
         float depth = d / 1000.0f;
-        if (max_depth_ < depth) {
+        if (max_depth < depth) {
           continue;
         }
 
@@ -359,12 +357,10 @@ protected:
   // output update callback
   std::function<void(std::shared_ptr<const SimpleDenseMap>)> output_update_callback_;
 
-  const size_t max_voxels_ = 1000000;
-  const float max_depth_ = 5.0;
-  const float max_height_ = 5.0;
-  const float min_height_ = 5.0;
-  const float resolution_ = 0.01;
-  int max_display_ = -1;
+  const size_t max_voxels_;
+  const float max_height_;
+  const float min_height_;
+  const float resolution_;
   Timestamp time_ = -1.0;
 };
 

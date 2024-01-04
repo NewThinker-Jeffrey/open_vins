@@ -349,7 +349,7 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
   using Voxel = dense_mapping::Voxel;
   if (need_draw_rgbd) {
     // auto map_ptr = output->visualization.rgbd_dense_map_builder->get_output_map();
-    auto map_ptr = output->visualization.rgbd_dense_map_builder->get_display_map();
+    auto map_ptr = output->visualization.rgbd_dense_map_builder->get_display_map(_interal_app->get_params().rgbd_mapping_max_dispaly_voxels);
     if (map_ptr) {
       const std::vector<Voxel>& voxels = map_ptr->voxels;
       glPointSize(2.0);

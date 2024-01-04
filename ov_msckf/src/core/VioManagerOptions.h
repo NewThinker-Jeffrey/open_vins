@@ -271,8 +271,8 @@ struct VioManagerOptions {
   int  rgbd_mapping_pixel_end_col = -1;
   double rgbd_mapping_resolution = 0.01;
   double rgbd_mapping_max_depth = 5.0;
-  double rgbd_mapping_max_height = 1.0;
-  double rgbd_mapping_min_height = -1.0;
+  double rgbd_mapping_max_height = FLT_MAX;
+  double rgbd_mapping_min_height = -FLT_MAX;
   int rgbd_mapping_max_voxels = 500000;
   int rgbd_mapping_max_dispaly_voxels = 500000;
 
