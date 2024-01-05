@@ -866,7 +866,8 @@ void TrackBase::add_rgbd_virtual_keypoints_nolock(
 
   auto get_raw_depth = [this, &depth_img](int x, int y) -> double {
     double d = -1.0;
-    if (x >= depth_img.cols || y >= depth_img.rows) {
+    if (x >= depth_img.cols || y >= depth_img.rows ||
+        x < 0 || y < 0) {
       return -1.0;
     }
 
