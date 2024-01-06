@@ -216,9 +216,10 @@ protected:
         if (stop_insert_thread_request_) {
           return;
         }
-        const int MAX_INSERT_TASK_CACHE_SIZE = 3;
+        // const int MAX_INSERT_TASK_BUFFER_SIZE = 3;
+        const int MAX_INSERT_TASK_BUFFER_SIZE = 0;
         int abandon_count = 0;
-        while (insert_tasks_.size() > MAX_INSERT_TASK_CACHE_SIZE + 1) {
+        while (insert_tasks_.size() > MAX_INSERT_TASK_BUFFER_SIZE + 1) {
           insert_tasks_.pop_front();
           abandon_count++;
         }
