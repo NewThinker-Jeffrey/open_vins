@@ -40,6 +40,12 @@ bool FeatureInitializer::single_triangulation(std::shared_ptr<Feature> feat,
     if (pair.second.size() > most_meas) {
       anchor_most_meas = pair.first;
       most_meas = pair.second.size();
+    } else if (pair.second.size() == most_meas) {
+      // Always prefer the camera with smaller id.
+      // (This helps in RGB-D mode to ensure a feature always be anchored
+      //  to the RGB camera)
+      anchor_most_meas = std::min(pair.first, anchor_most_meas);
+      most_meas = pair.second.size();
     }
   }
   feat->anchor_cam_id = anchor_most_meas;
