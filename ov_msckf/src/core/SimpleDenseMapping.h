@@ -32,6 +32,11 @@
 #include <Eigen/Geometry>
 #include "cam/CamBase.h"
 
+#ifdef USE_HEAR_SLAM
+#include "hear_slam/basic/thread_pool.h"
+#include "hear_slam/basic/logging.h"
+#endif
+
 namespace ov_msckf {
 namespace dense_mapping {
 
@@ -43,14 +48,10 @@ using Timestamp = double;
 struct Position : public Eigen::Matrix<int32_t, 3, 1> {
   Position(int32_t x=0, int32_t y=0, int32_t z=0) : Eigen::Matrix<int32_t, 3, 1>(x, y, z) {}
   
-  bool operator< (const Position& other) const {
-    if (x() == other.x()) {
-      if (y() == other.y()) {
-        return z() < other.z();
-      }
-      return y() < other.y();
-    }
-    return x() < other.x();
+  inline bool operator< (const Position& other) const {
+    return x() < other.x() || 
+           (x() == other.x() && y() < other.y()) ||
+           (x() == other.x() && y() == other.y() && z() < other.z());
   }
 };
 
@@ -88,6 +89,9 @@ public:
     for (size_t i=0; i<max_voxels_; i++) {
       unused_entries_.insert(i);
     }
+#ifdef USE_HEAR_SLAM
+    thread_pool_group_.createNamed("ov_map_rgbd_w", std::thread::hardware_concurrency());
+#endif
     insert_thread_ = std::thread(&SimpleDenseMapBuilder::insert_thread_func, this);
   }
 
@@ -117,20 +121,19 @@ public:
     auto cam_clone = cam.clone();
     insert_tasks_.push_back([=](){
       LOG(INFO) << "RgbdMapping:  task - begin";
-      std::shared_ptr<const SimpleDenseMap> output;
-      {
-        std::unique_lock<std::mutex> lk(mapping_mutex_);
-        LOG(INFO) << "RgbdMapping:  task - get mutex";
-        insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, max_depth, start_row, end_row, start_col, end_col);
-        if (time > time_) {
-          time_ = time;
-        }
-        LOG(INFO) << "RgbdMapping:  task - map updated";
-        output = update_output();
+
+      insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, max_depth, start_row, end_row, start_col, end_col);
+
+      if (time > time_) {
+        time_ = time;
       }
+      
+      LOG(INFO) << "RgbdMapping:  task - map updated";
+      update_output();
+
       LOG(INFO) << "RgbdMapping:  task - output updated";
       if (output_update_callback_) {        
-        output_update_callback_(output);
+        output_update_callback_(output_);
       }
       LOG(INFO) << "RgbdMapping:  task - callback invoked";
     });
@@ -151,23 +154,24 @@ public:
     if (!output) {
       return nullptr;
     }
-    if (max_display > 0 && output->voxels.size() > max_display) {
-      SimpleDenseMap map_copy;
-      map_copy.voxels.reserve(max_display);
-      // Add the newest half max_display voxels
-      map_copy.voxels.insert(map_copy.voxels.end(), output->voxels.end() - max_display / 2, output->voxels.end());
+    return output;
+    // if (max_display > 0 && output->voxels.size() > max_display) {
+    //   SimpleDenseMap map_copy;
+    //   map_copy.voxels.reserve(max_display);
+    //   // Add the newest half max_display voxels
+    //   map_copy.voxels.insert(map_copy.voxels.end(), output->voxels.end() - max_display / 2, output->voxels.end());
 
-      // and half max_display sampled older voxels
-      for (size_t i=0; i<max_display / 2; i++) {
-        int idx = rand() % (output->voxels.size() - max_display / 2);
-        map_copy.voxels.push_back(output->voxels.at(idx));
-      }
-      map_copy.resolution = output->resolution;
-      map_copy.time = output->time;
-      return std::make_shared<const SimpleDenseMap>(std::move(map_copy));
-    } else {
-      return output;
-    }
+    //   // and half max_display sampled older voxels
+    //   for (size_t i=0; i<max_display / 2; i++) {
+    //     int idx = rand() % (output->voxels.size() - max_display / 2);
+    //     map_copy.voxels.push_back(output->voxels.at(idx));
+    //   }
+    //   map_copy.resolution = output->resolution;
+    //   map_copy.time = output->time;
+    //   return std::make_shared<const SimpleDenseMap>(std::move(map_copy));
+    // } else {
+    //   return output;
+    // }
   }
 
   void clear_map() {
@@ -249,6 +253,7 @@ protected:
   }
 
   void insert_voxel(const Position& p, const Color& c, const Timestamp& time) {
+    std::unique_lock<std::mutex> lk(mapping_mutex_);
     if (pos_to_voxel_.count(p)) {
       // update the existing voxel
       size_t idx = pos_to_voxel_.at(p);
@@ -293,7 +298,8 @@ protected:
     if (end_col < 0) {
       end_col = color.cols;
     }
-    for (size_t y=start_row; y<end_row; y+=pixel_downsample) {
+
+    auto insert_row = [&](size_t y) {
       for (size_t x=0; x<end_col; x+=pixel_downsample) {
         const uint16_t d = depth.at<uint16_t>(y,x);
         if (d == 0) continue;
@@ -312,29 +318,72 @@ protected:
         p3d_w /= resolution_;
         Position pos(round(p3d_w.x()), round(p3d_w.y()), round(p3d_w.z()));
         auto rgb = color.at<cv::Vec3b>(y,x);
-        uint8_t r = rgb[0];
-        uint8_t g = rgb[1];
-        uint8_t b = rgb[2];
+        uint8_t& r = rgb[0];
+        uint8_t& g = rgb[1];
+        uint8_t& b = rgb[2];
         Color c(r,g,b);
         insert_voxel(pos, c, time);
       }
+    };
+
+#ifdef USE_HEAR_SLAM
+    auto pool = thread_pool_group_.getNamed("ov_map_rgbd_w");
+    ASSERT(pool);
+    ASSERT(pool->numThreads() == std::thread::hardware_concurrency());
+
+    for (size_t y=start_row; y<end_row; y+=pixel_downsample) {
+      pool->schedule([&insert_row, y](){insert_row(y);});
     }
+    pool->freeze();
+    pool->waitUntilAllTasksDone();
+    pool->unfreeze();
+#else
+    for (size_t y=start_row; y<end_row; y+=pixel_downsample) {
+      insert_row(y);
+    }
+#endif
   }
 
-  std::shared_ptr<const SimpleDenseMap> update_output() {
-    SimpleDenseMap output;
-    output.voxels.reserve(voxels_.size() - unused_entries_.size());
-    for (const auto& pair : time_to_voxels_) {
-      for (size_t i : pair.second) {
-        output.voxels.push_back(voxels_[i]);
+  void update_output() {
+    auto output_ptr = std::make_shared<SimpleDenseMap>();
+    auto& output = *output_ptr;
+
+    if (unused_entries_.empty()) {
+      output.voxels = voxels_;
+    } else {
+      output.voxels.reserve(voxels_.size() - unused_entries_.size());
+      std::vector<size_t> unused_entries;
+      unused_entries.reserve(unused_entries_.size());
+      for (auto it=unused_entries_.begin(); it!=unused_entries_.end(); it++) {
+        unused_entries.push_back(*it);
+      }
+
+      auto next_unused_it = unused_entries.begin();
+      size_t next_unused = *next_unused_it;
+      for (size_t i=0; i<voxels_.size(); i++) {
+        if (i != next_unused) {
+          output.voxels.push_back(voxels_[i]);
+        } else {
+          next_unused_it++;
+          if (next_unused_it != unused_entries.end()) {
+            next_unused = *next_unused_it;
+          }
+        }
       }
     }
+
+    // for (const auto& pair : time_to_voxels_) {
+    //   for (size_t i : pair.second) {
+    //     output.voxels.push_back(voxels_[i]);
+    //   }
+    // }
+
+    ASSERT(output.voxels.size() == voxels_.size() - unused_entries_.size());
     output.resolution = resolution_;
     output.time = time_;
 
     std::unique_lock<std::mutex> lk(*output_mutex_);
-    output_ = std::make_shared<const SimpleDenseMap>(std::move(output));
-    return output_;
+    output_ = output_ptr;
   }
 
 protected:
@@ -363,10 +412,11 @@ protected:
   const float min_height_;
   const float resolution_;
   Timestamp time_ = -1.0;
+
+#ifdef USE_HEAR_SLAM
+  hear_slam::ThreadPoolGroup thread_pool_group_;
+#endif
 };
-
-
-
 }  // namespace dense_mapping
 
 } // namespace ov_msckf
