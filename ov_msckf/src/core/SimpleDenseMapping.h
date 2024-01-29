@@ -45,20 +45,30 @@ using Color = Eigen::Matrix<uint8_t, 3, 1>;
 
 using Timestamp = double;
 
-struct Position : public Eigen::Matrix<int32_t, 3, 1> {
-  Position(int32_t x=0, int32_t y=0, int32_t z=0) : Eigen::Matrix<int32_t, 3, 1>(x, y, z) {}
+struct Position3 : public Eigen::Matrix<int32_t, 3, 1> {
+  Position3(int32_t x=0, int32_t y=0, int32_t z=0) : Eigen::Matrix<int32_t, 3, 1>(x, y, z) {}
   
-  inline bool operator< (const Position& other) const {
-    return x() < other.x() || 
+  inline bool operator< (const Position3& other) const {
+    return x() < other.x() ||
            (x() == other.x() && y() < other.y()) ||
            (x() == other.x() && y() == other.y() && z() < other.z());
   }
 };
 
+struct Position2 : public Eigen::Matrix<int32_t, 2, 1> {
+  Position2(int32_t x=0, int32_t y=0) : Eigen::Matrix<int32_t, 2, 1>(x, y) {}
+  
+  inline bool operator< (const Position2& other) const {
+    return x() < other.x() ||
+           (x() == other.x() && y() < other.y());
+  }
+};
+
+
 struct Voxel {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  Position p;
+  Position3 p;
   Color c;
   Timestamp time;
 };
@@ -67,6 +77,68 @@ struct SimpleDenseMap {
   std::vector<Voxel> voxels;
   double resolution;
   Timestamp time;
+
+  using ZSortedVoxels = std::map<Position3::Scalar, size_t>;
+  std::map<Position2, ZSortedVoxels> xy_to_voxels;
+  
+  cv::Mat getHeightMap(float center_x, float center_y, float orientation,
+                       float center_z = 0.0,
+                       float min_h = -3.0,
+                       float max_h = 3.0,
+                       float hmap_resolution = 0.01,
+                       float discrepancy_thr = 0.1) const {
+    static constexpr int rows = 256;
+    static constexpr int cols = 256;
+    float c = cos(orientation);
+    float s = sin(orientation);
+    cv::Mat height_map(rows, cols, CV_16UC1, cv::Scalar(0));
+    for (int i=0; i<rows; i++) {
+      for (int j=0; j<cols; j++) {
+        float local_x = (j - cols/2) * hmap_resolution;
+        float local_y = (i - rows/2) * hmap_resolution;
+        float global_x = center_x + local_x * c - local_y * s;
+        float global_y = center_y + local_x * s + local_y * c;
+        Position2 p(round(global_x / this->resolution), round(global_y / this->resolution));
+        auto it = xy_to_voxels.find(p);
+        if (it != xy_to_voxels.end()) {
+          const auto& z_to_voxel = it->second;
+          ASSERT(z_to_voxel.size() > 0);
+          if (z_to_voxel.size() > 0) {
+            float min_z = z_to_voxel.begin()->first * this->resolution;
+            float max_z = z_to_voxel.rbegin()->first * this->resolution;
+            float delta_z = max_z - min_z;
+            if (delta_z > discrepancy_thr) {
+              // LOGW("Heights of voxels with (x,y) = (%f, %f) are not consistent: min_z = %f, max_z = %f, delta_z = %f",
+              //      p.x() * this->resolution, p.y() * this->resolution,\
+              //      min_z, max_z, delta_z);
+              continue;
+            }
+
+            float h = min_z + (max_z - min_z) / 2 - center_z;
+            h = std::min(std::max(h, min_h), max_h); // Clamp to min/max height
+            height_map.at<uint16_t>(i, j) = h / hmap_resolution + 32768;
+          }
+        }
+      }
+    }
+    return height_map;
+  }
+
+  cv::Mat getHeightMap(const Eigen::Isometry3f& pose,
+                       float min_h = -1.5,
+                       float max_h = 0.0,
+                       float hmap_resolution = 0.01,
+                       float discrepancy_thr = 0.1) const {
+    float center_x = pose.translation().x();
+    float center_y = pose.translation().y();
+    float center_z = pose.translation().z();
+    // float center_z = 0.0;  // Fix the z-center plane?
+    // min_h = pose.translation().z() - min_h;
+    // max_h = pose.translation().z() + max_h;
+    auto Zc = pose.rotation().col(2);
+    float orientation = atan2(Zc.y(), Zc.x());
+    return getHeightMap(center_x, center_y, orientation, center_z, min_h, max_h, hmap_resolution);
+  }
 };
 
 class SimpleDenseMapBuilder {
@@ -182,7 +254,7 @@ public:
       unused_entries.insert(i);
     }
     std::map<Timestamp, std::set<size_t>> time_to_voxels;
-    std::map<Position, size_t> pos_to_voxel;
+    std::map<Position3, size_t> pos_to_voxel;
 
     LOG(INFO) << "RgbdMapping::clear_map: swapping tasks";
     auto output = std::make_shared<const SimpleDenseMap>();
@@ -252,7 +324,7 @@ protected:
     }
   }
 
-  void insert_voxel(const Position& p, const Color& c, const Timestamp& time) {
+  void insert_voxel(const Position3& p, const Color& c, const Timestamp& time) {
     std::unique_lock<std::mutex> lk(mapping_mutex_);
     if (pos_to_voxel_.count(p)) {
       // update the existing voxel
@@ -316,7 +388,7 @@ protected:
           continue;
         }
         p3d_w /= resolution_;
-        Position pos(round(p3d_w.x()), round(p3d_w.y()), round(p3d_w.z()));
+        Position3 pos(round(p3d_w.x()), round(p3d_w.y()), round(p3d_w.z()));
         auto rgb = color.at<cv::Vec3b>(y,x);
         uint8_t& r = rgb[0];
         uint8_t& g = rgb[1];
@@ -378,6 +450,11 @@ protected:
     //   }
     // }
 
+    for (size_t i=0; i<output.voxels.size(); i++) {
+      Position2 p2(output.voxels[i].p.x(), output.voxels[i].p.y());
+      output.xy_to_voxels[p2][output.voxels[i].p.z()] = i;
+    }
+
     ASSERT(output.voxels.size() == voxels_.size() - unused_entries_.size());
     output.resolution = resolution_;
     output.time = time_;
@@ -391,7 +468,7 @@ protected:
   std::vector<Voxel> voxels_;
   std::set<size_t> unused_entries_;
   std::map<Timestamp, std::set<size_t>> time_to_voxels_;
-  std::map<Position, size_t> pos_to_voxel_;
+  std::map<Position3, size_t> pos_to_voxel_;
 
   // insert_thread
   std::thread insert_thread_;
