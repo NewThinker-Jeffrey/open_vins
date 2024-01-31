@@ -371,30 +371,33 @@ protected:
       end_col = color.cols;
     }
 
-    auto insert_row = [&](size_t y) {
-      for (size_t x=0; x<end_col; x+=pixel_downsample) {
-        const uint16_t d = depth.at<uint16_t>(y,x);
-        if (d == 0) continue;
-        float depth = d / 1000.0f;
-        if (max_depth < depth) {
-          continue;
-        }
+    auto insert_row_range = [&](int first_row, int last_row) {
+      last_row = std::min(end_row, last_row);
+      for (size_t y=first_row; y<last_row; y+=pixel_downsample) {
+        for (size_t x=0; x<end_col; x+=pixel_downsample) {
+          const uint16_t d = depth.at<uint16_t>(y,x);
+          if (d == 0) continue;
+          float depth = d / 1000.0f;
+          if (max_depth < depth) {
+            continue;
+          }
 
-        Eigen::Vector2f p_normal = cam.undistort_f(Eigen::Vector2f(x, y));
-        Eigen::Vector3f p3d_c(p_normal.x(), p_normal.y(), 1.0f);
-        p3d_c = p3d_c * depth;
-        Eigen::Vector3f p3d_w = T_W_C * p3d_c;
-        if (p3d_w.z() > max_height_ || p3d_w.z() < min_height_) {
-          continue;
+          Eigen::Vector2f p_normal = cam.undistort_f(Eigen::Vector2f(x, y));
+          Eigen::Vector3f p3d_c(p_normal.x(), p_normal.y(), 1.0f);
+          p3d_c = p3d_c * depth;
+          Eigen::Vector3f p3d_w = T_W_C * p3d_c;
+          if (p3d_w.z() > max_height_ || p3d_w.z() < min_height_) {
+            continue;
+          }
+          p3d_w /= resolution_;
+          Position3 pos(round(p3d_w.x()), round(p3d_w.y()), round(p3d_w.z()));
+          auto rgb = color.at<cv::Vec3b>(y,x);
+          uint8_t& r = rgb[0];
+          uint8_t& g = rgb[1];
+          uint8_t& b = rgb[2];
+          Color c(r,g,b);
+          insert_voxel(pos, c, time);
         }
-        p3d_w /= resolution_;
-        Position3 pos(round(p3d_w.x()), round(p3d_w.y()), round(p3d_w.z()));
-        auto rgb = color.at<cv::Vec3b>(y,x);
-        uint8_t& r = rgb[0];
-        uint8_t& g = rgb[1];
-        uint8_t& b = rgb[2];
-        Color c(r,g,b);
-        insert_voxel(pos, c, time);
       }
     };
 
@@ -403,16 +406,24 @@ protected:
     ASSERT(pool);
     ASSERT(pool->numThreads() == std::thread::hardware_concurrency());
 
-    for (size_t y=start_row; y<end_row; y+=pixel_downsample) {
-      pool->schedule([&insert_row, y](){insert_row(y);});
+    size_t row_block_size = 10 * pixel_downsample;
+    using hear_slam::TaskID;
+    using hear_slam::INVALID_TASK;
+    std::vector<TaskID> task_ids;
+    task_ids.reserve((end_row - start_row) / row_block_size + 1);
+    for (size_t y=start_row; y<end_row; y+=row_block_size) {
+      auto new_task = pool->schedule(
+        [&insert_row_range, row_block_size, y](){
+          insert_row_range(y, y+row_block_size);
+        });
+      task_ids.emplace_back(new_task);
     }
-    pool->freeze();
-    pool->waitUntilAllTasksDone();
-    pool->unfreeze();
+    pool->waitTasks(task_ids.rbegin(), task_ids.rend());
+    // pool->freeze();
+    // pool->waitUntilAllTasksDone();
+    // pool->unfreeze();
 #else
-    for (size_t y=start_row; y<end_row; y+=pixel_downsample) {
-      insert_row(y);
-    }
+    insert_row_range(start_row, end_row);
 #endif
   }
 
