@@ -36,6 +36,7 @@
 #include "state/State.h"
 #include "utils/sensor_data.h"
 
+
 namespace ov_core {
 class TrackBase;
 class FeatureInitializer;
@@ -54,7 +55,7 @@ class UpdaterZeroVelocity;
 class Propagator;
 
 namespace dense_mapping {
-struct SimpleDenseMap;
+struct SimpleDenseMapOutput;
 class SimpleDenseMapBuilder;
 }  // namespace dense_mapping
 
@@ -199,7 +200,7 @@ public:
 
   void clear_rgbd_map();
 
-  void set_rgbd_map_update_callback(std::function<void(std::shared_ptr<const dense_mapping::SimpleDenseMap>)> cb);
+  void set_rgbd_map_update_callback(std::function<void(std::shared_ptr<dense_mapping::SimpleDenseMapOutput>)> cb);
 
 protected:
   struct ImgProcessContext {
@@ -428,7 +429,7 @@ protected:
 
   // rgbd dense mapping
   std::shared_ptr<dense_mapping::SimpleDenseMapBuilder> rgbd_dense_map_builder;
-  std::function<void(std::shared_ptr<const dense_mapping::SimpleDenseMap>)> rgbd_dense_map_update_cb;
+  std::function<void(std::shared_ptr<dense_mapping::SimpleDenseMapOutput>)> rgbd_dense_map_update_cb;
 };
 
 } // namespace ov_msckf

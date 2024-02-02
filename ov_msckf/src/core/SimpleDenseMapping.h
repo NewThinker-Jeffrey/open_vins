@@ -41,14 +41,14 @@ namespace ov_msckf {
 namespace dense_mapping {
 
 
-using Color = Eigen::Matrix<uint8_t, 3, 1>;
+using VoxColor = Eigen::Matrix<uint8_t, 3, 1>;
 
 using Timestamp = double;
 
-struct Position3 : public Eigen::Matrix<int32_t, 3, 1> {
-  Position3(int32_t x=0, int32_t y=0, int32_t z=0) : Eigen::Matrix<int32_t, 3, 1>(x, y, z) {}
+struct VoxPosition : public Eigen::Matrix<int32_t, 3, 1> {
+  VoxPosition(int32_t x=0, int32_t y=0, int32_t z=0) : Eigen::Matrix<int32_t, 3, 1>(x, y, z) {}
   
-  inline bool operator< (const Position3& other) const {
+  inline bool operator< (const VoxPosition& other) const {
     return x() < other.x() ||
            (x() == other.x() && y() < other.y()) ||
            (x() == other.x() && y() == other.y() && z() < other.z());
@@ -68,19 +68,30 @@ struct Position2 : public Eigen::Matrix<int32_t, 2, 1> {
 struct Voxel {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  Position3 p;
-  Color c;
+  VoxPosition p;
+  VoxColor c;
   Timestamp time;
+  bool valid;
 };
 
 struct SimpleDenseMap {
-  std::vector<Voxel> voxels;
+  std::vector<Voxel> voxels_;
   double resolution;
   Timestamp time;
 
-  using ZSortedVoxels = std::map<Position3::Scalar, size_t>;
+  using ZSortedVoxels = std::map<VoxPosition::Scalar, size_t>;
   std::map<Position2, ZSortedVoxels> xy_to_voxels;
   
+
+  inline const Voxel* voxels() const {
+    // return blocks[0].voxels_;    
+    return voxels_.data();
+  }
+
+  inline size_t reservedVoxelSize() const {
+    return voxels_.size();
+  }
+
   cv::Mat getHeightMap(float center_x, float center_y, float orientation,
                        float center_z = 0.0,
                        float min_h = -3.0,
@@ -141,6 +152,10 @@ struct SimpleDenseMap {
   }
 };
 
+struct SimpleDenseMapOutput {
+  std::shared_ptr<const dense_mapping::SimpleDenseMap> ro_map;
+};
+
 class SimpleDenseMapBuilder {
 
 public:
@@ -153,6 +168,7 @@ public:
     float min_height = -FLT_MAX) :
       stop_insert_thread_request_(false),
       output_mutex_(new std::mutex()),
+      output_(new SimpleDenseMapOutput()),
       max_voxels_(max_voxels),
       resolution_(voxel_resolution),
       max_height_(max_height),
@@ -171,7 +187,13 @@ public:
     stop_insert_thread();
   }
 
-  void set_output_update_callback(std::function<void(std::shared_ptr<const SimpleDenseMap>)> cb) {
+  using UndistortFunction = std::function<Eigen::Vector2f(size_t x, size_t y)>;
+  void registerCamera(size_t cam_id, int width, int height, UndistortFunction undistort_func) {
+    // todo: use width and height to construct a table to accelerate undistortion.
+    cam_to_undistort_[cam_id] = undistort_func;
+  }
+
+  void set_output_update_callback(std::function<void(std::shared_ptr<SimpleDenseMapOutput>)> cb) {
     output_update_callback_ = cb;
   }
 
@@ -180,7 +202,7 @@ public:
   }
 
   void feed_rgbd_frame(const cv::Mat& color, const cv::Mat& depth,
-                       ov_core::CamBase&& cam,
+                       size_t cam,
                        const Eigen::Isometry3f& T_W_C,
                        const Timestamp& time,
                        int pixel_downsample = 1,
@@ -190,11 +212,10 @@ public:
                        int start_col = 0,
                        int end_col = -1) {
     std::unique_lock<std::mutex> lk(insert_thread_mutex_);
-    auto cam_clone = cam.clone();
     insert_tasks_.push_back([=](){
       LOG(INFO) << "RgbdMapping:  task - begin";
 
-      insert_rgbd_frame(color, depth, std::move(*cam_clone), T_W_C, time, pixel_downsample, max_depth, start_row, end_row, start_col, end_col);
+      insert_rgbd_frame(color, depth, cam, T_W_C, time, pixel_downsample, max_depth, start_row, end_row, start_col, end_col);
 
       if (time > time_) {
         time_ = time;
@@ -217,7 +238,7 @@ public:
   std::shared_ptr<const SimpleDenseMap>
   get_output_map() const {
     std::unique_lock<std::mutex> lk(*output_mutex_);
-    return output_;
+    return output_->ro_map;
   }
 
   std::shared_ptr<const SimpleDenseMap>
@@ -229,14 +250,14 @@ public:
     return output;
     // if (max_display > 0 && output->voxels.size() > max_display) {
     //   SimpleDenseMap map_copy;
-    //   map_copy.voxels.reserve(max_display);
+    //   map_copy.voxels_.reserve(max_display);
     //   // Add the newest half max_display voxels
-    //   map_copy.voxels.insert(map_copy.voxels.end(), output->voxels.end() - max_display / 2, output->voxels.end());
+    //   map_copy.voxels_.insert(map_copy.voxels_.end(), output->voxels.end() - max_display / 2, output->voxels.end());
 
     //   // and half max_display sampled older voxels
     //   for (size_t i=0; i<max_display / 2; i++) {
     //     int idx = rand() % (output->voxels.size() - max_display / 2);
-    //     map_copy.voxels.push_back(output->voxels.at(idx));
+    //     map_copy.voxels_.push_back(output->voxels.at(idx));
     //   }
     //   map_copy.resolution = output->resolution;
     //   map_copy.time = output->time;
@@ -254,10 +275,11 @@ public:
       unused_entries.insert(i);
     }
     std::map<Timestamp, std::set<size_t>> time_to_voxels;
-    std::map<Position3, size_t> pos_to_voxel;
+    std::map<VoxPosition, size_t> pos_to_voxel;
 
     LOG(INFO) << "RgbdMapping::clear_map: swapping tasks";
-    auto output = std::make_shared<const SimpleDenseMap>();
+    auto output = std::make_shared<SimpleDenseMapOutput>();
+    output->ro_map = std::make_shared<const SimpleDenseMap>();
     {
       std::unique_lock<std::mutex> lk1(insert_thread_mutex_);
       std::swap(insert_tasks, insert_tasks_);
@@ -269,6 +291,8 @@ public:
       std::swap(unused_entries, unused_entries_);
       std::swap(time_to_voxels, time_to_voxels_);
       std::swap(pos_to_voxel, pos_to_voxel_);
+      std::swap(output, output_);
+      // std::swap(map, map_);
       std::swap(output, output_);
     }
 
@@ -324,7 +348,7 @@ protected:
     }
   }
 
-  void insert_voxel(const Position3& p, const Color& c, const Timestamp& time) {
+  void insert_voxel(const VoxPosition& p, const VoxColor& c, const Timestamp& time) {
     std::unique_lock<std::mutex> lk(mapping_mutex_);
     if (pos_to_voxel_.count(p)) {
       // update the existing voxel
@@ -350,12 +374,13 @@ protected:
     voxels_[idx].p = p;
     voxels_[idx].c = c;
     voxels_[idx].time = time;
+    voxels_[idx].valid = true;
     pos_to_voxel_[p] = idx;
     time_to_voxels_[time].insert(idx);
   }
 
   void insert_rgbd_frame(const cv::Mat& color, const cv::Mat& depth,
-                         ov_core::CamBase&& cam,
+                         size_t cam,
                          const Eigen::Isometry3f& T_W_C,
                          const Timestamp& time,
                          int pixel_downsample = 1,
@@ -371,6 +396,7 @@ protected:
       end_col = color.cols;
     }
 
+    auto& undistort = cam_to_undistort_.at(cam);
     auto insert_row_range = [&](int first_row, int last_row) {
       last_row = std::min(end_row, last_row);
       for (size_t y=first_row; y<last_row; y+=pixel_downsample) {
@@ -382,7 +408,7 @@ protected:
             continue;
           }
 
-          Eigen::Vector2f p_normal = cam.undistort_f(Eigen::Vector2f(x, y));
+          Eigen::Vector2f p_normal = undistort(x, y);
           Eigen::Vector3f p3d_c(p_normal.x(), p_normal.y(), 1.0f);
           p3d_c = p3d_c * depth;
           Eigen::Vector3f p3d_w = T_W_C * p3d_c;
@@ -390,12 +416,12 @@ protected:
             continue;
           }
           p3d_w /= resolution_;
-          Position3 pos(round(p3d_w.x()), round(p3d_w.y()), round(p3d_w.z()));
+          VoxPosition pos(round(p3d_w.x()), round(p3d_w.y()), round(p3d_w.z()));
           auto rgb = color.at<cv::Vec3b>(y,x);
           uint8_t& r = rgb[0];
           uint8_t& g = rgb[1];
           uint8_t& b = rgb[2];
-          Color c(r,g,b);
+          VoxColor c(r,g,b);
           insert_voxel(pos, c, time);
         }
       }
@@ -432,9 +458,9 @@ protected:
     auto& output = *output_ptr;
 
     if (unused_entries_.empty()) {
-      output.voxels = voxels_;
+      output.voxels_ = voxels_;
     } else {
-      output.voxels.reserve(voxels_.size() - unused_entries_.size());
+      output.voxels_.reserve(voxels_.size() - unused_entries_.size());
       std::vector<size_t> unused_entries;
       unused_entries.reserve(unused_entries_.size());
       for (auto it=unused_entries_.begin(); it!=unused_entries_.end(); it++) {
@@ -445,7 +471,7 @@ protected:
       size_t next_unused = *next_unused_it;
       for (size_t i=0; i<voxels_.size(); i++) {
         if (i != next_unused) {
-          output.voxels.push_back(voxels_[i]);
+          output.voxels_.push_back(voxels_[i]);
         } else {
           next_unused_it++;
           if (next_unused_it != unused_entries.end()) {
@@ -457,21 +483,21 @@ protected:
 
     // for (const auto& pair : time_to_voxels_) {
     //   for (size_t i : pair.second) {
-    //     output.voxels.push_back(voxels_[i]);
+    //     output.voxels_.push_back(voxels_[i]);
     //   }
     // }
 
-    for (size_t i=0; i<output.voxels.size(); i++) {
-      Position2 p2(output.voxels[i].p.x(), output.voxels[i].p.y());
-      output.xy_to_voxels[p2][output.voxels[i].p.z()] = i;
+    for (size_t i=0; i<output.voxels_.size(); i++) {
+      Position2 p2(output.voxels_[i].p.x(), output.voxels_[i].p.y());
+      output.xy_to_voxels[p2][output.voxels_[i].p.z()] = i;
     }
 
-    ASSERT(output.voxels.size() == voxels_.size() - unused_entries_.size());
+    ASSERT(output.voxels_.size() == voxels_.size() - unused_entries_.size());
     output.resolution = resolution_;
     output.time = time_;
 
     std::unique_lock<std::mutex> lk(*output_mutex_);
-    output_ = output_ptr;
+    output_->ro_map = output_ptr;
   }
 
 protected:
@@ -479,7 +505,7 @@ protected:
   std::vector<Voxel> voxels_;
   std::set<size_t> unused_entries_;
   std::map<Timestamp, std::set<size_t>> time_to_voxels_;
-  std::map<Position3, size_t> pos_to_voxel_;
+  std::map<VoxPosition, size_t> pos_to_voxel_;
 
   // insert_thread
   std::thread insert_thread_;
@@ -490,10 +516,10 @@ protected:
   
   // output voxels
   std::shared_ptr<std::mutex> output_mutex_;
-  std::shared_ptr<const SimpleDenseMap> output_;
+  std::shared_ptr<SimpleDenseMapOutput> output_;
 
   // output update callback
-  std::function<void(std::shared_ptr<const SimpleDenseMap>)> output_update_callback_;
+  std::function<void(std::shared_ptr<SimpleDenseMapOutput>)> output_update_callback_;
 
   const size_t max_voxels_;
   const float max_height_;
@@ -504,6 +530,8 @@ protected:
 #ifdef USE_HEAR_SLAM
   hear_slam::ThreadPoolGroup thread_pool_group_;
 #endif
+
+  std::map<size_t, UndistortFunction> cam_to_undistort_;
 };
 }  // namespace dense_mapping
 
