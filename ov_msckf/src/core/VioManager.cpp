@@ -200,6 +200,11 @@ void VioManager::begin_rgbd_mapping() {
         params.rgbd_mapping_max_voxels,
         params.rgbd_mapping_max_height,
         params.rgbd_mapping_min_height);
+    const size_t color_cam_id = 0;
+    auto intrin = params.camera_intrinsics.at(color_cam_id)->clone();
+    rgbd_dense_map_builder->registerCamera(color_cam_id, intrin->w(), intrin->h(), [=](size_t x, size_t y){
+      return intrin->undistort_f(Eigen::Vector2f(x, y));
+    });
     rgbd_dense_map_builder->set_output_update_callback(rgbd_dense_map_update_cb);
   }
 }
@@ -217,7 +222,7 @@ void VioManager::clear_rgbd_map() {
   }
 }
 
-void VioManager::set_rgbd_map_update_callback(std::function<void(std::shared_ptr<const dense_mapping::SimpleDenseMap>)> cb) {
+void VioManager::set_rgbd_map_update_callback(std::function<void(std::shared_ptr<dense_mapping::SimpleDenseMapOutput>)> cb) {
   rgbd_dense_map_update_cb = cb;
   if (rgbd_dense_map_builder) {
     rgbd_dense_map_builder->set_output_update_callback(rgbd_dense_map_update_cb);
@@ -622,7 +627,7 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
 
 
       rgbd_dense_map_builder->feed_rgbd_frame(color, depth,
-                                std::move(*params.camera_intrinsics.at(color_cam_id)->clone()),
+                                color_cam_id,
                                 T_M_C, c->message->timestamp,
                                 params.rgbd_mapping_pixel_downsample,
                                 params.rgbd_mapping_max_depth,
