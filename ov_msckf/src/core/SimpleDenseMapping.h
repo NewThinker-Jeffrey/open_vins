@@ -174,6 +174,7 @@ public:
       max_height_(max_height),
       min_height_(min_height) {
     voxels_.resize(max_voxels_);
+    output_->ro_map = std::make_shared<SimpleDenseMap>();
     for (size_t i=0; i<max_voxels_; i++) {
       unused_entries_.insert(i);
     }
