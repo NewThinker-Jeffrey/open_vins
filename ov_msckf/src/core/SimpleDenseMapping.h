@@ -100,8 +100,16 @@ struct CubeBlock final {
   // static constexpr size_t kMaxVoxelsPow = 10;
   // static constexpr size_t kMaxVoxels = 1 << kMaxVoxelsPow;  // 1024
 
-  static constexpr size_t kMaxVoxelsPow = 6;
-  static constexpr size_t kMaxVoxels = 1 << kMaxVoxelsPow;  // 64
+  // static constexpr size_t kMaxVoxelsPow = 9;
+  // static constexpr size_t kMaxVoxels = 1 << kMaxVoxelsPow;  // 512
+
+  static constexpr size_t kMaxVoxelsPow = 8;
+  static constexpr size_t kMaxVoxels = 1 << kMaxVoxelsPow;  // 256
+
+  // static constexpr size_t kMaxVoxelsPow = 6;
+  // static constexpr size_t kMaxVoxels = 1 << kMaxVoxelsPow;  // 64
+
+
 
   static constexpr size_t kMaxVoxelsMask = kMaxVoxels - 1;
   static constexpr size_t kVoxelsBytes = kMaxVoxels * sizeof(Voxel);
@@ -143,16 +151,16 @@ struct CubeBlock final {
 };
 
 template<
-    // size_t _reserved_blocks_pow = 18  // reserved_blocks = 2^18 = 256K by default.
-    size_t _reserved_blocks_pow = 16  // reserved_blocks = 2^16 = 64K by default.
+    size_t _reserved_blocks_pow = 18  // reserved_blocks = 2^18 = 256K by default.
+    // size_t _reserved_blocks_pow = 16  // reserved_blocks = 2^16 = 64K by default.
   >
 struct SimpleDenseMapT final {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   static constexpr size_t kReservedBlocksPow = _reserved_blocks_pow;
   static constexpr size_t kReservedBlocks = 1 << kReservedBlocksPow;
   static constexpr size_t kReservedBlocksMask = kReservedBlocks - 1;
-  // static constexpr size_t kMaxBlocks = kReservedBlocks * 25 / 100;  // load factor 0.25
-  static constexpr size_t kMaxBlocks = kReservedBlocks * 75 / 100;  // load factor 0.75
+  static constexpr size_t kMaxBlocks = kReservedBlocks * 25 / 100;  // load factor 0.25
+  // static constexpr size_t kMaxBlocks = kReservedBlocks * 75 / 100;  // load factor 0.75
   using BlockKey3 = VoxPosition;
 
   double resolution;
