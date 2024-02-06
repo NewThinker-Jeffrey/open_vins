@@ -49,6 +49,7 @@ using VoxPosition = Eigen::Matrix<int32_t, 3, 1>;
 using PixPosition = Eigen::Matrix<int32_t, 2, 1>;
 using VoxelKey = VoxPosition;
 using BlockKey3 = VoxPosition;
+using RegionKey3 = VoxPosition;
 using PixelKey = PixPosition;
 using BlockKey2 = PixPosition;
 static const BlockKey3 InvalidBlockKey3 = BlockKey3(INT_MAX, INT_MAX, INT_MAX);
@@ -153,6 +154,9 @@ struct CubeBlock final {
 template<
     size_t _reserved_blocks_pow = 18  // reserved_blocks = 2^18 = 256K by default.
     // size_t _reserved_blocks_pow = 16  // reserved_blocks = 2^16 = 64K by default.
+    ,
+    // size_t _raycast_region_sidelength_in_blocks_pow = 5
+    size_t _raycast_region_sidelength_in_blocks_pow = 6
   >
 struct SimpleDenseMapT final {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -161,7 +165,15 @@ struct SimpleDenseMapT final {
   static constexpr size_t kReservedBlocksMask = kReservedBlocks - 1;
   static constexpr size_t kMaxBlocks = kReservedBlocks * 25 / 100;  // load factor 0.25
   // static constexpr size_t kMaxBlocks = kReservedBlocks * 75 / 100;  // load factor 0.75
-  using BlockKey3 = VoxPosition;
+
+  static constexpr size_t kRaycastRegionSideLengthInBlocksPow =
+      _raycast_region_sidelength_in_blocks_pow;
+  static constexpr size_t kRaycastRegionSideLengthInBlocks =
+      1 << kRaycastRegionSideLengthInBlocksPow;
+  static constexpr size_t kRaycastRegionBlocks =
+      kRaycastRegionSideLengthInBlocks * kRaycastRegionSideLengthInBlocks * kRaycastRegionSideLengthInBlocks;
+  static constexpr size_t kRaycastRegionSideLengthInBlocksMask =
+      kRaycastRegionSideLengthInBlocks - 1;
 
   double resolution;
   Timestamp time;
@@ -170,7 +182,9 @@ struct SimpleDenseMapT final {
 
  private:
   std::shared_ptr<OutputVoxels> output;
+
   std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3> blocks_map;
+  std::unordered_map<RegionKey3, std::unordered_set<BlockKey3, SpatialHash3>, SpatialHash3> raycast_regions;
   std::map<double, std::unordered_set<BlockKey3, SpatialHash3>> time_to_blocks;
   std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2> xy_to_z_blocks;
 
@@ -216,6 +230,33 @@ struct SimpleDenseMapT final {
     return std::make_pair(bk, vk);
   }
 
+  template<typename Vec>
+  inline std::vector<std::shared_ptr<CubeBlock>>
+  getRayCastingBlocks(const Vec& p) const {
+    auto bk_vk = getKeysOfPoint(p);
+    auto& bk = bk_vk.first;
+    RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
+                  bk.y() >> kRaycastRegionSideLengthInBlocksPow,
+                  bk.z() >> kRaycastRegionSideLengthInBlocksPow);
+    std::vector<std::shared_ptr<CubeBlock>> blocks;
+    blocks.reserve(27 * kRaycastRegionBlocks);
+    for (int x = -1; x <= 1; x++) {
+      for (int y = -1; y <= 1; y++) {
+        for (int z = -1; z <= 1; z++) {
+          RegionKey3 rk_delta(x, y, z);
+          RegionKey3 rk_new = rk + rk_delta;
+          auto it = raycast_regions.find(rk_new);
+          if (it != raycast_regions.end()) {
+            for (auto& bk : it->second) {
+              blocks.push_back(blocks_map.at(bk));
+            }
+          }
+        }
+      }
+    }
+    return blocks;
+  }
+
   void generateOutput() {
     // ASSERT(blocks_map.size() < kMaxBlocks);
     ASSERT(blocks_map.size() < kReservedBlocks);
@@ -242,13 +283,30 @@ struct SimpleDenseMapT final {
     std::vector<TaskID> task_ids;
 
     auto enqueue_jobs = [&]() {
-      for (auto it = blocks_map.begin(); it != blocks_map.end(); ++it) {
+      for (auto it = blocks_map.begin(); it != blocks_map.end();) {
         // size_t n_bytes = sizeof(item.second->voxels);
         size_t n_bytes = CubeBlock::kMaxVoxels * sizeof(Voxel);
+        const size_t block_group_size = 1024;
         auto new_task = pool->schedule([=](){
-          std::memcpy(cur, it->second->voxels, n_bytes);
+          auto it2 = it;
+          auto cur2 = cur;
+          for (size_t i=0; i<block_group_size; i++) {
+            std::memcpy(cur2, it2->second->voxels, n_bytes);
+            ++it2;
+            cur2 = cur2 + n_bytes;
+            if (it2 == blocks_map.end()) {
+              break;
+            }
+          }
         });
-        cur += n_bytes;
+        cur += block_group_size * n_bytes;
+        // it += block_group_size;
+        for (size_t i=0; i<block_group_size; i++) {
+          ++it;
+          if (it == blocks_map.end()) {
+            break;
+          }
+        }
         task_ids.emplace_back(new_task);
       }
     };
@@ -283,6 +341,9 @@ struct SimpleDenseMapT final {
     auto keys = getKeysOfPoint(p);
     auto& bk = keys.first;
     auto& vk = keys.second;
+    RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
+                  bk.y() >> kRaycastRegionSideLengthInBlocksPow,
+                  bk.z() >> kRaycastRegionSideLengthInBlocksPow);
 
     Voxel v;
     v.c = c;
@@ -299,6 +360,7 @@ struct SimpleDenseMapT final {
     it_blk->second->put(v);
     time_to_blocks[time].insert(bk);
     xy_to_z_blocks[BlockKey2(bk.x(), bk.y())].insert(bk.z());
+    raycast_regions[rk].insert(bk);
 
     // update the block's time.
     auto old_time = it_blk->second->time;
@@ -339,6 +401,16 @@ struct SimpleDenseMapT final {
         it->second.erase(bk_to_remove.z());
         if (it->second.empty()) {
           xy_to_z_blocks.erase(it);
+        }
+
+        RegionKey3 rk(bk_to_remove.x() >> kRaycastRegionSideLengthInBlocksPow,
+                      bk_to_remove.y() >> kRaycastRegionSideLengthInBlocksPow,
+                      bk_to_remove.z() >> kRaycastRegionSideLengthInBlocksPow);
+        auto it_rk = raycast_regions.find(rk);
+        ASSERT(it_rk != raycast_regions.end());
+        it_rk->second.erase(bk_to_remove);
+        if (it_rk->second.empty()) {
+          raycast_regions.erase(it_rk);
         }
       }
       time_to_blocks.erase(time_to_blocks.begin());
@@ -398,12 +470,13 @@ struct SimpleDenseMapT final {
     tc.tag("BeforeRetrieveBlocks");
 #endif
     {
-      std::unique_lock<std::mutex> lk(mapping_mutex_);
       for (auto & bk2 : involved_xy_blocks) {
+        std::unique_lock<std::mutex> lk(mapping_mutex_);
         auto zit = xy_to_z_blocks.find(bk2);
         if (zit != xy_to_z_blocks.end()) {
           for (auto& z : zit->second) {
-            block_data.push_back(blocks_map.at(BlockKey3(bk2.x(), bk2.y(), z))->clone());
+            // block_data.push_back(blocks_map.at(BlockKey3(bk2.x(), bk2.y(), z))->clone());
+            block_data.push_back(blocks_map.at(BlockKey3(bk2.x(), bk2.y(), z)));
           }
         }
       }
@@ -512,10 +585,10 @@ public:
     stop_insert_thread();
   }
 
-  using UndistortFunction = std::function<Eigen::Vector2f(size_t x, size_t y)>;
-  void registerCamera(size_t cam_id, int width, int height, UndistortFunction undistort_func) {
-    // todo: use width and height to construct a table to accelerate undistortion.
-    cam_to_undistort_[cam_id] = undistort_func;
+  using UndistortFunction = std::function<bool(const Eigen::Vector2i& ixy, Eigen::Vector2f& nxy)>;
+  using DistortFunction = std::function<bool(const Eigen::Vector2f& nxy, Eigen::Vector2i& ixy)>;
+  void registerCamera(size_t cam_id, int width, int height, UndistortFunction undistort_func, DistortFunction distort_func) {
+    cam_to_param_[cam_id] = std::make_shared<CameraParam>(width, height, undistort_func, distort_func);
   }
 
   void set_output_update_callback(std::function<void(std::shared_ptr<SimpleDenseMapOutput>)> cb) {
@@ -538,9 +611,21 @@ public:
                        int end_col = -1) {
     std::unique_lock<std::mutex> lk(insert_thread_mutex_);
     insert_tasks_.push_back([=](){
-      LOG(INFO) << "RgbdMapping:  task - begin";
+      // LOG(INFO) << "RgbdMapping:  task - begin";
+#ifdef USE_HEAR_SLAM
+      tc_.reset();
+#endif
+      raycast(depth, cam, T_W_C, time, pixel_downsample, max_depth, start_row, end_row, start_col, end_col);
+
+#ifdef USE_HEAR_SLAM
+      tc_.tag("RayCastDone");
+#endif
+      // LOG(INFO) << "RgbdMapping:  task - raycast done";
 
       insert_rgbd_frame(color, depth, cam, T_W_C, time, pixel_downsample, max_depth, start_row, end_row, start_col, end_col);
+#ifdef USE_HEAR_SLAM
+      tc_.tag("MapUpdated");
+#endif
 
       if (time > time_) {
         time_ = time;
@@ -551,14 +636,20 @@ public:
                 << ", CubeBlock::kMaxVoxels=" << CubeBlock::kMaxVoxels
                 << ", sizeof(VoxelSimple)=" << sizeof(VoxelSimple);
 
-      LOG(INFO) << "RgbdMapping:  task - map updated";
+      // LOG(INFO) << "RgbdMapping:  task - map updated";
       update_output();
-
-      LOG(INFO) << "RgbdMapping:  task - output updated";
+#ifdef USE_HEAR_SLAM
+      tc_.tag("OutputUpdated");
+#endif
+      // LOG(INFO) << "RgbdMapping:  task - output updated";
       if (output_update_callback_) {        
         output_update_callback_(output_);
       }
-      LOG(INFO) << "RgbdMapping:  task - callback invoked";
+#ifdef USE_HEAR_SLAM
+      tc_.tag("CallbackFinished");
+      tc_.report("RgbdMappingTiming: ", true);
+#endif
+      // LOG(INFO) << "RgbdMapping:  task - callback invoked";
     });
     LOG(INFO) << "RgbdMapping:  add new task - task size = " << insert_tasks_.size();
     insert_thread_cv_.notify_one();
@@ -691,7 +782,8 @@ protected:
       end_col = color.cols;
     }
 
-    auto& undistort = cam_to_undistort_.at(cam);
+    // auto& undistort = cam_to_undistort_.at(cam);
+    auto& undistort = cam_to_param_.at(cam)->quick_undistort_func;    
     auto insert_row_range = [&](int first_row, int last_row) {
       last_row = std::min(end_row, last_row);
       for (size_t y=first_row; y<last_row; y+=pixel_downsample) {
@@ -703,7 +795,8 @@ protected:
             continue;
           }
 
-          Eigen::Vector2f p_normal = undistort(x, y);
+          Eigen::Vector2f p_normal;
+          ASSERT(undistort(Eigen::Vector2i(x, y), p_normal));
           Eigen::Vector3f p3d_c(p_normal.x(), p_normal.y(), 1.0f);
           p3d_c = p3d_c * depth;
           Eigen::Vector3f p3d_w = T_W_C * p3d_c;
@@ -748,8 +841,103 @@ protected:
 #else
     insert_row_range(start_row, end_row);
 #endif
+    tc_.tag("InsertDone");
     map_->removeOldBlocksIfNeeded();
+    tc_.tag("OldBlocksRemoved");
   }
+
+
+
+  void raycast(const cv::Mat& depth,
+               size_t cam,
+               const Eigen::Isometry3f& T_W_C,
+               const Timestamp& time,
+               int pixel_downsample = 1,
+               float max_depth = 5.0,
+               int start_row = 0,
+               int end_row = -1,
+               int start_col = 0,
+               int end_col = -1) {
+    if (end_row < 0) {
+      end_row = depth.rows;
+    }
+    if (end_col < 0) {
+      end_col = depth.cols;
+    }
+
+    // auto& distort = cam_to_distort_.at(cam);
+    auto& distort = cam_to_param_.at(cam)->quick_distort_func;
+
+    Eigen::Vector3f p_W_C = T_W_C.translation();
+    std::vector<std::shared_ptr<CubeBlock>> blocks = map_->getRayCastingBlocks(p_W_C);
+    Eigen::Isometry3f T_C_W = T_W_C.inverse();
+
+#ifdef USE_HEAR_SLAM
+    auto pool = thread_pool_group_.getNamed("ov_map_rgbd_w");
+    ASSERT(pool);
+    ASSERT(pool->numThreads() == std::thread::hardware_concurrency());
+
+    auto raycast_one_block = [&](std::shared_ptr<CubeBlock> block) {
+      // Voxel voxels[kMaxVoxels]; // 64 voxels per block
+      // double time;
+      Voxel* voxels = block->voxels;
+      static const float depth_noise_level = 0.02;
+      for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
+        Voxel& voxel = voxels[i];
+        if (voxel.valid) {
+          Eigen::Vector3f p_W_V = voxel.p.cast<float>() * resolution_;
+          Eigen::Vector3f p_C_V = T_C_W * p_W_V;
+          if (p_C_V.z() <= 0.0) {  // only eliminate voxels whose depth are positive
+            continue;
+          }
+          if (p_C_V.z() > max_depth) {  // only eliminate voxels whose depth are less than max_depth
+            continue;
+          }
+          Eigen::Vector2i ixy;
+          if (!distort(Eigen::Vector2f(p_C_V.x()/p_C_V.z(), p_C_V.y()/p_C_V.z()), ixy)) {
+            continue;
+          }
+          if (ixy.x() >= start_col && ixy.x() < end_col && ixy.y() >= start_row && ixy.y() < end_row) {
+            const uint16_t d = depth.at<uint16_t>(ixy.y(), ixy.x());
+            if (d == 0) continue;
+            float fd = d / 1000.0f;
+            if (p_C_V.z() < fd - depth_noise_level) {  // eliminate the voxel if it can be cast through
+              voxel.valid = false;
+            }
+          }
+        }
+      }
+    };
+
+    // size_t block_group_size = 32;
+    size_t block_group_size = blocks.size() / (2 * pool->numThreads()) + 1;
+    auto raycast_blocks = [&](size_t first, size_t last) {
+      last = std::min(last, blocks.size());
+      for (size_t i=first; i<last; ++i) {
+        raycast_one_block(blocks[i]);
+      }
+    };
+
+    using hear_slam::TaskID;
+    using hear_slam::INVALID_TASK;
+    std::vector<TaskID> task_ids;
+    task_ids.reserve(blocks.size() / block_group_size + 1);
+    for (size_t i=0; i<blocks.size(); i+=block_group_size) {
+      auto new_task = pool->schedule(
+        [&raycast_blocks, block_group_size, i](){
+          raycast_blocks(i, i+block_group_size);
+        });
+      task_ids.emplace_back(new_task);
+    }
+    pool->waitTasks(task_ids.rbegin(), task_ids.rend());
+    // pool->freeze();
+    // pool->waitUntilAllTasksDone();
+    // pool->unfreeze();
+#else
+    raycast_blocks(0, blocks.size());
+#endif
+  }
+
 
   void update_output() {
     map_->resolution = resolution_;
@@ -789,9 +977,90 @@ protected:
 
 #ifdef USE_HEAR_SLAM
   hear_slam::ThreadPoolGroup thread_pool_group_;
+  hear_slam::TimeCounter tc_;
 #endif
 
-  std::map<size_t, UndistortFunction> cam_to_undistort_;
+
+
+  struct CameraParam {
+    int width;
+    int height;
+    std::vector<Eigen::Vector2f> undistortion_table;
+    UndistortFunction quick_undistort_func;
+
+    int distortion_width;
+    int distortion_height;
+    std::vector<Eigen::Vector2i> distortion_table;
+    DistortFunction quick_distort_func;
+    float distortion_resolution;
+    float distortion_startx;
+    float distortion_starty;
+
+    CameraParam(int width, int height, UndistortFunction undistort_func, DistortFunction distort_func) {
+      this->width = width;
+      this->height = height;
+      undistortion_table.resize(width * height);
+      float min_x = std::numeric_limits<float>::max();
+      float min_y = std::numeric_limits<float>::max();
+      float max_x = - std::numeric_limits<float>::max();
+      float max_y = - std::numeric_limits<float>::max();
+      for (size_t y=0; y<height; y++) {
+        for (size_t x=0; x<width; x++) {
+          Eigen::Vector2f p;
+          ASSERT(undistort_func(Eigen::Vector2i(x, y), p));
+          undistortion_table[y * width + x] = p;
+          min_x = std::min(min_x, p.x());
+          min_y = std::min(min_y, p.y());
+          max_x = std::max(max_x, p.x());
+          max_y = std::max(max_y, p.y());
+        }
+      }
+      quick_undistort_func = [this](const Eigen::Vector2i& ixy, Eigen::Vector2f& nxy) {
+        const int& x = ixy.x();
+        const int& y = ixy.y();
+        if (x < 0 || x >= this->width || y < 0 || y >= this->height) {
+          return false;
+        }
+        nxy = undistortion_table[y * this->width + x];
+        return true;
+      };
+
+
+      distortion_resolution = (max_x - min_x) / (3 * width);
+      distortion_startx = min_x;
+      distortion_starty = min_y;
+      distortion_width = std::ceil((max_x - min_x) / distortion_resolution);
+      distortion_height = std::ceil((max_y - min_y) / distortion_resolution);
+      distortion_table.resize(distortion_width * distortion_height);
+      for (size_t y=0; y<distortion_height; y++) {
+        for (size_t x=0; x<distortion_width; x++) {
+          Eigen::Vector2i ixy;
+          ASSERT(distort_func(Eigen::Vector2f(
+                      distortion_startx + x * distortion_resolution,
+                      distortion_starty + y * distortion_resolution), ixy));
+          distortion_table[y * distortion_width + x] = ixy;
+        }
+      }
+
+      quick_distort_func = [this](const Eigen::Vector2f& nxy, Eigen::Vector2i& ixy) {
+        const int x = std::round((nxy.x() - distortion_startx) / distortion_resolution);
+        const int y = std::round((nxy.y() - distortion_starty) / distortion_resolution);
+        if (x < 0 || x >= distortion_width || y < 0 || y >= distortion_height) {
+          return false;
+        }
+        ixy = distortion_table[y * distortion_width + x];
+        // if (ixy.x() < 0 || ixy.x() >= this->width || ixy.y() < 0 || ixy.y() >= this->height) {
+        //   return false;  // a more strict check will be done outside this function.
+        // }
+        return true;
+      };
+    }
+  };
+  std::map<size_t, std::shared_ptr<CameraParam>> cam_to_param_;
+
+  // std::map<size_t, UndistortFunction> cam_to_undistort_;
+  // std::map<size_t, DistortFunction> cam_to_distort_;
+
 };
 }  // namespace dense_mapping
 

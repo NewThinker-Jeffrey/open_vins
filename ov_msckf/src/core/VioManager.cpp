@@ -202,9 +202,16 @@ void VioManager::begin_rgbd_mapping() {
         params.rgbd_mapping_min_height);
     const size_t color_cam_id = 0;
     auto intrin = params.camera_intrinsics.at(color_cam_id)->clone();
-    rgbd_dense_map_builder->registerCamera(color_cam_id, intrin->w(), intrin->h(), [=](size_t x, size_t y){
-      return intrin->undistort_f(Eigen::Vector2f(x, y));
-    });
+    rgbd_dense_map_builder->registerCamera(color_cam_id, intrin->w(), intrin->h(),
+      [=](const Eigen::Vector2i& ixy, Eigen::Vector2f& nxy){
+        nxy = intrin->undistort_f(ixy.cast<float>());
+        return true;
+      },
+      [=](const Eigen::Vector2f& nxy, Eigen::Vector2i& ixy){
+        ixy = intrin->distort_f(nxy).cast<int>();
+        return true;
+      }
+    );
     rgbd_dense_map_builder->set_output_update_callback(rgbd_dense_map_update_cb);
   }
 }
