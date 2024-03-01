@@ -37,6 +37,8 @@
 #include "hear_slam/basic/thread_pool.h"
 #include "hear_slam/basic/logging.h"
 #include "hear_slam/basic/time.h"
+#include "hear_slam/basic/atomic_hash_table.h"
+#include "hear_slam/basic/circular_queue.h"
 #endif
 
 namespace ov_msckf {
@@ -47,11 +49,43 @@ using Timestamp = double;
 using VoxColor = Eigen::Matrix<uint8_t, 3, 1>;
 using VoxPosition = Eigen::Matrix<int32_t, 3, 1>;
 using PixPosition = Eigen::Matrix<int32_t, 2, 1>;
-using VoxelKey = VoxPosition;
-using BlockKey3 = VoxPosition;
-using RegionKey3 = VoxPosition;
-using PixelKey = PixPosition;
-using BlockKey2 = PixPosition;
+
+
+struct ComparableVoxPosition : public VoxPosition {
+  using Base = VoxPosition;
+  ComparableVoxPosition() : Base() {}
+  ComparableVoxPosition(int32_t x, int32_t y, int32_t z) : Base(x, y, z) {}
+  template <typename T> ComparableVoxPosition(T&& t) : Base(std::forward<T>(t)) {}
+  bool operator==(const ComparableVoxPosition& other) const {
+    return x() == other.x() && y() == other.y() && z() == other.z();
+  }
+  bool operator<(const ComparableVoxPosition& other) const {
+    return x() < other.x()  ||
+          (x() == other.x() && y() < other.y()) ||
+          (x() == other.x() && y() == other.y() && z() < other.z());
+  }
+};
+
+struct ComparablePixPosition : public PixPosition {
+  using Base = PixPosition;
+  ComparablePixPosition() : Base() {}
+  ComparablePixPosition(int32_t x, int32_t y) : Base(x, y) {}
+  template <typename T> ComparablePixPosition(T&& t) : Base(std::forward<T>(t)) {}
+  bool operator==(const ComparablePixPosition& other) const {
+    return x() == other.x() && y() == other.y();
+  }
+  bool operator<(const ComparablePixPosition& other) const {
+    return x() < other.x()  ||
+          (x() == other.x() && y() < other.y());
+  }
+};
+
+using VoxelKey = ComparableVoxPosition;
+using BlockKey3 = ComparableVoxPosition;
+using RegionKey3 = ComparableVoxPosition;
+using PixelKey = ComparablePixPosition;
+using BlockKey2 = ComparablePixPosition;
+
 static const BlockKey3 InvalidBlockKey3 = BlockKey3(INT_MAX, INT_MAX, INT_MAX);
 
 template <size_t SIZE>
