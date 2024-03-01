@@ -267,7 +267,7 @@ struct SimpleDenseMapT final {
 
   template<typename Vec>
   inline std::vector<std::shared_ptr<CubeBlock>>
-  getRayCastingBlocks(const Vec& p) const {
+  getRayCastingBlocks(const Vec& p, const std::function<bool(const RegionKey3&)>& check_region_observability=nullptr) const {
     auto bk_vk = getKeysOfPoint(p);
     auto& bk = bk_vk.first;
     RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
@@ -282,6 +282,9 @@ struct SimpleDenseMapT final {
           RegionKey3 rk_new = rk + rk_delta;
           auto it = raycast_regions.find(rk_new);
           if (it != raycast_regions.end()) {
+            if (check_region_observability && !check_region_observability(rk_new)) {
+              continue;
+            }
             for (auto& bk : it->second) {
               blocks.push_back(blocks_map.at(bk));
             }
@@ -937,12 +940,67 @@ protected:
       end_col = depth.cols;
     }
 
+
+    Eigen::Vector3f p_W_C = T_W_C.translation();
+    Eigen::Isometry3f T_C_W = T_W_C.inverse();
+
     // auto& distort = cam_to_distort_.at(cam);
     auto& distort = cam_to_param_.at(cam)->quick_distort_func;
 
-    Eigen::Vector3f p_W_C = T_W_C.translation();
-    std::vector<std::shared_ptr<CubeBlock>> blocks = map_->getRayCastingBlocks(p_W_C);
-    Eigen::Isometry3f T_C_W = T_W_C.inverse();
+    auto project_point = [&](const Eigen::Vector3f& p_W_V, Eigen::Vector2i& ixy, float& depth_V) -> bool {
+      Eigen::Vector3f p_C_V = T_C_W * p_W_V;
+      if (p_C_V.z() <= 0.0) {  // only eliminate voxels whose depth are positive
+        return false;
+      }
+      if (p_C_V.z() > max_depth) {  // only eliminate voxels whose depth are less than max_depth
+        return false;
+      }
+      if (!distort(Eigen::Vector2f(p_C_V.x()/p_C_V.z(), p_C_V.y()/p_C_V.z()), ixy)) {
+        return false;
+      }
+      if (ixy.x() >= start_col && ixy.x() < end_col && ixy.y() >= start_row && ixy.y() < end_row) {
+        depth_V = p_C_V.z();
+        return true;
+      } else {
+        return false;
+      }
+    };
+
+    auto check_cube_observability = [&](const Eigen::Vector3f& min_corner, float side_length) {
+      std::vector <Eigen::Vector3f> corners;
+      corners.reserve(8);
+      for (int i=0; i<8; i++) {
+        corners.emplace_back(min_corner + Eigen::Vector3f(side_length*(i&1), side_length*((i>>1)&1), side_length*((i>>2)&1)));
+      }
+      return std::any_of(corners.begin(), corners.end(), [&](const Eigen::Vector3f& corner) {
+        Eigen::Vector2i ixy;
+        float depth_V;
+        return project_point(corner, ixy, depth_V);        
+      });
+    };
+
+    auto check_block_observability = [&](const BlockKey3& bk) {
+      float side_length = CubeBlock::kSideLength * resolution_;
+      Eigen::Vector3f block_min_corner(
+        (bk.x() << CubeBlock::kSideLengthPow) * resolution_,
+        (bk.y() << CubeBlock::kSideLengthPow) * resolution_,
+        (bk.z() << CubeBlock::kSideLengthPow) * resolution_
+      );
+      return check_cube_observability(block_min_corner, side_length);
+    };
+
+    auto check_region_observability = [&](const RegionKey3& rk) {
+      static constexpr int kRegionSideLengthPow = SimpleDenseMap::kRaycastRegionSideLengthInBlocksPow + CubeBlock::kSideLengthPow;
+      float side_length = (1 << kRegionSideLengthPow) * resolution_;
+      Eigen::Vector3f region_min_corner(
+        (rk.x() << kRegionSideLengthPow) * resolution_,
+        (rk.y() << kRegionSideLengthPow) * resolution_,
+        (rk.z() << kRegionSideLengthPow) * resolution_
+      );
+      return check_cube_observability(region_min_corner, side_length);
+    };
+
+    std::vector<std::shared_ptr<CubeBlock>> blocks = map_->getRayCastingBlocks(p_W_C, check_region_observability);
 
 #ifdef USE_HEAR_SLAM
     auto pool = thread_pool_group_.getNamed("ov_map_rgbd_w");
@@ -952,28 +1010,23 @@ protected:
     auto raycast_one_block = [&](std::shared_ptr<CubeBlock> block) {
       // Voxel voxels[kMaxVoxels]; // 64 voxels per block
       // double time;
+      if (!check_block_observability(block->bk)) {
+        return;
+      }
+
       Voxel* voxels = block->voxels;
       static const float depth_noise_level = 0.02;
       for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
         Voxel& voxel = voxels[i];
         if (voxel.u_.status) {
           Eigen::Vector3f p_W_V = block->getVoxPosition(voxel).cast<float>() * resolution_;
-          Eigen::Vector3f p_C_V = T_C_W * p_W_V;
-          if (p_C_V.z() <= 0.0) {  // only eliminate voxels whose depth are positive
-            continue;
-          }
-          if (p_C_V.z() > max_depth) {  // only eliminate voxels whose depth are less than max_depth
-            continue;
-          }
           Eigen::Vector2i ixy;
-          if (!distort(Eigen::Vector2f(p_C_V.x()/p_C_V.z(), p_C_V.y()/p_C_V.z()), ixy)) {
-            continue;
-          }
-          if (ixy.x() >= start_col && ixy.x() < end_col && ixy.y() >= start_row && ixy.y() < end_row) {
+          float depth_V;
+          if (project_point(p_W_V, ixy, depth_V)) {
             const uint16_t d = depth.at<uint16_t>(ixy.y(), ixy.x());
             if (d == 0) continue;
             float fd = d / 1000.0f;
-            if (p_C_V.z() < fd - depth_noise_level) {  // eliminate the voxel if it can be cast through
+            if (depth_V < fd - depth_noise_level) {  // eliminate the voxel if it can be cast through
               voxel.u_.status = 0;
             }
           }
