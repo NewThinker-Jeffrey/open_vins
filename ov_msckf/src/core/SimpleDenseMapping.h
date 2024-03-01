@@ -997,7 +997,19 @@ protected:
         (rk.y() << kRegionSideLengthPow) * resolution_,
         (rk.z() << kRegionSideLengthPow) * resolution_
       );
-      return check_cube_observability(region_min_corner, side_length);
+      std::vector <Eigen::Vector3f> corners;
+      corners.reserve(8);
+      for (int i=0; i<8; i++) {
+        corners.emplace_back(region_min_corner + Eigen::Vector3f(side_length*(i&1), side_length*((i>>1)&1), side_length*((i>>2)&1)));
+      }
+      return std::any_of(corners.begin(), corners.end(), [&](const Eigen::Vector3f& corner) {
+        Eigen::Vector3f corner_in_C= T_C_W * corner;
+        if (corner_in_C.z() <= 0.0) {
+          return false;
+        } else {
+          return true;
+        }
+      });
     };
 
     std::vector<std::shared_ptr<CubeBlock>> blocks = map_->getRayCastingBlocks(p_W_C, check_region_observability);
