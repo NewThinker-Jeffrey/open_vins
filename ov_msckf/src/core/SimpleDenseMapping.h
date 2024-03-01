@@ -60,27 +60,37 @@ struct AlignedBufT {
   EIGEN_ALIGN16 char buf[SIZE];
 };
 
-struct Voxel final {
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  EIGEN_ALIGN16 VoxPosition p;
-  VoxColor c;
-  Timestamp time;
-  bool valid;
-};
+// struct Voxel final {
+//   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+//   EIGEN_ALIGN16 VoxPosition p;
+//   VoxColor c;
+//   Timestamp time;
+//   bool valid;
+// };
 
-union VoxelSimple {
-  uint8_t v[8];
-  struct {
-    uint8_t x;
-    uint8_t y;
-    uint8_t z;
-    uint8_t s;  // state
+struct CubeBlock;
+struct alignas(8) Voxel {
+  alignas(8) union {
+    uint64_t v;
+    struct {
+      uint8_t x;
+      uint8_t y;
+      uint8_t z;
+      uint8_t status;  // state
 
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-    uint8_t a;
-  };
+      uint8_t r;
+      uint8_t g;
+      uint8_t b;
+      uint8_t a;
+    };
+  } u_;
+
+  Voxel() {}
+  Voxel(const Voxel& other) {u_.v = other.u_.v;}
+  Voxel(Voxel&& other) {u_.v = other.u_.v;}
+  Voxel& operator=(const Voxel& other) {u_.v = other.u_.v; return *this;}
+  Voxel& operator=(Voxel&& other) {u_.v = other.u_.v; return *this;}
+  VoxColor c() const { return VoxColor(u_.r, u_.g, u_.b); }
 };
 
 struct SpatialHash3 {
@@ -117,22 +127,29 @@ struct CubeBlock final {
 
   static constexpr size_t kSideLengthPow = 3;
   static constexpr size_t kSideLength = 1 << kSideLengthPow;  // 8
+  static constexpr size_t kSideLengthMask = kSideLength - 1;
   static SpatialHash3 hash;
 
   Voxel voxels[kMaxVoxels]; // 64 voxels per block
   double time;
+  const BlockKey3 bk;
+  const VoxelKey vk0;
 
-  CubeBlock() : time(0.0) {}
+  CubeBlock(const BlockKey3& k) :
+      bk(k), time(0.0), vk0(
+        k.x() << kSideLengthPow,
+        k.y() << kSideLengthPow,
+        k.z() << kSideLengthPow
+      ) {}
 
-  inline size_t getIndex(const VoxelKey& p) const {
+  static inline size_t getIndex(const VoxelKey& p) {
     return hash(p) & kMaxVoxelsMask;
   }
 
-  inline void put(const Voxel& v) {
-    size_t idx = getIndex(v.p);
-    auto& vox = voxels[idx];
-    vox = v;
-    vox.valid = true;
+  inline void put(const Voxel& v, size_t idx) {
+    Voxel vox = v;
+    vox.u_.status = 1;
+    voxels[idx] = vox;
   }
 
   inline void reset() {
@@ -149,7 +166,24 @@ struct CubeBlock final {
         [](CubeBlock* ptr){delete reinterpret_cast<AlignedBuf*>(ptr);});
     return clone;
   }
+
+  inline VoxPosition getVoxPosition(const Voxel& v) const {
+    return VoxPosition(
+        vk0.x() + v.u_.x,
+        vk0.y() + v.u_.y,
+        vk0.z() + v.u_.z);
+  }
+
+  inline void foreachVoxel(const std::function<void(const VoxPosition& p, const VoxColor& c)>& f) const {
+    for (int i = 0; i < kMaxVoxels; ++i) {
+      auto v = voxels[i];  // atomicly copy
+      if (v.u_.status == 1) {
+        f(getVoxPosition(v), v.c());
+      }
+    }
+  }
 };
+
 
 template<
     size_t _reserved_blocks_pow = 18  // reserved_blocks = 2^18 = 256K by default.
@@ -195,6 +229,7 @@ struct SimpleDenseMapT final {
   struct OutputVoxels {
     Voxel* output_voxels;
     size_t output_voxels_size;
+    std::shared_ptr<std::vector<std::shared_ptr<CubeBlock>>> output_blocks;
 
     using AlignedBuf = AlignedBufT<sizeof(CubeBlock)>;
     OutputVoxels(size_t n_blocks) {
@@ -273,6 +308,9 @@ struct SimpleDenseMapT final {
     size_t i = 0;
     char* cur = buf;
 
+    auto output_blocks = std::make_shared<std::vector<std::shared_ptr<CubeBlock>>>();
+    output_blocks->reserve(blocks_map.size());
+
 #ifdef USE_HEAR_SLAM
     // std::memcpy(buf->buf, this, sizeof(SimpleDenseMapT<_reserved_blocks_pow>));
     auto pool = thread_pool_group->getNamed("ov_map_rgbd_w");
@@ -282,37 +320,43 @@ struct SimpleDenseMapT final {
     using hear_slam::INVALID_TASK;
     std::vector<TaskID> task_ids;
 
-    auto enqueue_jobs = [&]() {
-      for (auto it = blocks_map.begin(); it != blocks_map.end();) {
-        // size_t n_bytes = sizeof(item.second->voxels);
-        size_t n_bytes = CubeBlock::kMaxVoxels * sizeof(Voxel);
-        const size_t block_group_size = 1024;
-        auto new_task = pool->schedule([=](){
-          auto it2 = it;
-          auto cur2 = cur;
-          for (size_t i=0; i<block_group_size; i++) {
-            std::memcpy(cur2, it2->second->voxels, n_bytes);
-            ++it2;
-            cur2 = cur2 + n_bytes;
-            if (it2 == blocks_map.end()) {
-              break;
-            }
-          }
-        });
-        cur += block_group_size * n_bytes;
-        // it += block_group_size;
-        for (size_t i=0; i<block_group_size; i++) {
-          ++it;
-          if (it == blocks_map.end()) {
-            break;
-          }
-        }
-        task_ids.emplace_back(new_task);
-      }
-    };
+    // auto enqueue_jobs = [&]() {
+    //   for (auto it = blocks_map.begin(); it != blocks_map.end();) {
+    //     // size_t n_bytes = sizeof(item.second->voxels);
+    //     size_t n_bytes = CubeBlock::kMaxVoxels * sizeof(Voxel);
+    //     const size_t block_group_size = 1024;
+    //     auto new_task = pool->schedule([=](){
+    //       auto it2 = it;
+    //       auto cur2 = cur;
+    //       for (size_t i=0; i<block_group_size; i++) {
+    //         std::memcpy(cur2, it2->second->voxels, n_bytes);
+    //         ++it2;
+    //         cur2 = cur2 + n_bytes;
+    //         if (it2 == blocks_map.end()) {
+    //           break;
+    //         }
+    //       }
+    //     });
+    //     cur += block_group_size * n_bytes;
+    //     // it += block_group_size;
+    //     for (size_t i=0; i<block_group_size; i++) {
+    //       ++it;
+    //       if (it == blocks_map.end()) {
+    //         break;
+    //       }
+    //     }
+    //     task_ids.emplace_back(new_task);
+    //   }
+    // };
 
-    pool->wait(pool->schedule(enqueue_jobs));
-    pool->waitTasks(task_ids.rbegin(), task_ids.rend());
+    // pool->wait(pool->schedule(enqueue_jobs));
+    // pool->waitTasks(task_ids.rbegin(), task_ids.rend());
+
+    for (auto it = blocks_map.begin(); it != blocks_map.end(); it++) {
+      output_blocks->emplace_back(it->second);
+    }
+    std::swap(output->output_blocks, output_blocks);
+
 #else
     for (auto it = blocks_map.begin(); it != blocks_map.end(); ++it) {
       // size_t n_bytes = sizeof(item.second->voxels);
@@ -327,14 +371,38 @@ struct SimpleDenseMapT final {
     // std::swap(output, new_output);
   }
 
-  inline const Voxel* voxels() const {
-    // return blocks[0].voxels;    
-    return output ? output->output_voxels : nullptr;
-  }
+  // inline const Voxel* voxels() const {
+  //   return output ? output->output_voxels : nullptr;
+  // }
 
   inline size_t reservedVoxelSize() const {
-    return output ? output->output_voxels_size : 0;
+    // return output ? output->output_voxels_size : 0;
+    if (output && output->output_blocks) {
+      return output->output_blocks->size() * CubeBlock::kMaxVoxels;
+    } else {
+      return 0;
+    }
   }
+
+  inline void foreachBlock(const std::function<void(const CubeBlock&)>& f) const {
+    // std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3> blocks_map;
+    if (output) {
+      auto output_blocks = output->output_blocks;
+      if (output_blocks) {
+        for (auto b : *output_blocks) {
+          f(*b);
+        }
+      }
+    }
+  }
+
+  inline void foreachVoxel(const std::function<void(const VoxPosition& p, const VoxColor& c)>& f) const {
+    auto bf = [&](const CubeBlock& b) {
+      b.foreachVoxel(f);
+    };
+    foreachBlock(bf);
+  }
+
 
   template<typename Vec>
   inline void insert(const Vec& p, const VoxColor& c, const Timestamp& time) {
@@ -346,18 +414,21 @@ struct SimpleDenseMapT final {
                   bk.z() >> kRaycastRegionSideLengthInBlocksPow);
 
     Voxel v;
-    v.c = c;
-    v.time = time;
-    v.p = vk;
+    v.u_.x = (vk.x() & CubeBlock::kSideLengthMask);
+    v.u_.y = (vk.y() & CubeBlock::kSideLengthMask);
+    v.u_.z = (vk.z() & CubeBlock::kSideLengthMask);
+    v.u_.r = c[0];
+    v.u_.g = c[1];
+    v.u_.b = c[2];
 
     std::unique_lock<std::mutex> lk(mapping_mutex_);
 
     auto it_blk = blocks_map.find(bk);
     if (it_blk == blocks_map.end()) {
-      it_blk = blocks_map.insert({bk, std::make_shared<CubeBlock>()}).first;
+      it_blk = blocks_map.insert({bk, std::make_shared<CubeBlock>(bk)}).first;
     }
 
-    it_blk->second->put(v);
+    it_blk->second->put(v, CubeBlock::getIndex(vk));
     time_to_blocks[time].insert(bk);
     xy_to_z_blocks[BlockKey2(bk.x(), bk.y())].insert(bk.z());
     raycast_regions[rk].insert(bk);
@@ -489,13 +560,14 @@ struct SimpleDenseMapT final {
     const int32_t discrepancy_thr_i = discrepancy_thr / this->resolution;
     for (auto & block : block_data) {
       for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
-        auto &vexel = block->voxels[i];
-        if (vexel.valid) {
-          auto& vx = vexel.p.x();
-          auto& vy = vexel.p.y();
+        auto &voxel = block->voxels[i];
+        if (voxel.u_.status) {
+          auto p = block->getVoxPosition(voxel);
+          auto& vx = p.x();
+          auto& vy = p.y();
           auto vit = voxelxy_to_imgxy.find(PixelKey(vx, vy));
           if (vit != voxelxy_to_imgxy.end()) {
-            auto& vzi = vexel.p.z();
+            auto& vzi = p.z();
             auto& imgx = vit->second.first;
             auto& imgy = vit->second.second;
             auto& max_zi = hmax.at<int32_t>(imgy, imgx);
@@ -634,7 +706,7 @@ public:
       LOG(INFO) << "RgbdMapping:  DEBUG_SIZE: sizeof(Voxel)=" << sizeof(Voxel)
                 << ", sizeof(CubeBlock)=" << sizeof(CubeBlock)
                 << ", CubeBlock::kMaxVoxels=" << CubeBlock::kMaxVoxels
-                << ", sizeof(VoxelSimple)=" << sizeof(VoxelSimple);
+                << ", sizeof(VoxelSimple)=" << sizeof(Voxel);
 
       // LOG(INFO) << "RgbdMapping:  task - map updated";
       update_output();
@@ -884,8 +956,8 @@ protected:
       static const float depth_noise_level = 0.02;
       for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
         Voxel& voxel = voxels[i];
-        if (voxel.valid) {
-          Eigen::Vector3f p_W_V = voxel.p.cast<float>() * resolution_;
+        if (voxel.u_.status) {
+          Eigen::Vector3f p_W_V = block->getVoxPosition(voxel).cast<float>() * resolution_;
           Eigen::Vector3f p_C_V = T_C_W * p_W_V;
           if (p_C_V.z() <= 0.0) {  // only eliminate voxels whose depth are positive
             continue;
@@ -902,7 +974,7 @@ protected:
             if (d == 0) continue;
             float fd = d / 1000.0f;
             if (p_C_V.z() < fd - depth_noise_level) {  // eliminate the voxel if it can be cast through
-              voxel.valid = false;
+              voxel.u_.status = 0;
             }
           }
         }

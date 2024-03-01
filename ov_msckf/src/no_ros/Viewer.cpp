@@ -357,25 +357,25 @@ void Viewer::drawRobotAndMap(std::shared_ptr<VioManager::Output> output, bool dr
 
   // draw rgbd map
   using Voxel = dense_mapping::Voxel;
+  using VoxColor = dense_mapping::VoxColor;
+  using VoxPosition = dense_mapping::VoxPosition;
   if (need_draw_rgbd) {
     // auto map_ptr = output->visualization.rgbd_dense_map_builder->get_output_map();
     auto map_ptr = output->visualization.rgbd_dense_map_builder->get_display_map(_interal_app->get_params().rgbd_mapping_max_dispaly_voxels);
     if (map_ptr) {
-      const auto* voxels = map_ptr->voxels();
       size_t n_reserved = map_ptr->reservedVoxelSize();
       glPointSize(2.0);
       glBegin(GL_POINTS);
       size_t n_valid = 0;
-      for (size_t i=0; i<n_reserved; ++i) {
-        const Voxel& v = voxels[i];
-        if (v.valid) {
-          n_valid ++;
-          glColor4ub(v.c[0], v.c[1], v.c[2], 255);
-          Eigen::Vector3f p(v.p.x(), v.p.y(), v.p.z());
-          p *= map_ptr->resolution;
-          glVertex3f(p.x(), p.y(), p.z());
-        }
-      }
+
+      map_ptr->foreachVoxel([&](const VoxPosition& p, const VoxColor& c){
+        n_valid ++;
+        glColor4ub(c[0], c[1], c[2], 255);
+        Eigen::Vector3f pf(p.x(), p.y(), p.z());
+        pf *= map_ptr->resolution;
+        glVertex3f(pf.x(), pf.y(), pf.z());
+      });
+
       glEnd();
     }
   } else {
