@@ -41,6 +41,8 @@
 #include "hear_slam/basic/circular_queue.h"
 #endif
 
+// #define USE_ATOMIC_BLOCK_MAP
+
 namespace ov_msckf {
 namespace dense_mapping {
 
@@ -182,15 +184,15 @@ struct alignas(8) CubeBlock final {
     time = 0.0;
   }
 
-  std::shared_ptr<CubeBlock> clone() {
-    using AlignedBuf = AlignedBufT<sizeof(CubeBlock)>;
-    auto* buf = new AlignedBuf;
-    std::memcpy(buf->buf, this, sizeof(CubeBlock));
-    std::shared_ptr<CubeBlock> clone(
-        reinterpret_cast<CubeBlock*>(buf),
-        [](CubeBlock* ptr){delete reinterpret_cast<AlignedBuf*>(ptr);});
-    return clone;
-  }
+  // std::shared_ptr<CubeBlock> clone() {
+  //   using AlignedBuf = AlignedBufT<sizeof(CubeBlock)>;
+  //   auto* buf = new AlignedBuf;
+  //   std::memcpy(buf->buf, this, sizeof(CubeBlock));
+  //   std::shared_ptr<CubeBlock> clone(
+  //       reinterpret_cast<CubeBlock*>(buf),
+  //       [](CubeBlock* ptr){delete reinterpret_cast<AlignedBuf*>(ptr);});
+  //   return clone;
+  // }
 
   inline VoxPosition getVoxPosition(const Voxel& v) const {
     return VoxPosition(
@@ -237,6 +239,13 @@ struct SpatialHash2 {
   }
 };
 
+#ifdef USE_ATOMIC_BLOCK_MAP
+  using CubeBlockRefPtr = hear_slam::MemPoolInnerPtr<
+      HashTable<CubeBlock, SpatialHash3>::NodeType>;
+#else
+  using CubeBlockRefPtr = std::shared_ptr<CubeBlock>;
+#endif  
+
 template<
     size_t _reserved_blocks_pow = 18  // reserved_blocks = 2^18 = 256K by default.
     // size_t _reserved_blocks_pow = 16  // reserved_blocks = 2^16 = 64K by default.
@@ -270,8 +279,12 @@ struct SimpleDenseMapT final {
   std::shared_ptr<OutputVoxels> output;
   mutable std::mutex output_mutex;
 
-  // HashTable<CubeBlock, SpatialHash3> blocks_map;
-  std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3> blocks_map;
+#ifdef USE_ATOMIC_BLOCK_MAP
+  HashTable<CubeBlock, SpatialHash3> blocks_map;
+#else
+  std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3> blocks_map;
+#endif
+
   std::unordered_map<RegionKey3, std::unordered_set<BlockKey3, SpatialHash3>, SpatialHash3> raycast_regions;
   std::map<double, std::unordered_set<BlockKey3, SpatialHash3>> time_to_blocks;
   std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2> xy_to_z_blocks;
@@ -282,7 +295,9 @@ struct SimpleDenseMapT final {
     // Voxel* output_voxels;
     // size_t output_voxels_size;
 
-    std::shared_ptr<std::vector<std::shared_ptr<CubeBlock>>> output_blocks;
+#ifndef USE_ATOMIC_BLOCK_MAP
+    std::shared_ptr<std::vector<CubeBlockRefPtr>> output_blocks;
+#endif    
     std::shared_ptr<std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2>> output_xy_to_z_blocks;    
 
     // using AlignedBuf = AlignedBufT<sizeof(CubeBlock)>;
@@ -302,8 +317,15 @@ struct SimpleDenseMapT final {
 #ifdef USE_HEAR_SLAM
     thread_pool_group(nullptr),
 #endif
+#ifdef USE_ATOMIC_BLOCK_MAP
+    blocks_map(kReservedBlocks, kReservedBlocks),
+#endif
     resolution(0.01) {
+
+#ifndef USE_ATOMIC_BLOCK_MAP
     blocks_map.rehash(kReservedBlocks);
+#endif
+
     // output = std::make_shared<OutputVoxels>(kMaxBlocks);
     // output = std::make_shared<OutputVoxels>(kReservedBlocks);
     output = std::make_shared<OutputVoxels>();
@@ -323,14 +345,16 @@ struct SimpleDenseMapT final {
   }
 
   template<typename Vec>
-  inline std::vector<std::shared_ptr<CubeBlock>>
+  inline std::vector<BlockKey3>
   getRayCastingBlocks(const Vec& p, const std::function<bool(const RegionKey3&)>& check_region_observability=nullptr) const {
     auto bk_vk = getKeysOfPoint(p);
     auto& bk = bk_vk.first;
     RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
                   bk.y() >> kRaycastRegionSideLengthInBlocksPow,
                   bk.z() >> kRaycastRegionSideLengthInBlocksPow);
-    std::vector<std::shared_ptr<CubeBlock>> blocks;
+
+    std::vector<BlockKey3> blocks;
+
     blocks.reserve(27 * kRaycastRegionBlocks);
     for (int x = -1; x <= 1; x++) {
       for (int y = -1; y <= 1; y++) {
@@ -343,7 +367,7 @@ struct SimpleDenseMapT final {
               continue;
             }
             for (auto& bk : it->second) {
-              blocks.push_back(blocks_map.at(bk));
+              blocks.push_back(bk);
             }
           }
         }
@@ -358,7 +382,7 @@ struct SimpleDenseMapT final {
 
     // return;  // skip
 
-    if (blocks_map.empty()) {
+    if (blocks_map.size() == 0) {
       return;
     }
 
@@ -374,9 +398,9 @@ struct SimpleDenseMapT final {
 
     copy_xy_to_z_blocks();
 
-
+#ifndef USE_ATOMIC_BLOCK_MAP
     auto collect_blocks = [&]() {
-      auto output_blocks = std::make_shared<std::vector<std::shared_ptr<CubeBlock>>>();
+      auto output_blocks = std::make_shared<std::vector<CubeBlockRefPtr>>();
       output_blocks->reserve(blocks_map.size());
       for (auto it = blocks_map.begin(); it != blocks_map.end(); it++) {
         output_blocks->emplace_back(it->second);
@@ -387,7 +411,7 @@ struct SimpleDenseMapT final {
     };
 
     collect_blocks();
-
+#endif
 
     // new_output->output_voxels_size = blocks_map.size() * CubeBlock::kMaxVoxels;
     // std::swap(output, new_output);
@@ -399,16 +423,61 @@ struct SimpleDenseMapT final {
 
   inline size_t reservedVoxelSize() const {
     // return output ? output->output_voxels_size : 0;
+#ifdef USE_ATOMIC_BLOCK_MAP
+    return kReservedBlocks * CubeBlock::kMaxVoxels;
+    // return blocks_map.size() * CubeBlock::kMaxVoxels;
+#else
     if (output && output->output_blocks) {
       return output->output_blocks->size() * CubeBlock::kMaxVoxels;
     } else {
       return 0;
     }
+#endif
   }
 
-  inline void foreachBlock(const std::function<void(const CubeBlock&)>& f) const {
-    // std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3> blocks_map;
+  // process internal blcok
+  inline bool processBlock(const BlockKey3& bk, std::function<void(CubeBlock&)>& f) {
+#ifdef USE_ATOMIC_BLOCK_MAP
+    auto node_ptr = blocks_map.find(bk);
+    if (node_ptr == nullptr) {
+      return false;
+    }
+    CubeBlock& block = node_ptr->data;
+#else
+    CubeBlockRefPtr block_ptr = blocks_map[bk];
+    if (!block_ptr) {
+      return false;
+    }
+    CubeBlock& block = *block_ptr;
+#endif
+    f(block);
+    return true;
+  }
 
+  // process internal blcok
+  inline bool processBlock(const BlockKey3& bk, const std::function<void(const CubeBlock&)>& f) const {
+#ifdef USE_ATOMIC_BLOCK_MAP
+    auto node_ptr = blocks_map.find(bk);
+    if (node_ptr == nullptr) {
+      return false;
+    }
+    const CubeBlock& block = node_ptr->data;
+#else
+    auto it = blocks_map.find(bk);
+    if (it == blocks_map.end() || it->second == nullptr) {
+      return false;
+    }
+    const CubeBlock& block = *(it->second);
+#endif
+    f(block);
+    return true;
+  }
+
+  // foreach output block
+  inline void foreachBlock(const std::function<void(const CubeBlock&)>& f) const {
+#ifdef USE_ATOMIC_BLOCK_MAP
+    blocks_map.foreach(f);
+#else
     std::unique_lock<std::mutex> lock(output_mutex);
     if (output) {
       auto output_blocks = output->output_blocks;
@@ -420,6 +489,7 @@ struct SimpleDenseMapT final {
         }
       }
     }
+#endif
   }
 
   inline void foreachVoxel(const std::function<void(const VoxPosition& p, const VoxColor& c)>& f) const {
@@ -438,7 +508,7 @@ struct SimpleDenseMapT final {
   inline void insert_voxel(
       const Vec& p, const VoxColor& c, const Timestamp& time,
       std::unordered_map<BlockKey3, BlockUpdateInfo, SpatialHash3>& updated_blocks,
-      std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3>& blocks_map_cache) {
+      std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3>& blocks_map_cache) {
     auto keys = getKeysOfPoint(p);
     auto& bk = keys.first;
     auto& vk = keys.second;
@@ -452,12 +522,28 @@ struct SimpleDenseMapT final {
 
 
     bool is_new_block = false;
-    CubeBlock* blkp = nullptr;
+    CubeBlock* blkp = nullptr;    
     auto cache_it_blk = blocks_map_cache.find(bk);
+
+#ifdef USE_ATOMIC_BLOCK_MAP
+    if (cache_it_blk != blocks_map_cache.end()) {
+      blkp = &(cache_it_blk->second->data);
+    } else {
+      CubeBlockRefPtr node_ptr = blocks_map.find(bk);
+      if (!node_ptr) {
+        auto insert_res = blocks_map.insert(bk);
+        node_ptr = insert_res.second;
+        ASSERT(node_ptr);
+        is_new_block = insert_res.first;
+      }
+      blkp = &(node_ptr->data);
+      blocks_map_cache[bk] = std::move(node_ptr);
+    }
+#else
     if (cache_it_blk != blocks_map_cache.end()) {
       blkp = cache_it_blk->second.get();
     } else {
-      std::shared_ptr<CubeBlock> blkptr;
+      CubeBlockRefPtr blkptr;
       std::unique_lock<std::mutex> lk(mapping_mutex_);
       auto it_blk = blocks_map.find(bk);
       if (it_blk == blocks_map.end()) {
@@ -470,6 +556,7 @@ struct SimpleDenseMapT final {
       blkp = blkptr.get();
       blocks_map_cache[bk] = std::move(blkptr);
     }
+#endif
 
     CubeBlock& blk = *blkp;
 
@@ -607,9 +694,13 @@ struct SimpleDenseMapT final {
 
     auto remove_from_blocks_map = [&]() {
       foreach_block_to_remove([&](const BlockKey3& bk){
+#ifdef USE_ATOMIC_BLOCK_MAP        
+        ASSERT(blocks_map.erase(bk));
+#else
         auto it = blocks_map.find(bk);
         ASSERT(it != blocks_map.end());
         blocks_map.erase(it);
+#endif        
       });
     };
 
@@ -682,9 +773,24 @@ struct SimpleDenseMapT final {
       }
     }
 
+#ifdef USE_ATOMIC_BLOCK_MAP
+    auto foreach_block_lockless = [&](const std::function<void(const CubeBlock&)>& f) {
+      for (auto & bk2 : involved_xy_blocks) {
+        std::unique_lock<std::mutex> lk(mapping_mutex_);
+        auto zit = output_xy_to_z_blocks->find(bk2);
+        if (zit != output_xy_to_z_blocks->end()) {
+          for (auto& z : zit->second) {
+            processBlock(BlockKey3(bk2.x(), bk2.y(), z), f);
+          }
+        }
+      }
+    };
 
+    auto& foreach_block = foreach_block_lockless;
+
+#else
     auto foreach_block_lock = [&](const std::function<void(const CubeBlock&)>& f) {
-      std::vector<std::shared_ptr<CubeBlock>> block_data;
+      std::vector<CubeBlockRefPtr> block_data;
       block_data.reserve(involved_xy_blocks.size() * ((max_h - min_h) / block_resolution + 1) * 2);
 
 #ifdef USE_HEAR_SLAM
@@ -696,8 +802,13 @@ struct SimpleDenseMapT final {
         auto zit = output_xy_to_z_blocks->find(bk2);
         if (zit != output_xy_to_z_blocks->end()) {
           for (auto& z : zit->second) {
-            // block_data.push_back(blocks_map.at(BlockKey3(bk2.x(), bk2.y(), z))->clone());
-            block_data.push_back(blocks_map.at(BlockKey3(bk2.x(), bk2.y(), z)));
+            auto it = blocks_map.find(BlockKey3(bk2.x(), bk2.y(), z));
+            if (it != blocks_map.end()) {
+              auto block_ptr = it->second;
+              if (block_ptr) {
+                block_data.push_back(block_ptr);
+              }              
+            }
           }
         }
       }
@@ -711,21 +822,8 @@ struct SimpleDenseMapT final {
       }
     };
 
-    auto foreach_block_lockless = [&](const std::function<void(const CubeBlock&)>& f) {
-      for (auto & bk2 : involved_xy_blocks) {
-        std::unique_lock<std::mutex> lk(mapping_mutex_);
-        auto zit = output_xy_to_z_blocks->find(bk2);
-        if (zit != output_xy_to_z_blocks->end()) {
-          for (auto& z : zit->second) {
-            auto it = blocks_map.find(BlockKey3(bk2.x(), bk2.y(), z));
-            f(*(it->second));
-          }
-        }
-      }
-    };
-
     auto& foreach_block = foreach_block_lock;
-    // auto& foreach_block = foreach_block_lockless;
+#endif
 
     const int32_t center_zi = center_z / this->resolution;
     const int32_t discrepancy_thr_i = discrepancy_thr / this->resolution;
@@ -1045,7 +1143,7 @@ protected:
     auto insert_row_range = [&](int first_row, int last_row, size_t group_id=0) {
       std::unordered_map<BlockKey3, SimpleDenseMap::BlockUpdateInfo, SpatialHash3>&
           updated_blocks = updated_blocks_array.at(group_id);
-      std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3> blocks_map_cache;
+      std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3> blocks_map_cache;
 
       last_row = std::min(end_row, last_row);
       for (size_t y=first_row; y<last_row; y+=pixel_downsample) {
@@ -1198,26 +1296,26 @@ protected:
       });
     };
 
-    std::vector<std::shared_ptr<CubeBlock>> blocks = map_->getRayCastingBlocks(p_W_C, check_region_observability);
+    std::vector<BlockKey3> blocks = map_->getRayCastingBlocks(p_W_C, check_region_observability);
 
 #ifdef USE_HEAR_SLAM
     auto pool = thread_pool_group_.getNamed("ov_map_rgbd_w");
     ASSERT(pool);
     ASSERT(pool->numThreads() == std::thread::hardware_concurrency());
 
-    auto raycast_one_block = [&](std::shared_ptr<CubeBlock> block) {
+    std::function<void(CubeBlock&)> raycast_one_block = [&](CubeBlock& block) {
       // Voxel voxels[kMaxVoxels]; // 64 voxels per block
       // double time;
-      if (!check_block_observability(block->bk)) {
+      if (!check_block_observability(block.bk)) {
         return;
       }
 
-      Voxel* voxels = block->voxels;
+      Voxel* voxels = block.voxels;
       static const float depth_noise_level = 0.02;
       for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
         Voxel& voxel = voxels[i];
         if (voxel.u_.status) {
-          Eigen::Vector3f p_W_V = block->getVoxPosition(voxel).cast<float>() * resolution_;
+          Eigen::Vector3f p_W_V = block.getVoxPosition(voxel).cast<float>() * resolution_;
           Eigen::Vector2i ixy;
           float depth_V;
           if (project_point(p_W_V, ixy, depth_V)) {
@@ -1237,7 +1335,7 @@ protected:
     auto raycast_blocks = [&](size_t first, size_t last) {
       last = std::min(last, blocks.size());
       for (size_t i=first; i<last; ++i) {
-        raycast_one_block(blocks[i]);
+        map_->processBlock(blocks[i], raycast_one_block);
       }
     };
 
