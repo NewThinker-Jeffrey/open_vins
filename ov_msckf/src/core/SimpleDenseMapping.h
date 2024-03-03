@@ -50,6 +50,9 @@ using VoxColor = Eigen::Matrix<uint8_t, 3, 1>;
 using VoxPosition = Eigen::Matrix<int32_t, 3, 1>;
 using PixPosition = Eigen::Matrix<int32_t, 2, 1>;
 
+using hear_slam::HashTable;
+using hear_slam::HashMap;
+using hear_slam::CircularQueue;
 
 struct ComparableVoxPosition : public VoxPosition {
   using Base = VoxPosition;
@@ -127,18 +130,6 @@ struct alignas(8) Voxel {
   VoxColor c() const { return VoxColor(u_.r, u_.g, u_.b); }
 };
 
-struct SpatialHash3 {
-  inline size_t operator()(const BlockKey3& p) const {
-    return size_t(((p[0]) * 73856093) ^ ((p[1]) * 471943) ^ ((p[2]) * 83492791));
-  }
-};
-
-struct SpatialHash2 {
-  inline size_t operator()(const BlockKey2& p) const {
-    return size_t(((p[0]) * 73856093) ^ ((p[1]) * 471943));
-  }
-};
-
 struct CubeBlock final {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -162,23 +153,18 @@ struct CubeBlock final {
   static constexpr size_t kSideLengthPow = 3;
   static constexpr size_t kSideLength = 1 << kSideLengthPow;  // 8
   static constexpr size_t kSideLengthMask = kSideLength - 1;
-  static SpatialHash3 hash;
 
   Voxel voxels[kMaxVoxels]; // 64 voxels per block
   double time;
   const BlockKey3 bk;
   const VoxelKey vk0;
 
-  CubeBlock(const BlockKey3& k) :
+  CubeBlock(const BlockKey3& k=BlockKey3(0, 0, 0)) :
       bk(k), time(0.0), vk0(
         k.x() << kSideLengthPow,
         k.y() << kSideLengthPow,
         k.z() << kSideLengthPow
       ) {}
-
-  static inline size_t getIndex(const VoxelKey& p) {
-    return hash(p) & kMaxVoxelsMask;
-  }
 
   inline void put(const Voxel& v, size_t idx) {
     Voxel vox = v;
@@ -216,8 +202,35 @@ struct CubeBlock final {
       }
     }
   }
+
+  bool operator==(const CubeBlock& other) const {
+    return bk == other.bk;
+  }
+  bool operator<(const CubeBlock& other) const {
+    return bk < other.bk;
+  }
+  bool operator==(const BlockKey3& other_bk) const {
+    return bk == other_bk;
+  }
+  bool operator<(const BlockKey3& other_bk) const {
+    return bk < other_bk;
+  }
 };
 
+struct SpatialHash3 {
+  inline size_t operator()(const BlockKey3& p) const {
+    return size_t(((p[0]) * 73856093) ^ ((p[1]) * 471943) ^ ((p[2]) * 83492791));
+  }
+  inline size_t operator()(const CubeBlock& c) const {
+    return operator()(c.bk);
+  }
+};
+
+struct SpatialHash2 {
+  inline size_t operator()(const BlockKey2& p) const {
+    return size_t(((p[0]) * 73856093) ^ ((p[1]) * 471943));
+  }
+};
 
 template<
     size_t _reserved_blocks_pow = 18  // reserved_blocks = 2^18 = 256K by default.
@@ -251,6 +264,7 @@ struct SimpleDenseMapT final {
  private:
   std::shared_ptr<OutputVoxels> output;
 
+  // HashTable<CubeBlock, SpatialHash3> blocks_map;
   std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3> blocks_map;
   std::unordered_map<RegionKey3, std::unordered_set<BlockKey3, SpatialHash3>, SpatialHash3> raycast_regions;
   std::map<double, std::unordered_set<BlockKey3, SpatialHash3>> time_to_blocks;
@@ -465,7 +479,7 @@ struct SimpleDenseMapT final {
       it_blk = blocks_map.insert({bk, std::make_shared<CubeBlock>(bk)}).first;
     }
 
-    it_blk->second->put(v, CubeBlock::getIndex(vk));
+    it_blk->second->put(v, hash3(vk) & CubeBlock::kMaxVoxelsMask);
     time_to_blocks[time].insert(bk);
     xy_to_z_blocks[BlockKey2(bk.x(), bk.y())].insert(bk.z());
     raycast_regions[rk].insert(bk);
@@ -654,6 +668,7 @@ struct SimpleDenseMapT final {
 
   hear_slam::ThreadPoolGroup* thread_pool_group;
   mutable std::mutex mapping_mutex_;
+  static SpatialHash3 hash3;
 
   // EIGEN_ALIGN16 uint8_t _[16];
 };
