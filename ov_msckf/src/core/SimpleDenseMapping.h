@@ -127,10 +127,15 @@ struct alignas(8) Voxel {
   Voxel(Voxel&& other) {u_.v = other.u_.v;}
   Voxel& operator=(const Voxel& other) {u_.v = other.u_.v; return *this;}
   Voxel& operator=(Voxel&& other) {u_.v = other.u_.v; return *this;}
+  inline Voxel atomicClone() const {
+    Voxel v;
+    v.u_.v = u_.v;
+    return v;
+  }
   VoxColor c() const { return VoxColor(u_.r, u_.g, u_.b); }
 };
 
-struct CubeBlock final {
+struct alignas(8) CubeBlock final {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   // static constexpr size_t kMaxVoxelsPow = 10;
@@ -155,7 +160,7 @@ struct CubeBlock final {
   static constexpr size_t kSideLengthMask = kSideLength - 1;
 
   Voxel voxels[kMaxVoxels]; // 64 voxels per block
-  double time;
+  alignas(8) std::atomic<double> time;
   const BlockKey3 bk;
   const VoxelKey vk0;
 
@@ -196,7 +201,7 @@ struct CubeBlock final {
 
   inline void foreachVoxel(const std::function<void(const VoxPosition& p, const VoxColor& c)>& f) const {
     for (int i = 0; i < kMaxVoxels; ++i) {
-      auto v = voxels[i];  // atomicly copy
+      auto v = voxels[i].atomicClone();  // atomicly copy
       if (v.u_.status == 1) {
         f(getVoxPosition(v), v.c());
       }
@@ -263,6 +268,7 @@ struct SimpleDenseMapT final {
 
  private:
   std::shared_ptr<OutputVoxels> output;
+  mutable std::mutex output_mutex;
 
   // HashTable<CubeBlock, SpatialHash3> blocks_map;
   std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3> blocks_map;
@@ -270,34 +276,37 @@ struct SimpleDenseMapT final {
   std::map<double, std::unordered_set<BlockKey3, SpatialHash3>> time_to_blocks;
   std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2> xy_to_z_blocks;
 
-  std::unordered_map<BlockKey3, double, SpatialHash3> updated_block_to_old_time;
-
  public:
 
   struct OutputVoxels {
-    Voxel* output_voxels;
-    size_t output_voxels_size;
-    std::shared_ptr<std::vector<std::shared_ptr<CubeBlock>>> output_blocks;
+    // Voxel* output_voxels;
+    // size_t output_voxels_size;
 
-    using AlignedBuf = AlignedBufT<sizeof(CubeBlock)>;
-    OutputVoxels(size_t n_blocks) {
-      output_voxels_size = 0;
-      char* buf = reinterpret_cast<char*>(new AlignedBuf[n_blocks]);
-      output_voxels = reinterpret_cast<Voxel*>(buf);
-    }
-    ~OutputVoxels() {
-      delete[] reinterpret_cast<AlignedBuf*>(output_voxels);
-    }
+    std::shared_ptr<std::vector<std::shared_ptr<CubeBlock>>> output_blocks;
+    std::shared_ptr<std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2>> output_xy_to_z_blocks;    
+
+    // using AlignedBuf = AlignedBufT<sizeof(CubeBlock)>;
+    // OutputVoxels(size_t n_blocks) {
+    //   output_voxels_size = 0;
+    //   char* buf = reinterpret_cast<char*>(new AlignedBuf[n_blocks]);
+    //   output_voxels = reinterpret_cast<Voxel*>(buf);
+    // }
+    // ~OutputVoxels() {
+    //   delete[] reinterpret_cast<AlignedBuf*>(output_voxels);
+    // }
   };
 
 
   SimpleDenseMapT() :
     time(-1.0),
+#ifdef USE_HEAR_SLAM
     thread_pool_group(nullptr),
+#endif
     resolution(0.01) {
     blocks_map.rehash(kReservedBlocks);
     // output = std::make_shared<OutputVoxels>(kMaxBlocks);
-    output = std::make_shared<OutputVoxels>(kReservedBlocks);
+    // output = std::make_shared<OutputVoxels>(kReservedBlocks);
+    output = std::make_shared<OutputVoxels>();
   }
 
   ~SimpleDenseMapT() {
@@ -353,70 +362,32 @@ struct SimpleDenseMapT final {
       return;
     }
 
-    // auto new_output = std::make_shared<OutputVoxels>(blocks_map.size());
-    // char* buf = reinterpret_cast<char*>(new_output->output_voxels);
-    char* buf = reinterpret_cast<char*>(output->output_voxels);
-    size_t i = 0;
-    char* cur = buf;
+    auto copy_xy_to_z_blocks = [&]() {
+      auto output_xy_to_z_blocks = std::make_shared<
+          std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2>
+        >();
+      *output_xy_to_z_blocks = xy_to_z_blocks;  // copy xy_to_z_blocks
 
-    auto output_blocks = std::make_shared<std::vector<std::shared_ptr<CubeBlock>>>();
-    output_blocks->reserve(blocks_map.size());
+      std::unique_lock<std::mutex> lock(output_mutex);
+      std::swap(output->output_xy_to_z_blocks, output_xy_to_z_blocks);
+    };
 
-#ifdef USE_HEAR_SLAM
-    // std::memcpy(buf->buf, this, sizeof(SimpleDenseMapT<_reserved_blocks_pow>));
-    auto pool = thread_pool_group->getNamed("ov_map_rgbd_w");
-    ASSERT(pool);
-    ASSERT(pool->numThreads() == std::thread::hardware_concurrency());
-    using hear_slam::TaskID;
-    using hear_slam::INVALID_TASK;
-    std::vector<TaskID> task_ids;
+    copy_xy_to_z_blocks();
 
-    // auto enqueue_jobs = [&]() {
-    //   for (auto it = blocks_map.begin(); it != blocks_map.end();) {
-    //     // size_t n_bytes = sizeof(item.second->voxels);
-    //     size_t n_bytes = CubeBlock::kMaxVoxels * sizeof(Voxel);
-    //     const size_t block_group_size = 1024;
-    //     auto new_task = pool->schedule([=](){
-    //       auto it2 = it;
-    //       auto cur2 = cur;
-    //       for (size_t i=0; i<block_group_size; i++) {
-    //         std::memcpy(cur2, it2->second->voxels, n_bytes);
-    //         ++it2;
-    //         cur2 = cur2 + n_bytes;
-    //         if (it2 == blocks_map.end()) {
-    //           break;
-    //         }
-    //       }
-    //     });
-    //     cur += block_group_size * n_bytes;
-    //     // it += block_group_size;
-    //     for (size_t i=0; i<block_group_size; i++) {
-    //       ++it;
-    //       if (it == blocks_map.end()) {
-    //         break;
-    //       }
-    //     }
-    //     task_ids.emplace_back(new_task);
-    //   }
-    // };
 
-    // pool->wait(pool->schedule(enqueue_jobs));
-    // pool->waitTasks(task_ids.rbegin(), task_ids.rend());
+    auto collect_blocks = [&]() {
+      auto output_blocks = std::make_shared<std::vector<std::shared_ptr<CubeBlock>>>();
+      output_blocks->reserve(blocks_map.size());
+      for (auto it = blocks_map.begin(); it != blocks_map.end(); it++) {
+        output_blocks->emplace_back(it->second);
+      }
 
-    for (auto it = blocks_map.begin(); it != blocks_map.end(); it++) {
-      output_blocks->emplace_back(it->second);
-    }
-    std::swap(output->output_blocks, output_blocks);
+      std::unique_lock<std::mutex> lock(output_mutex);
+      std::swap(output->output_blocks, output_blocks);      
+    };
 
-#else
-    for (auto it = blocks_map.begin(); it != blocks_map.end(); ++it) {
-      // size_t n_bytes = sizeof(item.second->voxels);
-      size_t n_bytes = CubeBlock::kMaxVoxels * sizeof(Voxel);
-      std::memcpy(cur, it->second->voxels, n_bytes);
-      cur += n_bytes;
-    }
-#endif
-    output->output_voxels_size = blocks_map.size() * CubeBlock::kMaxVoxels;
+    collect_blocks();
+
 
     // new_output->output_voxels_size = blocks_map.size() * CubeBlock::kMaxVoxels;
     // std::swap(output, new_output);
@@ -437,8 +408,12 @@ struct SimpleDenseMapT final {
 
   inline void foreachBlock(const std::function<void(const CubeBlock&)>& f) const {
     // std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3> blocks_map;
+
+    std::unique_lock<std::mutex> lock(output_mutex);
     if (output) {
       auto output_blocks = output->output_blocks;
+      lock.unlock();
+
       if (output_blocks) {
         for (auto b : *output_blocks) {
           f(*b);
@@ -454,16 +429,19 @@ struct SimpleDenseMapT final {
     foreachBlock(bf);
   }
 
+  struct BlockUpdateInfo {
+    double old_time;
+    bool is_new;
+  };
 
   template<typename Vec>
-  inline void insert(const Vec& p, const VoxColor& c, const Timestamp& time) {
+  inline void insert_voxel(
+      const Vec& p, const VoxColor& c, const Timestamp& time,
+      std::unordered_map<BlockKey3, BlockUpdateInfo, SpatialHash3>& updated_blocks,
+      std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3>& blocks_map_cache) {
     auto keys = getKeysOfPoint(p);
     auto& bk = keys.first;
     auto& vk = keys.second;
-    RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
-                  bk.y() >> kRaycastRegionSideLengthInBlocksPow,
-                  bk.z() >> kRaycastRegionSideLengthInBlocksPow);
-
     Voxel v;
     v.u_.x = (vk.x() & CubeBlock::kSideLengthMask);
     v.u_.y = (vk.y() & CubeBlock::kSideLengthMask);
@@ -472,74 +450,183 @@ struct SimpleDenseMapT final {
     v.u_.g = c[1];
     v.u_.b = c[2];
 
-    std::unique_lock<std::mutex> lk(mapping_mutex_);
 
-    auto it_blk = blocks_map.find(bk);
-    if (it_blk == blocks_map.end()) {
-      it_blk = blocks_map.insert({bk, std::make_shared<CubeBlock>(bk)}).first;
+    bool is_new_block = false;
+    CubeBlock* blkp = nullptr;
+    auto cache_it_blk = blocks_map_cache.find(bk);
+    if (cache_it_blk != blocks_map_cache.end()) {
+      blkp = cache_it_blk->second.get();
+    } else {
+      std::shared_ptr<CubeBlock> blkptr;
+      std::unique_lock<std::mutex> lk(mapping_mutex_);
+      auto it_blk = blocks_map.find(bk);
+      if (it_blk == blocks_map.end()) {
+        it_blk = blocks_map.insert({bk, std::make_shared<CubeBlock>(bk)}).first;
+        is_new_block = true;
+      }
+      blkptr = it_blk->second;
+      lk.unlock();
+
+      blkp = blkptr.get();
+      blocks_map_cache[bk] = std::move(blkptr);
     }
 
-    it_blk->second->put(v, hash3(vk) & CubeBlock::kMaxVoxelsMask);
-    time_to_blocks[time].insert(bk);
-    xy_to_z_blocks[BlockKey2(bk.x(), bk.y())].insert(bk.z());
-    raycast_regions[rk].insert(bk);
+    CubeBlock& blk = *blkp;
 
-    // update the block's time.
-    auto old_time = it_blk->second->time;
-    bool need_record_old_time = (updated_block_to_old_time.find(bk) == updated_block_to_old_time.end());
-    if (time != old_time) {
-      it_blk->second->time = time;
-      ASSERT(need_record_old_time);
-      updated_block_to_old_time[bk] = old_time;
-    } else if (need_record_old_time) {
-      updated_block_to_old_time[bk] = -1.0;
+    blk.put(v, hash3(vk) & CubeBlock::kMaxVoxelsMask);
+
+    // update the block info.
+    bool need_record_update_info = (updated_blocks.find(bk) == updated_blocks.end());
+    auto old_time = blk.time.load(std::memory_order_relaxed);
+    if (need_record_update_info) {
+      BlockUpdateInfo& update_info = updated_blocks[bk];
+      update_info.is_new = is_new_block;
+      if (time != old_time) {
+        update_info.old_time = old_time;
+      } else {
+        update_info.old_time = -1.0;
+      }
     }
   }
 
-  void removeOldBlocksIfNeeded() {
-    for (auto& item : updated_block_to_old_time) {
-      auto& bk = item.first;
-      auto& old_time = item.second;
-      if (old_time > 0) {
-        auto it = time_to_blocks.find(old_time);
-        ASSERT(it != time_to_blocks.end());
-        it->second.erase(bk);
-        // if (it->second.empty()) {
-        //   time_to_blocks.erase(it);
-        // }
-      }
-    }
+  void removeOldBlocksIfNeeded(
+    const Timestamp& time,
+    const std::vector<
+        std::unordered_map<BlockKey3, BlockUpdateInfo, SpatialHash3>>&
+      updated_blocks_array) {
 
-    while (blocks_map.size() > kMaxBlocks) {
-      if (time_to_blocks.size() <= 1) {  // keep at least 1 frame
-        break;
-      }
-      for (const auto& bk_to_remove : time_to_blocks.begin()->second) {
-        blocks_map.erase(bk_to_remove);
-
-        BlockKey2 bk2(bk_to_remove.x(), bk_to_remove.y());
-        auto it = xy_to_z_blocks.find(bk2);
-        ASSERT(it != xy_to_z_blocks.end());
-        it->second.erase(bk_to_remove.z());
-        if (it->second.empty()) {
-          xy_to_z_blocks.erase(it);
-        }
-
-        RegionKey3 rk(bk_to_remove.x() >> kRaycastRegionSideLengthInBlocksPow,
-                      bk_to_remove.y() >> kRaycastRegionSideLengthInBlocksPow,
-                      bk_to_remove.z() >> kRaycastRegionSideLengthInBlocksPow);
-        auto it_rk = raycast_regions.find(rk);
-        ASSERT(it_rk != raycast_regions.end());
-        it_rk->second.erase(bk_to_remove);
-        if (it_rk->second.empty()) {
-          raycast_regions.erase(it_rk);
+    using UpdateInfoHandler
+        = std::function<void(const BlockKey3&, const BlockUpdateInfo&)>;
+    auto foreach_updated_block = [&](const UpdateInfoHandler& handler) {
+      for (const auto& updated_blocks : updated_blocks_array) {
+        for (const auto& item : updated_blocks) {
+          const BlockKey3& bk = item.first;
+          const BlockUpdateInfo& update_info = item.second;
+          handler(bk, update_info);
         }
       }
-      time_to_blocks.erase(time_to_blocks.begin());
+    };
+
+    auto update_time_to_blocks = [&]() {
+      auto& new_blocks = time_to_blocks[time];
+      foreach_updated_block([&] (const BlockKey3& bk, const BlockUpdateInfo& u) {
+        if (u.old_time > 0) {
+          auto it = time_to_blocks.find(u.old_time);
+          //ASSERT(it != time_to_blocks.end());
+          it->second.erase(bk);
+          // if (it->second.empty()) {
+          //   time_to_blocks.erase(it);
+          // }
+        }
+        new_blocks.insert(bk);
+      });
+    };
+
+    auto update_region_to_blocks = [&]() {
+      foreach_updated_block([&](const BlockKey3& bk, const BlockUpdateInfo& u) {
+        if (u.is_new) {
+          RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
+                        bk.y() >> kRaycastRegionSideLengthInBlocksPow,
+                        bk.z() >> kRaycastRegionSideLengthInBlocksPow);
+
+          auto insert_res = raycast_regions[rk].insert(bk);
+          ASSERT(insert_res.second);
+        }
+      });
+    };
+
+    auto update_xy_to_z_blocks = [&]() {
+      foreach_updated_block([&](const BlockKey3& bk, const BlockUpdateInfo& u) {
+        if (u.is_new) {
+          BlockKey2 bk2(bk.x(), bk.y());
+          auto insert_res = xy_to_z_blocks[bk2].insert(bk.z());
+          ASSERT(insert_res.second);
+        }
+      });
+    };
+
+#ifdef USE_HEAR_SLAM
+    // std::memcpy(buf->buf, this, sizeof(SimpleDenseMapT<_reserved_blocks_pow>));
+    auto pool = thread_pool_group->getNamed("ov_map_rgbd_w");
+    std::vector<hear_slam::TaskID> task_ids;
+    task_ids.push_back(pool->schedule(update_time_to_blocks));
+    task_ids.push_back(pool->schedule(update_region_to_blocks));
+    task_ids.push_back(pool->schedule(update_xy_to_z_blocks));
+    pool->waitTasks(task_ids.begin(), task_ids.end());
+    task_ids.clear();
+#else
+    update_time_to_blocks();
+    update_region_to_blocks();
+    update_xy_to_z_blocks();    
+#endif
+
+    // collect the blocks to remove
+    std::map<double, std::unordered_set<BlockKey3, SpatialHash3>> to_remove_time_to_blocks;
+
+    size_t to_remove_size = blocks_map.size() - kMaxBlocks;
+    size_t tmp_size = 0;
+    while (time_to_blocks.size() > 1  // keep at least 1 frame
+            && tmp_size < to_remove_size) {
+      auto begin = time_to_blocks.begin();
+      tmp_size += begin->second.size();
+      to_remove_time_to_blocks[begin->first] = std::move(begin->second);
+      time_to_blocks.erase(begin);
     }
 
-    updated_block_to_old_time.clear();
-    return;
+    auto foreach_block_to_remove = [&](const std::function<void(const BlockKey3& bk)>& f) {
+      for (const auto& item : to_remove_time_to_blocks) {
+        for (const auto& bk : item.second) {
+          f(bk);
+        }
+      }
+    };
+
+    auto remove_from_region_to_blocks = [&]() {
+      foreach_block_to_remove([&](const BlockKey3& bk){
+        RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
+                      bk.y() >> kRaycastRegionSideLengthInBlocksPow,
+                      bk.z() >> kRaycastRegionSideLengthInBlocksPow);
+        auto rit = raycast_regions.find(rk);
+        rit->second.erase(bk);
+        if (rit->second.empty()) {
+          raycast_regions.erase(rit);
+        }
+      });
+    };
+
+    auto remove_from_xy_to_z_blocks = [&]() {
+      foreach_block_to_remove([&](const BlockKey3& bk){
+          BlockKey2 bk2(bk.x(), bk.y());
+          auto it = xy_to_z_blocks.find(bk2);
+          it->second.erase(bk.z());
+          if (it->second.empty()) {
+            xy_to_z_blocks.erase(it);
+          }
+      });
+    };
+
+    auto remove_from_blocks_map = [&]() {
+      foreach_block_to_remove([&](const BlockKey3& bk){
+        auto it = blocks_map.find(bk);
+        ASSERT(it != blocks_map.end());
+        blocks_map.erase(it);
+      });
+    };
+
+
+#ifdef USE_HEAR_SLAM
+    task_ids.push_back(pool->schedule(remove_from_region_to_blocks));
+    task_ids.push_back(pool->schedule(remove_from_xy_to_z_blocks));
+    task_ids.push_back(pool->schedule(remove_from_blocks_map));
+    pool->waitTasks(task_ids.begin(), task_ids.end());
+    task_ids.clear();
+#else
+    remove_from_region_to_blocks();
+    remove_from_xy_to_z_blocks();
+    remove_from_blocks_map();
+#endif
+
+    ASSERT(blocks_map.size() <= kMaxBlocks);
   }
 
 
@@ -585,35 +672,69 @@ struct SimpleDenseMapT final {
       }
     }
 
-    std::vector<std::shared_ptr<CubeBlock>> block_data;
-    block_data.reserve(involved_xy_blocks.size() * ((max_h - min_h) / block_resolution + 1) * 2);
+    std::shared_ptr<std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2>> output_xy_to_z_blocks;
+    {
+      std::unique_lock<std::mutex> lock(output_mutex);
+      if (output && output->output_xy_to_z_blocks) {
+        output_xy_to_z_blocks = output->output_xy_to_z_blocks;
+      } else {
+        return height_map;
+      }
+    }
+
+
+    auto foreach_block_lock = [&](const std::function<void(const CubeBlock&)>& f) {
+      std::vector<std::shared_ptr<CubeBlock>> block_data;
+      block_data.reserve(involved_xy_blocks.size() * ((max_h - min_h) / block_resolution + 1) * 2);
 
 #ifdef USE_HEAR_SLAM
-    tc.tag("BeforeRetrieveBlocks");
+      tc.tag("BeforeRetrieveBlocks");
 #endif
-    {
+
       for (auto & bk2 : involved_xy_blocks) {
         std::unique_lock<std::mutex> lk(mapping_mutex_);
-        auto zit = xy_to_z_blocks.find(bk2);
-        if (zit != xy_to_z_blocks.end()) {
+        auto zit = output_xy_to_z_blocks->find(bk2);
+        if (zit != output_xy_to_z_blocks->end()) {
           for (auto& z : zit->second) {
             // block_data.push_back(blocks_map.at(BlockKey3(bk2.x(), bk2.y(), z))->clone());
             block_data.push_back(blocks_map.at(BlockKey3(bk2.x(), bk2.y(), z)));
           }
         }
       }
-    }
+
 #ifdef USE_HEAR_SLAM
-    tc.tag("AfterRetrieveBlocks");
+      tc.tag("AfterRetrieveBlocks");
 #endif
+
+      for (auto & block : block_data) {
+        f(*block);
+      }
+    };
+
+    auto foreach_block_lockless = [&](const std::function<void(const CubeBlock&)>& f) {
+      for (auto & bk2 : involved_xy_blocks) {
+        std::unique_lock<std::mutex> lk(mapping_mutex_);
+        auto zit = output_xy_to_z_blocks->find(bk2);
+        if (zit != output_xy_to_z_blocks->end()) {
+          for (auto& z : zit->second) {
+            auto it = blocks_map.find(BlockKey3(bk2.x(), bk2.y(), z));
+            f(*(it->second));
+          }
+        }
+      }
+    };
+
+    auto& foreach_block = foreach_block_lock;
+    // auto& foreach_block = foreach_block_lockless;
 
     const int32_t center_zi = center_z / this->resolution;
     const int32_t discrepancy_thr_i = discrepancy_thr / this->resolution;
-    for (auto & block : block_data) {
+
+    foreach_block([&](const CubeBlock& block){
       for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
-        auto &voxel = block->voxels[i];
+        auto voxel = block.voxels[i].atomicClone();
         if (voxel.u_.status) {
-          auto p = block->getVoxPosition(voxel);
+          auto p = block.getVoxPosition(voxel);
           auto& vx = p.x();
           auto& vy = p.y();
           auto vit = voxelxy_to_imgxy.find(PixelKey(vx, vy));
@@ -640,7 +761,8 @@ struct SimpleDenseMapT final {
           }
         }
       }
-    }
+    });
+
 #ifdef USE_HEAR_SLAM
     tc.tag("HeightmapDone");
     tc.report("HeightmapTiming: ", true);
@@ -666,7 +788,9 @@ struct SimpleDenseMapT final {
   }
 
 
+#ifdef USE_HEAR_SLAM
   hear_slam::ThreadPoolGroup* thread_pool_group;
+#endif
   mutable std::mutex mapping_mutex_;
   static SpatialHash3 hash3;
 
@@ -884,11 +1008,6 @@ protected:
     }
   }
 
-  template <typename Vec>
-  void insert_voxel(const Vec& p, const VoxColor& c, const Timestamp& time) {
-    map_->insert(p, c, time);
-  }
-
   void insert_rgbd_frame(const cv::Mat& color, const cv::Mat& depth,
                          size_t cam,
                          const Eigen::Isometry3f& T_W_C,
@@ -906,9 +1025,28 @@ protected:
       end_col = color.cols;
     }
 
+#ifdef USE_HEAR_SLAM
+    size_t row_group_size = 10 * pixel_downsample;
+    size_t total_groups = (end_row - start_row) / row_group_size + 1;
+
+    std::vector<
+        std::unordered_map<BlockKey3, SimpleDenseMap::BlockUpdateInfo, SpatialHash3>>
+      updated_blocks_array;
+    updated_blocks_array.resize(total_groups);
+#else
+    std::vector<
+        std::unordered_map<BlockKey3, SimpleDenseMap::BlockUpdateInfo, SpatialHash3>>
+      updated_blocks_array;
+    updated_blocks_array.resize(1);
+#endif
+
     // auto& undistort = cam_to_undistort_.at(cam);
     auto& undistort = cam_to_param_.at(cam)->quick_undistort_func;    
-    auto insert_row_range = [&](int first_row, int last_row) {
+    auto insert_row_range = [&](int first_row, int last_row, size_t group_id=0) {
+      std::unordered_map<BlockKey3, SimpleDenseMap::BlockUpdateInfo, SpatialHash3>&
+          updated_blocks = updated_blocks_array.at(group_id);
+      std::unordered_map<BlockKey3, std::shared_ptr<CubeBlock>, SpatialHash3> blocks_map_cache;
+
       last_row = std::min(end_row, last_row);
       for (size_t y=first_row; y<last_row; y+=pixel_downsample) {
         for (size_t x=0; x<end_col; x+=pixel_downsample) {
@@ -935,7 +1073,7 @@ protected:
           // p3d_w /= resolution_;
           // VoxPosition pos(round(p3d_w.x()), round(p3d_w.y()), round(p3d_w.z()));
           // insert_voxel(pos, c, time);
-          insert_voxel(p3d_w, c, time);
+          map_->insert_voxel(p3d_w, c, time, updated_blocks, blocks_map_cache);
         }
       }
     };
@@ -946,11 +1084,10 @@ protected:
     ASSERT(pool);
     ASSERT(pool->numThreads() == std::thread::hardware_concurrency());
 
-    size_t row_group_size = 10 * pixel_downsample;
     using hear_slam::TaskID;
     using hear_slam::INVALID_TASK;
     std::vector<TaskID> task_ids;
-    task_ids.reserve((end_row - start_row) / row_group_size + 1);
+    task_ids.reserve(total_groups);
     for (size_t y=start_row; y<end_row; y+=row_group_size) {
       auto new_task = pool->schedule(
         [&insert_row_range, row_group_size, y](){
@@ -966,7 +1103,7 @@ protected:
     insert_row_range(start_row, end_row);
 #endif
     tc_.tag("InsertDone");
-    map_->removeOldBlocksIfNeeded();
+    map_->removeOldBlocksIfNeeded(time, updated_blocks_array);
     tc_.tag("OldBlocksRemoved");
   }
 
