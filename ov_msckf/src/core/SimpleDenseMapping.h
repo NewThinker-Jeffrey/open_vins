@@ -650,7 +650,8 @@ struct SimpleDenseMapT final {
     // collect the blocks to remove
     std::map<double, std::unordered_set<BlockKey3, SpatialHash3>> to_remove_time_to_blocks;
 
-    size_t to_remove_size = blocks_map.size() - kMaxBlocks;
+    size_t to_remove_size = (blocks_map.size() > kMaxBlocks ?
+                             blocks_map.size() - kMaxBlocks : 0);
     size_t tmp_size = 0;
     while (time_to_blocks.size() > 1  // keep at least 1 frame
             && tmp_size < to_remove_size) {
@@ -1144,6 +1145,7 @@ protected:
       std::unordered_map<BlockKey3, SimpleDenseMap::BlockUpdateInfo, SpatialHash3>&
           updated_blocks = updated_blocks_array.at(group_id);
       std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3> blocks_map_cache;
+      blocks_map_cache.rehash(100000);
 
       last_row = std::min(end_row, last_row);
       for (size_t y=first_row; y<last_row; y+=pixel_downsample) {
@@ -1186,12 +1188,14 @@ protected:
     using hear_slam::INVALID_TASK;
     std::vector<TaskID> task_ids;
     task_ids.reserve(total_groups);
+    size_t group_id = 0;
     for (size_t y=start_row; y<end_row; y+=row_group_size) {
       auto new_task = pool->schedule(
-        [&insert_row_range, row_group_size, y](){
-          insert_row_range(y, y+row_group_size);
+        [&insert_row_range, row_group_size, y, group_id](){
+          insert_row_range(y, y+row_group_size, group_id);
         });
       task_ids.emplace_back(new_task);
+      group_id++;
     }
     pool->waitTasks(task_ids.rbegin(), task_ids.rend());
     // pool->freeze();
