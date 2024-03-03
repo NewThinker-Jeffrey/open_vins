@@ -41,7 +41,7 @@
 #include "hear_slam/basic/circular_queue.h"
 #endif
 
-// #define USE_ATOMIC_BLOCK_MAP
+#define USE_ATOMIC_BLOCK_MAP
 
 namespace ov_msckf {
 namespace dense_mapping {
@@ -167,11 +167,11 @@ struct alignas(8) CubeBlock final {
   const VoxelKey vk0;
 
   CubeBlock(const BlockKey3& k=BlockKey3(0, 0, 0)) :
-      bk(k), time(0.0), vk0(
+      bk(k), vk0(
         k.x() << kSideLengthPow,
         k.y() << kSideLengthPow,
         k.z() << kSideLengthPow
-      ) {}
+      ) {reset();}
 
   inline void put(const Voxel& v, size_t idx) {
     Voxel vox = v;
@@ -181,7 +181,7 @@ struct alignas(8) CubeBlock final {
 
   inline void reset() {
     std::memset(voxels, 0, sizeof(voxels));
-    time = 0.0;
+    time.store(0.0, std::memory_order_relaxed);
   }
 
   // std::shared_ptr<CubeBlock> clone() {
