@@ -705,7 +705,7 @@ struct SimpleDenseMapT final {
 #endif
       foreach_block_to_remove([&](const BlockKey3& bk){
 #ifdef USE_ATOMIC_BLOCK_MAP        
-        // ASSERT(blocks_map.erase(bk));
+        ASSERT(blocks_map.erase(bk));
         blocks_map.erase(bk);
 #else
         auto it = blocks_map.find(bk);
