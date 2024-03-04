@@ -171,7 +171,10 @@ struct alignas(8) CubeBlock final {
         k.x() << kSideLengthPow,
         k.y() << kSideLengthPow,
         k.z() << kSideLengthPow
-      ) {reset();}
+      ) {
+    time.store(0.0, std::memory_order_relaxed);
+    clearVoxels();
+  }
 
   inline void put(const Voxel& v, size_t idx) {
     Voxel vox = v;
@@ -179,9 +182,8 @@ struct alignas(8) CubeBlock final {
     voxels[idx] = vox;
   }
 
-  inline void reset() {
+  inline void clearVoxels() {
     std::memset(voxels, 0, sizeof(voxels));
-    time.store(0.0, std::memory_order_relaxed);
   }
 
   // std::shared_ptr<CubeBlock> clone() {
@@ -287,6 +289,8 @@ struct SimpleDenseMapT final {
 
   std::unordered_map<RegionKey3, std::unordered_set<BlockKey3, SpatialHash3>, SpatialHash3> raycast_regions;
   std::map<double, std::unordered_set<BlockKey3, SpatialHash3>> time_to_blocks;
+
+  mutable std::shared_mutex mutex_xy_to_z_blocks;
   std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2> xy_to_z_blocks;
 
  public:
@@ -298,7 +302,7 @@ struct SimpleDenseMapT final {
 #ifndef USE_ATOMIC_BLOCK_MAP
     std::shared_ptr<std::vector<CubeBlockRefPtr>> output_blocks;
 #endif    
-    std::shared_ptr<std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2>> output_xy_to_z_blocks;    
+    // std::shared_ptr<std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2>> output_xy_to_z_blocks;    
 
     // using AlignedBuf = AlignedBufT<sizeof(CubeBlock)>;
     // OutputVoxels(size_t n_blocks) {
@@ -386,17 +390,17 @@ struct SimpleDenseMapT final {
       return;
     }
 
-    auto copy_xy_to_z_blocks = [&]() {
-      auto output_xy_to_z_blocks = std::make_shared<
-          std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2>
-        >();
-      *output_xy_to_z_blocks = xy_to_z_blocks;  // copy xy_to_z_blocks
+    // auto copy_xy_to_z_blocks = [&]() {
+    //   auto output_xy_to_z_blocks = std::make_shared<
+    //       std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2>
+    //     >();
+    //   *output_xy_to_z_blocks = xy_to_z_blocks;  // copy xy_to_z_blocks
 
-      std::unique_lock<std::mutex> lock(output_mutex);
-      std::swap(output->output_xy_to_z_blocks, output_xy_to_z_blocks);
-    };
+    //   std::unique_lock<std::mutex> lock(output_mutex);
+    //   std::swap(output->output_xy_to_z_blocks, output_xy_to_z_blocks);
+    // };
 
-    copy_xy_to_z_blocks();
+    // copy_xy_to_z_blocks();
 
 #ifndef USE_ATOMIC_BLOCK_MAP
     auto collect_blocks = [&]() {
@@ -544,7 +548,7 @@ struct SimpleDenseMapT final {
       blkp = cache_it_blk->second.get();
     } else {
       CubeBlockRefPtr blkptr;
-      std::unique_lock<std::mutex> lk(mapping_mutex_);
+      std::unique_lock<std::shared_mutex> lk(mutex_blocks_map_);
       auto it_blk = blocks_map.find(bk);
       if (it_blk == blocks_map.end()) {
         it_blk = blocks_map.insert({bk, std::make_shared<CubeBlock>(bk)}).first;
@@ -623,6 +627,7 @@ struct SimpleDenseMapT final {
     };
 
     auto update_xy_to_z_blocks = [&]() {
+      std::unique_lock<std::shared_mutex> lock(mutex_xy_to_z_blocks);
       foreach_updated_block([&](const BlockKey3& bk, const BlockUpdateInfo& u) {
         if (u.is_new) {
           BlockKey2 bk2(bk.x(), bk.y());
@@ -683,6 +688,7 @@ struct SimpleDenseMapT final {
     };
 
     auto remove_from_xy_to_z_blocks = [&]() {
+      std::unique_lock<std::shared_mutex> lock(mutex_xy_to_z_blocks);
       foreach_block_to_remove([&](const BlockKey3& bk){
           BlockKey2 bk2(bk.x(), bk.y());
           auto it = xy_to_z_blocks.find(bk2);
@@ -694,9 +700,13 @@ struct SimpleDenseMapT final {
     };
 
     auto remove_from_blocks_map = [&]() {
+#ifndef USE_ATOMIC_BLOCK_MAP
+      std::unique_lock<std::shared_mutex> lk(mutex_blocks_map_);
+#endif
       foreach_block_to_remove([&](const BlockKey3& bk){
 #ifdef USE_ATOMIC_BLOCK_MAP        
-        ASSERT(blocks_map.erase(bk));
+        // ASSERT(blocks_map.erase(bk));
+        blocks_map.erase(bk);
 #else
         auto it = blocks_map.find(bk);
         ASSERT(it != blocks_map.end());
@@ -764,33 +774,53 @@ struct SimpleDenseMapT final {
       }
     }
 
-    std::shared_ptr<std::unordered_map<BlockKey2, std::unordered_set<BlockKey3::Scalar>, SpatialHash2>> output_xy_to_z_blocks;
-    {
-      std::unique_lock<std::mutex> lock(output_mutex);
-      if (output && output->output_xy_to_z_blocks) {
-        output_xy_to_z_blocks = output->output_xy_to_z_blocks;
-      } else {
-        return height_map;
-      }
-    }
-
 #ifdef USE_ATOMIC_BLOCK_MAP
-    auto foreach_block_lockless = [&](const std::function<void(const CubeBlock&)>& f) {
-      for (auto & bk2 : involved_xy_blocks) {
-        std::unique_lock<std::mutex> lk(mapping_mutex_);
-        auto zit = output_xy_to_z_blocks->find(bk2);
-        if (zit != output_xy_to_z_blocks->end()) {
-          for (auto& z : zit->second) {
-            processBlock(BlockKey3(bk2.x(), bk2.y(), z), f);
+
+    auto pool = thread_pool_group->getNamed("ov_map_rgbd_w");
+    ASSERT(pool);
+
+    auto foreach_block = [&](const std::function<void(const CubeBlock&)>& f) {
+
+      std::vector<BlockKey2> block_key2s;
+      // convert set involved_xy_blocks to vector block_key2s
+      block_key2s.reserve(involved_xy_blocks.size());
+      block_key2s.insert(block_key2s.end(), involved_xy_blocks.begin(), involved_xy_blocks.end());
+
+      // size_t n_executors = pool->numThreads();
+      size_t n_executors = 1;
+
+      std::atomic<size_t> n_processed(0);
+      std::vector<std::vector<BlockKey3>> blocks_array(n_executors);
+      auto retrieve_blocks = [&](size_t executor_idx) {
+        std::vector<BlockKey3>& blocks = blocks_array[executor_idx];
+        blocks.reserve(block_key2s.size() * 20 / n_executors);
+        size_t key2_idx;
+
+        std::shared_lock<std::shared_mutex> lock(mutex_xy_to_z_blocks);
+        while((key2_idx=n_processed.fetch_add(1)) < block_key2s.size()) {
+          const auto& bk2 = block_key2s[key2_idx];
+          auto zit = xy_to_z_blocks.find(bk2);
+          if (zit != xy_to_z_blocks.end()) {
+            for (auto& z : zit->second) {
+              blocks.emplace_back(bk2.x(), bk2.y(), z);
+            }
           }
+        }
+      };
+
+      tc.tag("BeforeRetrieveBlocks");
+      retrieve_blocks(0);
+      tc.tag("AfterRetrieveBlocks");
+
+      for (size_t i=0; i<n_executors; ++i) {
+        for (const auto& bk : blocks_array[i]) {
+          processBlock(bk, f);
         }
       }
     };
 
-    auto& foreach_block = foreach_block_lockless;
-
 #else
-    auto foreach_block_lock = [&](const std::function<void(const CubeBlock&)>& f) {
+    auto foreach_block = [&](const std::function<void(const CubeBlock&)>& f) {
       std::vector<CubeBlockRefPtr> block_data;
       block_data.reserve(involved_xy_blocks.size() * ((max_h - min_h) / block_resolution + 1) * 2);
 
@@ -799,9 +829,10 @@ struct SimpleDenseMapT final {
 #endif
 
       for (auto & bk2 : involved_xy_blocks) {
-        std::unique_lock<std::mutex> lk(mapping_mutex_);
-        auto zit = output_xy_to_z_blocks->find(bk2);
-        if (zit != output_xy_to_z_blocks->end()) {
+        std::shared_lock<std::shared_mutex> lk(mutex_blocks_map_);
+        std::shared_lock<std::shared_mutex> lk2(mutex_xy_to_z_blocks);
+        auto zit = xy_to_z_blocks.find(bk2);
+        if (zit != xy_to_z_blocks.end()) {
           for (auto& z : zit->second) {
             auto it = blocks_map.find(BlockKey3(bk2.x(), bk2.y(), z));
             if (it != blocks_map.end()) {
@@ -823,7 +854,6 @@ struct SimpleDenseMapT final {
       }
     };
 
-    auto& foreach_block = foreach_block_lock;
 #endif
 
     const int32_t center_zi = center_z / this->resolution;
@@ -841,6 +871,8 @@ struct SimpleDenseMapT final {
             auto& vzi = p.z();
             auto& imgx = vit->second.first;
             auto& imgy = vit->second.second;
+
+            // may race if parallelized
             auto& max_zi = hmax.at<int32_t>(imgy, imgx);
             auto& min_zi = hmin.at<int32_t>(imgy, imgx);
             if (vzi > max_zi) {
@@ -890,7 +922,7 @@ struct SimpleDenseMapT final {
 #ifdef USE_HEAR_SLAM
   hear_slam::ThreadPoolGroup* thread_pool_group;
 #endif
-  mutable std::mutex mapping_mutex_;
+  mutable std::shared_mutex mutex_blocks_map_;
   static SpatialHash3 hash3;
 
   // EIGEN_ALIGN16 uint8_t _[16];
@@ -1254,27 +1286,52 @@ protected:
       }
     };
 
-    auto check_cube_observability = [&](const Eigen::Vector3f& min_corner, float side_length) {
+    auto is_point_observable = [&](const Eigen::Vector3f& p) {
+      Eigen::Vector2i ixy;
+      float depth_V;
+      return project_point(p, ixy, depth_V);
+    };
+
+    auto is_cube_observable = [&](const Eigen::Vector3f& min_corner, float side_length) {
       std::vector <Eigen::Vector3f> corners;
       corners.reserve(8);
       for (int i=0; i<8; i++) {
         corners.emplace_back(min_corner + Eigen::Vector3f(side_length*(i&1), side_length*((i>>1)&1), side_length*((i>>2)&1)));
       }
-      return std::any_of(corners.begin(), corners.end(), [&](const Eigen::Vector3f& corner) {
-        Eigen::Vector2i ixy;
-        float depth_V;
-        return project_point(corner, ixy, depth_V);        
-      });
+      return std::any_of(corners.begin(), corners.end(), is_point_observable);
     };
 
-    auto check_block_observability = [&](const BlockKey3& bk) {
+    auto is_block_observable = [&](const BlockKey3& bk) {
       float side_length = CubeBlock::kSideLength * resolution_;
       Eigen::Vector3f block_min_corner(
         (bk.x() << CubeBlock::kSideLengthPow) * resolution_,
         (bk.y() << CubeBlock::kSideLengthPow) * resolution_,
         (bk.z() << CubeBlock::kSideLengthPow) * resolution_
       );
-      return check_cube_observability(block_min_corner, side_length);
+      return is_cube_observable(block_min_corner, side_length);
+    };
+
+    auto cube_observable_corners = [&](const Eigen::Vector3f& min_corner, float side_length) {
+      std::vector <Eigen::Vector3f> observable_corners;
+      observable_corners.reserve(8);
+      for (int i=0; i<8; i++) {
+        Eigen::Vector3f corner = 
+          min_corner + Eigen::Vector3f(side_length*(i&1), side_length*((i>>1)&1), side_length*((i>>2)&1));
+        if (is_point_observable(corner)) {
+          observable_corners.push_back(corner);
+        }
+      }
+      return observable_corners;
+    };
+
+    auto block_observable_corners = [&](const BlockKey3& bk) {
+      float side_length = CubeBlock::kSideLength * resolution_;
+      Eigen::Vector3f block_min_corner(
+        (bk.x() << CubeBlock::kSideLengthPow) * resolution_,
+        (bk.y() << CubeBlock::kSideLengthPow) * resolution_,
+        (bk.z() << CubeBlock::kSideLengthPow) * resolution_
+      );
+      return cube_observable_corners(block_min_corner, side_length);
     };
 
     auto check_region_observability = [&](const RegionKey3& rk) {
@@ -1301,21 +1358,52 @@ protected:
     };
 
     std::vector<BlockKey3> blocks = map_->getRayCastingBlocks(p_W_C, check_region_observability);
-
-#ifdef USE_HEAR_SLAM
-    auto pool = thread_pool_group_.getNamed("ov_map_rgbd_w");
-    ASSERT(pool);
-    ASSERT(pool->numThreads() == std::thread::hardware_concurrency());
+    // std::atomic<size_t> n_empty_blocks(0);
+    // std::atomic<size_t> n_unobservable_blocks(0);
+    // std::atomic<size_t> n_whole_cleared_blocks(0);
+    // std::atomic<size_t> n_normal(0);
+    // std::atomic<size_t> n_new_empty(0);
 
     std::function<void(CubeBlock&)> raycast_one_block = [&](CubeBlock& block) {
-      // Voxel voxels[kMaxVoxels]; // 64 voxels per block
-      // double time;
-      if (!check_block_observability(block.bk)) {
+
+      // bool all_corners_observable = false;
+      // size_t valid_voxels = 0;
+
+      // {
+      //   // TODO(jeffrey):
+      //   //   Consider whether the checks are worth.
+      //   // Example log:
+      //   //   total 45498: empty 20591, unobservable 10449, cleared 498, normal 13960, new empty 2639
+      //   //   total 45505: empty 20588, unobservable 10452, cleared 448, normal 14017, new empty 2586
+      //   //   total 45506: empty 20563, unobservable 10387, cleared 483, normal 14073, new empty 2564
+
+
+      //   // Check and skip.
+      //   for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
+      //     valid_voxels += (block.voxels[i].u_.status & 1);
+      //   }
+      //   if (valid_voxels == 0) {
+      //     n_empty_blocks.fetch_add(1, std::memory_order_relaxed);
+      //     return;
+      //   }
+
+      //   size_t n_observable_corners = block_observable_corners(block.bk).size();
+      //   if (n_observable_corners == 0) {
+      //     n_unobservable_blocks.fetch_add(1, std::memory_order_relaxed);
+      //     return;
+      //   }
+      //   all_corners_observable = (n_observable_corners == 8);
+      // }
+
+      if (!is_block_observable(block.bk)) {
         return;
       }
 
       Voxel* voxels = block.voxels;
       static const float depth_noise_level = 0.02;
+      // float block_width = CubeBlock::kSideLength * resolution_;
+      // float clear_block_thr = depth_noise_level + 2 * block_width;
+      // valid_voxels = 0;
       for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
         Voxel& voxel = voxels[i];
         if (voxel.u_.status) {
@@ -1326,41 +1414,87 @@ protected:
             const uint16_t d = depth.at<uint16_t>(ixy.y(), ixy.x());
             if (d == 0) continue;
             float fd = d / 1000.0f;
+            // if (all_corners_observable && depth_V < fd - clear_block_thr) {
+            //   block.clearVoxels();
+            //   n_whole_cleared_blocks.fetch_add(1, std::memory_order_relaxed);
+            //   // LOGD("Clear CubeBlock (%d, %d, %d): fd = %f, depth_V = %f", 
+            //   //      block.bk.x(), block.bk.y(), block.bk.z(), fd, depth_V);
+            //   n_new_empty.fetch_add(1, std::memory_order_relaxed);
+            //   return;
+            // }
             if (depth_V < fd - depth_noise_level) {  // eliminate the voxel if it can be cast through
               voxel.u_.status = 0;
             }
           }
+          // valid_voxels += (voxel.u_.status & 1);
         }
       }
+      // if (valid_voxels == 0) {
+      //   n_new_empty.fetch_add(1, std::memory_order_relaxed);
+      // }
+      // n_normal.fetch_add(1, std::memory_order_relaxed);
     };
 
-    // size_t block_group_size = 32;
-    size_t block_group_size = blocks.size() / (2 * pool->numThreads()) + 1;
-    auto raycast_blocks = [&](size_t first, size_t last) {
-      last = std::min(last, blocks.size());
-      for (size_t i=first; i<last; ++i) {
-        map_->processBlock(blocks[i], raycast_one_block);
+    // This implementation may present bad load balance since different block
+    // groups may differ significantly in computation cost (some group may
+    // contain many unobservable blocks which can be skipped quickly but
+    // others may consists of all observable blocks for which every voxel
+    // needs computation)
+    //
+    // // size_t block_group_size = 32;    
+    // size_t block_group_size = blocks.size() / (2 * pool->numThreads()) + 1;
+    // auto raycast_blocks = [&](size_t first, size_t last) {
+    //   last = std::min(last, blocks.size());
+    //   for (size_t i=first; i<last; ++i) {
+    //     map_->processBlock(blocks[i], raycast_one_block);
+    //   }
+    // };
+
+
+    // Balance the load
+    std::atomic<size_t> n_processed(0);
+    auto raycast_blocks = [&](){
+      size_t blk_idx;
+      while ((blk_idx = n_processed.fetch_add(1)) < blocks.size()) {
+        map_->processBlock(blocks[blk_idx], raycast_one_block);
       }
     };
 
+#ifdef USE_HEAR_SLAM
+    auto pool = thread_pool_group_.getNamed("ov_map_rgbd_w");
+    ASSERT(pool);
+    ASSERT(pool->numThreads() == std::thread::hardware_concurrency());
+
+    // using hear_slam::TaskID;
+    // using hear_slam::INVALID_TASK;
+    // std::vector<TaskID> task_ids;
+    // task_ids.reserve(blocks.size() / block_group_size + 1);
+    // for (size_t i=0; i<blocks.size(); i+=block_group_size) {
+    //   auto new_task = pool->schedule(
+    //     [&raycast_blocks, block_group_size, i](){
+    //       raycast_blocks(i, i+block_group_size);
+    //     });
+    //   task_ids.emplace_back(new_task);
+    // }
+
     using hear_slam::TaskID;
-    using hear_slam::INVALID_TASK;
-    std::vector<TaskID> task_ids;
-    task_ids.reserve(blocks.size() / block_group_size + 1);
-    for (size_t i=0; i<blocks.size(); i+=block_group_size) {
-      auto new_task = pool->schedule(
-        [&raycast_blocks, block_group_size, i](){
-          raycast_blocks(i, i+block_group_size);
-        });
-      task_ids.emplace_back(new_task);
+    std::vector<TaskID> task_ids(pool->numThreads());
+    for (size_t i=0; i<pool->numThreads(); ++i) {
+      auto new_task = pool->schedule(raycast_blocks);
+      task_ids[i] = new_task;
     }
+
     pool->waitTasks(task_ids.rbegin(), task_ids.rend());
     // pool->freeze();
     // pool->waitUntilAllTasksDone();
     // pool->unfreeze();
 #else
-    raycast_blocks(0, blocks.size());
+    // raycast_blocks(0, blocks.size());
+    raycast_blocks();
 #endif
+    // LOGI("RayCastStatistics: total %d: empty %d, unobservable %d, cleared %d, normal %d, new empty %d",
+    //      blocks.size(), n_empty_blocks.load(), n_unobservable_blocks.load(),
+    //      n_whole_cleared_blocks.load(), n_normal.load(), n_new_empty.load());
   }
 
 
