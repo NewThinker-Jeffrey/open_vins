@@ -242,8 +242,8 @@ struct SpatialHash2 {
 };
 
 #ifdef USE_ATOMIC_BLOCK_MAP
-  using CubeBlockRefPtr = hear_slam::MemPoolInnerPtr<
-      HashTable<CubeBlock, SpatialHash3>::NodeType>;
+  using BlockHashTable = HashTable<CubeBlock, SpatialHash3, 14>;  // page size is 2^14=16K
+  using CubeBlockRefPtr = typename BlockHashTable::UnderlyingMemPool::Ptr;
 #else
   using CubeBlockRefPtr = std::shared_ptr<CubeBlock>;
 #endif  
@@ -282,7 +282,7 @@ struct SimpleDenseMapT final {
   mutable std::mutex output_mutex;
 
 #ifdef USE_ATOMIC_BLOCK_MAP
-  HashTable<CubeBlock, SpatialHash3> blocks_map;
+  BlockHashTable blocks_map;
 #else
   std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3> blocks_map;
 #endif
@@ -480,7 +480,7 @@ struct SimpleDenseMapT final {
   // foreach output block
   inline void foreachBlock(const std::function<void(const CubeBlock&)>& f) const {
 #ifdef USE_ATOMIC_BLOCK_MAP
-    blocks_map.foreach(f);
+    blocks_map.foreachAlongMemory(f);
 #else
     std::unique_lock<std::mutex> lock(output_mutex);
     if (output) {
