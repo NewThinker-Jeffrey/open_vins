@@ -242,7 +242,7 @@ struct SpatialHash2 {
 };
 
 #ifdef USE_ATOMIC_BLOCK_MAP
-  using BlockHashTable = HashTable<CubeBlock, SpatialHash3, 14>;  // page size is 2^14=16K
+  using BlockHashTable = HashTable<CubeBlock, SpatialHash3, false, 14>;  // page size is 2^14=16K
   using CubeBlockRefPtr = typename BlockHashTable::UnderlyingMemPool::Ptr;
 #else
   using CubeBlockRefPtr = std::shared_ptr<CubeBlock>;
@@ -322,7 +322,7 @@ struct SimpleDenseMapT final {
     thread_pool_group(nullptr),
 #endif
 #ifdef USE_ATOMIC_BLOCK_MAP
-    blocks_map(kReservedBlocks, kReservedBlocks),
+    blocks_map(kReservedBlocks),
 #endif
     resolution(0.01) {
 
