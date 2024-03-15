@@ -252,8 +252,7 @@ template<
     size_t _reserved_blocks_pow = 18  // reserved_blocks = 2^18 = 256K by default.
     // size_t _reserved_blocks_pow = 16  // reserved_blocks = 2^16 = 64K by default.
     ,
-    // size_t _raycast_region_sidelength_in_blocks_pow = 5
-    size_t _raycast_region_sidelength_in_blocks_pow = 6
+    size_t _raycast_region_sidelength_in_blocks = 64
   >
 struct SimpleDenseMapT final {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -263,14 +262,9 @@ struct SimpleDenseMapT final {
   static constexpr size_t kMaxBlocks = kReservedBlocks * 25 / 100;  // load factor 0.25
   // static constexpr size_t kMaxBlocks = kReservedBlocks * 75 / 100;  // load factor 0.75
 
-  static constexpr size_t kRaycastRegionSideLengthInBlocksPow =
-      _raycast_region_sidelength_in_blocks_pow;
-  static constexpr size_t kRaycastRegionSideLengthInBlocks =
-      1 << kRaycastRegionSideLengthInBlocksPow;
+  static constexpr size_t kRaycastRegionSideLengthInBlocks = _raycast_region_sidelength_in_blocks;
   static constexpr size_t kRaycastRegionBlocks =
       kRaycastRegionSideLengthInBlocks * kRaycastRegionSideLengthInBlocks * kRaycastRegionSideLengthInBlocks;
-  static constexpr size_t kRaycastRegionSideLengthInBlocksMask =
-      kRaycastRegionSideLengthInBlocks - 1;
 
   double resolution;
   Timestamp time;
@@ -353,9 +347,9 @@ struct SimpleDenseMapT final {
   getRayCastingBlocks(const Vec& p, const std::function<bool(const RegionKey3&)>& check_region_observability=nullptr) const {
     auto bk_vk = getKeysOfPoint(p);
     auto& bk = bk_vk.first;
-    RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
-                  bk.y() >> kRaycastRegionSideLengthInBlocksPow,
-                  bk.z() >> kRaycastRegionSideLengthInBlocksPow);
+    RegionKey3 rk(bk.x() / kRaycastRegionSideLengthInBlocks,
+                  bk.y() / kRaycastRegionSideLengthInBlocks,
+                  bk.z() / kRaycastRegionSideLengthInBlocks);
 
     std::vector<BlockKey3> blocks;
 
@@ -616,9 +610,9 @@ struct SimpleDenseMapT final {
     auto update_region_to_blocks = [&]() {
       foreach_updated_block([&](const BlockKey3& bk, const BlockUpdateInfo& u) {
         if (u.is_new) {
-          RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
-                        bk.y() >> kRaycastRegionSideLengthInBlocksPow,
-                        bk.z() >> kRaycastRegionSideLengthInBlocksPow);
+          RegionKey3 rk(bk.x() / kRaycastRegionSideLengthInBlocks,
+                        bk.y() / kRaycastRegionSideLengthInBlocks,
+                        bk.z() / kRaycastRegionSideLengthInBlocks);
 
           auto insert_res = raycast_regions[rk].insert(bk);
           ASSERT(insert_res.second);
@@ -680,9 +674,9 @@ struct SimpleDenseMapT final {
 
     auto remove_from_region_to_blocks = [&]() {
       foreach_block_to_remove([&](const BlockKey3& bk){
-        RegionKey3 rk(bk.x() >> kRaycastRegionSideLengthInBlocksPow,
-                      bk.y() >> kRaycastRegionSideLengthInBlocksPow,
-                      bk.z() >> kRaycastRegionSideLengthInBlocksPow);
+        RegionKey3 rk(bk.x() / kRaycastRegionSideLengthInBlocks,
+                      bk.y() / kRaycastRegionSideLengthInBlocks,
+                      bk.z() / kRaycastRegionSideLengthInBlocks);
         auto rit = raycast_regions.find(rk);
         rit->second.erase(bk);
         if (rit->second.empty()) {
@@ -1338,12 +1332,12 @@ protected:
     };
 
     auto check_region_observability = [&](const RegionKey3& rk) {
-      static constexpr int kRegionSideLengthPow = SimpleDenseMap::kRaycastRegionSideLengthInBlocksPow + CubeBlock::kSideLengthPow;
-      float side_length = (1 << kRegionSideLengthPow) * resolution_;
+      static constexpr int kRegionSideLength = SimpleDenseMap::kRaycastRegionSideLengthInBlocks * CubeBlock::kSideLength;
+      float side_length = kRegionSideLength * resolution_;
       Eigen::Vector3f region_min_corner(
-        (rk.x() << kRegionSideLengthPow) * resolution_,
-        (rk.y() << kRegionSideLengthPow) * resolution_,
-        (rk.z() << kRegionSideLengthPow) * resolution_
+        (rk.x() * kRegionSideLength) * resolution_,
+        (rk.y() * kRegionSideLength) * resolution_,
+        (rk.z() * kRegionSideLength) * resolution_
       );
       std::vector <Eigen::Vector3f> corners;
       corners.reserve(8);
