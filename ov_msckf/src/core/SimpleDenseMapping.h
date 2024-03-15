@@ -598,17 +598,27 @@ struct SimpleDenseMapT final {
       }
     };
 
+    auto& new_blocks = time_to_blocks[time];
     auto update_time_to_blocks = [&]() {
-      auto& new_blocks = time_to_blocks[time];
       foreach_updated_block([&] (const BlockKey3& bk, const BlockUpdateInfo& u) {
         if (u.old_time > 0) {
           auto it = time_to_blocks.find(u.old_time);
-          //ASSERT(it != time_to_blocks.end());
+          ASSERT(it != time_to_blocks.end());
           it->second.erase(bk);
           // if (it->second.empty()) {
           //   time_to_blocks.erase(it);
           // }
         }
+#ifdef USE_ATOMIC_BLOCK_MAP
+        auto node = blocks_map.find(bk);
+        ASSERT(node);
+        node->data.time.store(time, std::memory_order_relaxed);
+#else
+        auto it = blocks_map.find(bk);
+        ASSERT(it != blocks_map.end());
+        it->second.time.store(time, std::memory_order_relaxed);
+#endif
+        std::atomic_thread_fence(std::memory_order_release);
         new_blocks.insert(bk);
       });
     };
@@ -665,6 +675,9 @@ struct SimpleDenseMapT final {
       to_remove_time_to_blocks[begin->first] = std::move(begin->second);
       time_to_blocks.erase(begin);
     }
+    if (tmp_size > 0) {
+      LOGI("NeedRemoveOldBlocks: blocks_map.size()=%d, kMaxBlocks=%d, time_to_blocks.size()=%d, to_remove_size=%d, new_blocks.size()=%d", blocks_map.size(), kMaxBlocks, tmp_size, new_blocks.size());
+    }
 
     auto foreach_block_to_remove = [&](const std::function<void(const BlockKey3& bk)>& f) {
       for (const auto& item : to_remove_time_to_blocks) {
@@ -706,7 +719,6 @@ struct SimpleDenseMapT final {
       foreach_block_to_remove([&](const BlockKey3& bk){
 #ifdef USE_ATOMIC_BLOCK_MAP        
         ASSERT(blocks_map.erase(bk));
-        blocks_map.erase(bk);
 #else
         auto it = blocks_map.find(bk);
         ASSERT(it != blocks_map.end());
