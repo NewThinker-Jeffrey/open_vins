@@ -574,6 +574,7 @@ struct SimpleDenseMapT final {
       update_info.is_new = is_new_block;
       if (time != old_time) {
         update_info.old_time = old_time;
+        blk.time.store(time, std::memory_order_relaxed);
       } else {
         update_info.old_time = -1.0;
       }
@@ -598,32 +599,18 @@ struct SimpleDenseMapT final {
       }
     };
 
-    auto& newly_updated_blocks = time_to_blocks[time];
     auto update_time_to_blocks = [&]() {
-      size_t updated_blocks = 0;  // include duplicates
+      // size_t updated_blocks = 0;  // include duplicates
       foreach_updated_block([&] (const BlockKey3& bk, const BlockUpdateInfo& u) {
         if (u.old_time > 0) {
           auto it = time_to_blocks.find(u.old_time);
           ASSERT(it != time_to_blocks.end());
           it->second.erase(bk);
-          // if (it->second.empty()) {
-          //   time_to_blocks.erase(it);
-          // }
         }
-        updated_blocks ++;
-#ifdef USE_ATOMIC_BLOCK_MAP
-        auto node = blocks_map.find(bk);
-        ASSERT(node);
-        node->data.time.store(time, std::memory_order_relaxed);
-#else
-        auto it = blocks_map.find(bk);
-        ASSERT(it != blocks_map.end());
-        it->second->time.store(time, std::memory_order_relaxed);
-#endif
-        std::atomic_thread_fence(std::memory_order_release);
-        newly_updated_blocks.insert(bk);
+        // updated_blocks ++;
+        time_to_blocks[time].insert(bk);
       });
-      LOGI("update_time_to_blocks: updated_blocks = %d", updated_blocks);
+      // LOGI("update_time_to_blocks: updated_blocks = %d", updated_blocks);
     };
 
     auto update_region_to_blocks = [&]() {
@@ -680,7 +667,7 @@ struct SimpleDenseMapT final {
     }
     if (tmp_size > 0) {
       LOGI("NeedRemoveOldBlocks: blocks_map.size()=%d, kMaxBlocks=%d, time_to_blocks.size()=%d, to_remove_size=%d, newly_updated_blocks.size()=%d",
-            blocks_map.size(), kMaxBlocks, time_to_blocks.size(), tmp_size, newly_updated_blocks.size());
+            blocks_map.size(), kMaxBlocks, time_to_blocks.size(), tmp_size, time_to_blocks[time].size());
     }
 
     auto foreach_block_to_remove = [&](const std::function<void(const BlockKey3& bk)>& f) {
