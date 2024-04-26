@@ -52,6 +52,24 @@
 #include "utils/chi_square/chi_squared_quantile_table_0_95.h"
 #include "update/UpdaterHelper.h"
 
+// #if ENABLE_MMSEG
+#include "mmdeploy/segmentor.hpp"
+
+static mmdeploy::Segmentor* getSegmentor() {
+  static mmdeploy::Segmentor* segmentor = nullptr;
+  if (!segmentor) {
+    static mmdeploy::Profiler profiler("/tmp/mmseg_profile.bin");
+    static mmdeploy::Context context;
+    context.Add(mmdeploy::Device("cuda"));
+    context.Add(profiler);
+    segmentor = new mmdeploy::Segmentor(mmdeploy::Model{"/slam/seg_model"}, context);
+  }
+  return segmentor;
+}
+
+// #endif
+
+
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
@@ -66,6 +84,8 @@ VioManager::VioManager(VioManagerOptions &params_) :
   PRINT_DEBUG("=======================================\n");
   PRINT_DEBUG("OPENVINS ON-MANIFOLD EKF IS STARTING\n");
   PRINT_DEBUG("=======================================\n");
+
+  //getSegmentor();
 
   // Nice debug
   this->params = params_;
@@ -372,6 +392,7 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
 
   // Start timing
   c->rT1 = std::chrono::high_resolution_clock::now();
+  c->rT0 = c->rT1;
 
   // Check if we actually have a simulated tracker
   // If not, recreate and re-cast the tracker to our simulation tracker
@@ -507,6 +528,33 @@ void VioManager::update_thread_func() {
   }
 }
 
+void VioManager::do_masking(ImgProcessContextPtr c) {
+  ov_core::CameraData &message = *(c->message);
+
+  // semantic masking for the 1st image
+  cv::Mat img = message.images.at(0);
+  cv::Mat img_temp;
+  cv::pyrDown(img, img_temp, cv::Size(img.cols / 2, img.rows / 2));
+
+  // apply the detector, the result is an array-like class holding a reference to
+  // `mmdeploy_segmentation_t`, will be released automatically on destruction
+  mmdeploy::Segmentor::Result seg = getSegmentor()->Apply(img_temp);
+
+  // cv::Mat mask_temp(img.rows / 2, img.cols / 2, CV_8UC1);
+  cv::Mat mask_cls(img.rows / 2, img.cols / 2, CV_32SC1, seg->mask);
+
+  // mask area of person
+  const int person_cls_id = 15;
+  cv::Mat mask_temp = (mask_cls == person_cls_id);
+
+  // do dilating
+  cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+  cv::Mat dilated_mask_temp;
+  cv::dilate(mask_temp, dilated_mask_temp, kernel);
+
+  cv::pyrUp(dilated_mask_temp, message.masks.at(0), cv::Size(img.cols, img.rows));
+}
+
 void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
   ov_core::CameraData &message = *(c->message);
   std::shared_ptr<Output> output = getLastOutput();
@@ -523,8 +571,14 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
     });
   }
 
-
+  // TODO: run do_masking in a specific thread.
+  c->rT0 = std::chrono::high_resolution_clock::now();
+  do_masking(c);
   c->rT1 = std::chrono::high_resolution_clock::now();
+  double time_mask = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT1 - c->rT0).count();
+  PRINT_INFO(GREEN "[TIME]: %.4f seconds for semantic masking\n" RESET, time_mask);
+
+
   // Assert we have valid measurement data and ids
   assert(!message.sensor_ids.empty());
   assert(message.sensor_ids.size() == message.images.size());
@@ -1653,6 +1707,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   //===================================================================================
 
   // Get timing statitics information
+  double time_mask = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT1 - c->rT0).count();
   double time_track = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT2 - c->rT1).count();
   double time_switch_thread = std::chrono::duration_cast<std::chrono::duration<double>>(tmp_rT2 - c->rT2).count();
   double time_prop = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT3 - tmp_rT2).count();
@@ -1660,7 +1715,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   double time_slam_update = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT5 - c->rT4).count();
   double time_slam_delay = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT6 - c->rT5).count();
   double time_marg = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT7 - c->rT6).count();
-  double time_total = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT7 - c->rT1).count();
+  double time_total = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT7 - c->rT0).count();
 
   // Timing information
   PRINT_INFO(BLUE "[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f), total(%d + %d, %.4f), timestampe: %.6f\n" RESET,
@@ -1673,6 +1728,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
                     message.timestamp
                     );
 
+  PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for semantic masking\n" RESET, time_mask);
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for tracking\n" RESET, time_track);
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for switch thread\n" RESET, time_switch_thread);
   PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for propagation\n" RESET, time_prop);

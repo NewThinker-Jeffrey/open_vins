@@ -204,12 +204,13 @@ public:
 
 protected:
   struct ImgProcessContext {
-    std::chrono::high_resolution_clock::time_point rT1, rT2, rT3, rT4, rT5, rT6, rT7;
+    std::chrono::high_resolution_clock::time_point rT0, rT1, rT2, rT3, rT4, rT5, rT6, rT7;
     std::shared_ptr<ov_core::CameraData> message;
   };  
   using ImgProcessContextPtr = std::shared_ptr<ImgProcessContext>;
   using ImgProcessContextQueue = std::deque<ImgProcessContextPtr>;
 
+  void do_masking(ImgProcessContextPtr c);
   void do_feature_tracking(ImgProcessContextPtr c);
   void do_update(ImgProcessContextPtr c);
   void update_rgbd_map(ImgProcessContextPtr c);

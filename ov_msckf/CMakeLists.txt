@@ -34,6 +34,17 @@ else ()
     add_definitions(-DENABLE_PANGOLIN=1)
 endif ()
 
+
+find_package(MMDeploy QUIET)
+if (NOT MMDeploy_FOUND)
+    message(WARNING "MMDeploy not found, disable MMSeg")
+    add_definitions(-DENABLE_MMSEG=0)
+else ()
+    message(STATUS "MMDeploy: " ${MMDeploy_FOUND})
+    add_definitions(-DENABLE_MMSEG=1)
+endif ()
+
+
 # We need c++14 for ROS2, thus just require it for everybody
 # NOTE: To future self, hope this isn't an issue...
 set(CMAKE_CXX_STANDARD 17)  # use c++ 17

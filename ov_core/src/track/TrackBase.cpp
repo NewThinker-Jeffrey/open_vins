@@ -360,7 +360,7 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
     // Overlay the mask
     cv::Mat mask = cv::Mat::zeros(img_mask_last_cache[pair.first].rows, img_mask_last_cache[pair.first].cols, CV_8UC3);
     mask.setTo(cv::Scalar(0, 0, 255), img_mask_last_cache[pair.first]);
-    cv::addWeighted(mask, 0.1, img_temp, 1.0, 0.0, img_temp);
+    cv::addWeighted(mask, 10.0, img_temp, 1.0, 0.0, img_temp);
     // Replace the output image
     img_temp.copyTo(img_out(cv::Rect(max_width * index_cam, 0, img_last_cache[pair.first].cols, img_last_cache[pair.first].rows)));
     index_cam++;
