@@ -52,7 +52,7 @@
 #include "utils/chi_square/chi_squared_quantile_table_0_95.h"
 #include "update/UpdaterHelper.h"
 
-// #if ENABLE_MMSEG
+#if ENABLE_MMSEG
 #include "mmdeploy/segmentor.hpp"
 
 static mmdeploy::Segmentor* getSegmentor() {
@@ -66,8 +66,7 @@ static mmdeploy::Segmentor* getSegmentor() {
   }
   return segmentor;
 }
-
-// #endif
+#endif
 
 
 using namespace ov_core;
@@ -85,7 +84,9 @@ VioManager::VioManager(VioManagerOptions &params_) :
   PRINT_DEBUG("OPENVINS ON-MANIFOLD EKF IS STARTING\n");
   PRINT_DEBUG("=======================================\n");
 
-  //getSegmentor();
+#if ENABLE_MMSEG
+  getSegmentor();
+#endif
 
   // Nice debug
   this->params = params_;
@@ -208,6 +209,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
   update_output(-1);
 
   if (params.async_img_process)  {
+    semantic_masking_thread_.reset(new std::thread(std::bind(&VioManager::semantic_masking_thread_func, this)));
     feature_tracking_thread_.reset(new std::thread(std::bind(&VioManager::feature_tracking_thread_func, this)));
     update_thread_.reset(new std::thread(std::bind(&VioManager::update_thread_func, this)));
   }
@@ -264,6 +266,17 @@ void VioManager::stop_threads() {
     initialization_thread_.reset();
   }
   std::cout << "initialization_thread stoped." << std::endl;
+
+  if (semantic_masking_thread_ && semantic_masking_thread_->joinable()) {
+    {
+      std::unique_lock<std::mutex> locker(semantic_masking_task_queue_mutex_);
+      semantic_masking_task_queue_cond_.notify_one();
+    }
+    semantic_masking_thread_->join();
+    semantic_masking_thread_.reset();
+  }
+  std::cout << "semantic_masking_thread stoped." << std::endl;
+
 
   if (feature_tracking_thread_ && feature_tracking_thread_->joinable()) {
     {
@@ -454,6 +467,47 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
   do_feature_propagate_update(c);
 }
 
+
+void VioManager::semantic_masking_thread_func() {
+  pthread_setname_np(pthread_self(), "ov_semantic");
+
+  while(1) {
+    ImgProcessContextPtr c;
+    size_t queue_size;
+    {
+      std::unique_lock<std::mutex> locker(semantic_masking_task_queue_mutex_);
+      semantic_masking_task_queue_cond_.wait(locker, [this](){
+        return ! semantic_masking_task_queue_.empty() || stop_request_;
+      });
+      queue_size = semantic_masking_task_queue_.size();
+      if (queue_size > 0) {
+        c = semantic_masking_task_queue_.front();
+        semantic_masking_task_queue_.pop_front();
+      } else {  // stop_request_ is true and we've finished the queue
+        return;
+      }
+    }
+
+    if (queue_size > 2) {
+      PRINT_WARNING(YELLOW "too many semantic_masking tasks in the queue!! (queue size = %d)\n" RESET,
+                    (queue_size));
+    }
+
+    c->rT0 = std::chrono::high_resolution_clock::now();
+    do_semantic_masking(c);
+    c->rT1 = std::chrono::high_resolution_clock::now();
+    double time_mask = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT1 - c->rT0).count();
+    PRINT_INFO(GREEN "[TIME]: %.4f seconds for semantic masking\n" RESET, time_mask);
+
+    {
+      std::unique_lock<std::mutex> locker(feature_tracking_task_queue_mutex_);
+      feature_tracking_task_queue_.push_back(c);
+      feature_tracking_task_queue_cond_.notify_one();
+    }
+  }
+}
+
+
 void VioManager::feature_tracking_thread_func() {
   pthread_setname_np(pthread_self(), "ov_track");
 
@@ -528,7 +582,8 @@ void VioManager::update_thread_func() {
   }
 }
 
-void VioManager::do_masking(ImgProcessContextPtr c) {
+void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
+#if ENABLE_MMSEG
   ov_core::CameraData &message = *(c->message);
 
   // semantic masking for the 1st image
@@ -552,7 +607,12 @@ void VioManager::do_masking(ImgProcessContextPtr c) {
   cv::Mat dilated_mask_temp;
   cv::dilate(mask_temp, dilated_mask_temp, kernel);
 
-  cv::pyrUp(dilated_mask_temp, message.masks.at(0), cv::Size(img.cols, img.rows));
+  cv::Mat semantic_mask;
+  cv::pyrUp(dilated_mask_temp, semantic_mask, cv::Size(img.cols, img.rows));
+
+  // Compose the semantic_mask and the original mask (i.e. message.masks.at(0))
+  message.masks.at(0) |= semantic_mask;
+#endif
 }
 
 void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
@@ -570,14 +630,6 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
       return  message.timestamp < timestamp_imu_inC || stop_request_;
     });
   }
-
-  // TODO: run do_masking in a specific thread.
-  c->rT0 = std::chrono::high_resolution_clock::now();
-  do_masking(c);
-  c->rT1 = std::chrono::high_resolution_clock::now();
-  double time_mask = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT1 - c->rT0).count();
-  PRINT_INFO(GREEN "[TIME]: %.4f seconds for semantic masking\n" RESET, time_mask);
-
 
   // Assert we have valid measurement data and ids
   assert(!message.sensor_ids.empty());
@@ -1201,11 +1253,12 @@ void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
   c->message = std::make_shared<ov_core::CameraData>(std::move(message_in));
   if (params.async_img_process)  {
     PRINT_DEBUG("Run feature tracking and state update in separate threads\n");
-    std::unique_lock<std::mutex> locker(feature_tracking_task_queue_mutex_);
-    feature_tracking_task_queue_.push_back(c);
-    feature_tracking_task_queue_cond_.notify_one();
+    std::unique_lock<std::mutex> locker(semantic_masking_task_queue_mutex_);
+    semantic_masking_task_queue_.push_back(c);
+    semantic_masking_task_queue_cond_.notify_one();
   } else {
     PRINT_DEBUG("Run feature tracking and state update in the same thread\n");
+    do_semantic_masking(c);
     do_feature_tracking(c);
     do_update(c);
     assert(!is_initialized_vio || !state->_clones_IMU.empty());

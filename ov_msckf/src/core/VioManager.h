@@ -210,7 +210,7 @@ protected:
   using ImgProcessContextPtr = std::shared_ptr<ImgProcessContext>;
   using ImgProcessContextQueue = std::deque<ImgProcessContextPtr>;
 
-  void do_masking(ImgProcessContextPtr c);
+  void do_semantic_masking(ImgProcessContextPtr c);
   void do_feature_tracking(ImgProcessContextPtr c);
   void do_update(ImgProcessContextPtr c);
   void update_rgbd_map(ImgProcessContextPtr c);
@@ -372,6 +372,12 @@ protected:
   };
   std::deque<LocalizationAnchor> initial_loc_buffer_;
   Eigen::Matrix4d last_accepted_reloc_TItoG_;
+
+  ImgProcessContextQueue semantic_masking_task_queue_;
+  std::mutex semantic_masking_task_queue_mutex_;
+  std::condition_variable semantic_masking_task_queue_cond_;
+  std::shared_ptr<std::thread> semantic_masking_thread_;
+  void semantic_masking_thread_func();
 
   ImgProcessContextQueue feature_tracking_task_queue_;
   std::mutex feature_tracking_task_queue_mutex_;
