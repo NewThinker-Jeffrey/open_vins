@@ -855,6 +855,7 @@ struct SimpleDenseMapT final {
 
     const int32_t center_zi = center_z / this->resolution;
     const int32_t discrepancy_thr_i = discrepancy_thr / this->resolution;
+    const bool adopt_max_zi = true;
 
     foreach_block([&](const CubeBlock& block){
       for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
@@ -878,13 +879,20 @@ struct SimpleDenseMapT final {
             if (vzi < min_zi) {
               min_zi = vzi;
             }
-            if (max_zi - min_zi > discrepancy_thr_i) {
-              // height_map.at<uint16_t>(imgy, imgx) = 1;
-              height_map.at<uint16_t>(imgy, imgx) = 0;
-            } else {
-              float h = (min_zi + (max_zi - min_zi) / 2 - center_zi) * this->resolution;
+
+            if (adopt_max_zi) {
+              float h = (max_zi - center_zi) * this->resolution;
               h = std::min(std::max(h, min_h), max_h); // Clamp to min/max height
               height_map.at<uint16_t>(imgy, imgx) = h / hmap_resolution + 32768;
+            } else {
+              if (max_zi - min_zi > discrepancy_thr_i) {
+                // height_map.at<uint16_t>(imgy, imgx) = 1;
+                height_map.at<uint16_t>(imgy, imgx) = 0;
+              } else {
+                float h = (min_zi + (max_zi - min_zi) / 2 - center_zi) * this->resolution;
+                h = std::min(std::max(h, min_h), max_h); // Clamp to min/max height
+                height_map.at<uint16_t>(imgy, imgx) = h / hmap_resolution + 32768;
+              }
             }
           }
         }
