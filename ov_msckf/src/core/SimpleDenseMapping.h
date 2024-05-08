@@ -772,6 +772,13 @@ struct SimpleDenseMapT final {
           float global_x = center_x + local_x * c - local_y * s;
           float global_y = center_y + local_x * s + local_y * c;
           BlockKey2 bk2(global_x / block_resolution, global_y / block_resolution);
+          if (global_x < 0.0) {
+            bk2.x() -= 1;
+          }
+          if (global_y < 0.0) {
+            bk2.y() -= 1;
+          }
+
           PixelKey voxelxy(global_x / this->resolution, global_y / this->resolution);
           voxelxy_to_imgxy[voxelxy] = std::make_pair(j, i);  // x, y
           involved_xy_blocks.insert(bk2);
