@@ -749,155 +749,183 @@ struct SimpleDenseMapT final {
 
     cv::Mat hmax(rows, cols, CV_32SC1, cv::Scalar(INT_MIN));
     cv::Mat hmin(rows, cols, CV_32SC1, cv::Scalar(INT_MAX));
-    std::unordered_set<BlockKey2, SpatialHash2> involved_xy_blocks;
-    std::unordered_map<PixelKey, std::pair<int, int>, SpatialHash2> voxelxy_to_imgxy;
     float resolution_ratio = hmap_resolution / this->resolution;
-    const size_t approx_max_xys = (rows * cols) * (resolution_ratio * resolution_ratio);
-    involved_xy_blocks.rehash(approx_max_xys);
-    voxelxy_to_imgxy.rehash(approx_max_xys * 4);
-
     float block_resolution = this->resolution * CubeBlock::kSideLength;
 
-    for (int i=0; i<rows; i++) {
-      for (int j=0; j<cols; j++) {
-        float local_x = (j - cols/2) * hmap_resolution;
-        float local_y = (i - rows/2) * hmap_resolution;
-        float global_x = center_x + local_x * c - local_y * s;
-        float global_y = center_y + local_x * s + local_y * c;
-        BlockKey2 bk2(global_x / block_resolution, global_y / block_resolution);
-        PixelKey voxelxy(global_x / this->resolution, global_y / this->resolution);
-        voxelxy_to_imgxy[voxelxy] = std::make_pair(j, i);  // x, y
-        involved_xy_blocks.insert(bk2);
+    auto fill_row_range = [&](int row_start, int row_end) {
+      if (row_end > rows) {
+        row_end = rows;
       }
-    }
+      int local_rows = row_end - row_start;
+
+
+      std::unordered_set<BlockKey2, SpatialHash2> involved_xy_blocks;
+      std::unordered_map<PixelKey, std::pair<int, int>, SpatialHash2> voxelxy_to_imgxy;
+      const size_t approx_max_xys = (local_rows * cols) * (resolution_ratio * resolution_ratio);
+      involved_xy_blocks.rehash(approx_max_xys);
+      voxelxy_to_imgxy.rehash(approx_max_xys * 4);
+
+      for (int i=row_start; i<row_end; i++) {
+        for (int j=0; j<cols; j++) {
+          float local_x = (j - cols/2) * hmap_resolution;
+          float local_y = (i - rows/2) * hmap_resolution;
+          float global_x = center_x + local_x * c - local_y * s;
+          float global_y = center_y + local_x * s + local_y * c;
+          BlockKey2 bk2(global_x / block_resolution, global_y / block_resolution);
+          PixelKey voxelxy(global_x / this->resolution, global_y / this->resolution);
+          voxelxy_to_imgxy[voxelxy] = std::make_pair(j, i);  // x, y
+          involved_xy_blocks.insert(bk2);
+        }
+      }
 
 #ifdef USE_ATOMIC_BLOCK_MAP
 
-    auto pool = thread_pool_group->getNamed("ov_map_rgbd_w");
-    ASSERT(pool);
+      auto foreach_block = [&](const std::function<void(const CubeBlock&)>& f) {
 
-    auto foreach_block = [&](const std::function<void(const CubeBlock&)>& f) {
+        std::vector<BlockKey2> block_key2s;
+        // convert set involved_xy_blocks to vector block_key2s
+        block_key2s.reserve(involved_xy_blocks.size());
+        block_key2s.insert(block_key2s.end(), involved_xy_blocks.begin(), involved_xy_blocks.end());
 
-      std::vector<BlockKey2> block_key2s;
-      // convert set involved_xy_blocks to vector block_key2s
-      block_key2s.reserve(involved_xy_blocks.size());
-      block_key2s.insert(block_key2s.end(), involved_xy_blocks.begin(), involved_xy_blocks.end());
+        // size_t n_executors = pool->numThreads();
+        size_t n_executors = 1;
 
-      // size_t n_executors = pool->numThreads();
-      size_t n_executors = 1;
+        std::atomic<size_t> n_processed(0);
+        std::vector<std::vector<BlockKey3>> blocks_array(n_executors);
+        auto retrieve_blocks = [&](size_t executor_idx) {
+          std::vector<BlockKey3>& blocks = blocks_array[executor_idx];
+          blocks.reserve(block_key2s.size() * 20 / n_executors);
+          size_t key2_idx;
 
-      std::atomic<size_t> n_processed(0);
-      std::vector<std::vector<BlockKey3>> blocks_array(n_executors);
-      auto retrieve_blocks = [&](size_t executor_idx) {
-        std::vector<BlockKey3>& blocks = blocks_array[executor_idx];
-        blocks.reserve(block_key2s.size() * 20 / n_executors);
-        size_t key2_idx;
-
-        std::shared_lock<std::shared_mutex> lock(mutex_xy_to_z_blocks);
-        while((key2_idx=n_processed.fetch_add(1)) < block_key2s.size()) {
-          const auto& bk2 = block_key2s[key2_idx];
-          auto zit = xy_to_z_blocks.find(bk2);
-          if (zit != xy_to_z_blocks.end()) {
-            for (auto& z : zit->second) {
-              blocks.emplace_back(bk2.x(), bk2.y(), z);
+          std::shared_lock<std::shared_mutex> lock(mutex_xy_to_z_blocks);
+          while((key2_idx=n_processed.fetch_add(1)) < block_key2s.size()) {
+            const auto& bk2 = block_key2s[key2_idx];
+            auto zit = xy_to_z_blocks.find(bk2);
+            if (zit != xy_to_z_blocks.end()) {
+              for (auto& z : zit->second) {
+                blocks.emplace_back(bk2.x(), bk2.y(), z);
+              }
             }
+          }
+        };
+
+        // tc.tag("BeforeRetrieveBlocks");
+        retrieve_blocks(0);
+        // tc.tag("AfterRetrieveBlocks");
+
+        for (size_t i=0; i<n_executors; ++i) {
+          for (const auto& bk : blocks_array[i]) {
+            processBlock(bk, f);
           }
         }
       };
 
-      tc.tag("BeforeRetrieveBlocks");
-      retrieve_blocks(0);
-      tc.tag("AfterRetrieveBlocks");
-
-      for (size_t i=0; i<n_executors; ++i) {
-        for (const auto& bk : blocks_array[i]) {
-          processBlock(bk, f);
-        }
-      }
-    };
-
 #else
-    auto foreach_block = [&](const std::function<void(const CubeBlock&)>& f) {
-      std::vector<CubeBlockRefPtr> block_data;
-      block_data.reserve(involved_xy_blocks.size() * ((max_h - min_h) / block_resolution + 1) * 2);
+      auto foreach_block = [&](const std::function<void(const CubeBlock&)>& f) {
+        std::vector<CubeBlockRefPtr> block_data;
+        block_data.reserve(involved_xy_blocks.size() * ((max_h - min_h) / block_resolution + 1) * 2);
 
-#ifdef USE_HEAR_SLAM
-      tc.tag("BeforeRetrieveBlocks");
-#endif
+// #ifdef USE_HEAR_SLAM
+//         tc.tag("BeforeRetrieveBlocks");
+// #endif
 
-      for (auto & bk2 : involved_xy_blocks) {
-        std::shared_lock<std::shared_mutex> lk(mutex_blocks_map_);
-        std::shared_lock<std::shared_mutex> lk2(mutex_xy_to_z_blocks);
-        auto zit = xy_to_z_blocks.find(bk2);
-        if (zit != xy_to_z_blocks.end()) {
-          for (auto& z : zit->second) {
-            auto it = blocks_map.find(BlockKey3(bk2.x(), bk2.y(), z));
-            if (it != blocks_map.end()) {
-              auto block_ptr = it->second;
-              if (block_ptr) {
-                block_data.push_back(block_ptr);
-              }              
-            }
-          }
-        }
-      }
-
-#ifdef USE_HEAR_SLAM
-      tc.tag("AfterRetrieveBlocks");
-#endif
-
-      for (auto & block : block_data) {
-        f(*block);
-      }
-    };
-
-#endif
-
-    const int32_t center_zi = center_z / this->resolution;
-    const int32_t discrepancy_thr_i = discrepancy_thr / this->resolution;
-    const bool adopt_max_zi = true;
-
-    foreach_block([&](const CubeBlock& block){
-      for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
-        auto voxel = block.voxels[i].atomicClone();
-        if (voxel.u_.status) {
-          auto p = block.getVoxPosition(voxel);
-          auto& vx = p.x();
-          auto& vy = p.y();
-          auto vit = voxelxy_to_imgxy.find(PixelKey(vx, vy));
-          if (vit != voxelxy_to_imgxy.end()) {
-            auto& vzi = p.z();
-            auto& imgx = vit->second.first;
-            auto& imgy = vit->second.second;
-
-            // may race if parallelized
-            auto& max_zi = hmax.at<int32_t>(imgy, imgx);
-            auto& min_zi = hmin.at<int32_t>(imgy, imgx);
-            if (vzi > max_zi) {
-              max_zi = vzi;
-            }
-            if (vzi < min_zi) {
-              min_zi = vzi;
-            }
-
-            if (adopt_max_zi) {
-              float h = (max_zi - center_zi) * this->resolution;
-              h = std::min(std::max(h, min_h), max_h); // Clamp to min/max height
-              height_map.at<uint16_t>(imgy, imgx) = h / hmap_resolution + 32768;
-            } else {
-              if (max_zi - min_zi > discrepancy_thr_i) {
-                // height_map.at<uint16_t>(imgy, imgx) = 1;
-                height_map.at<uint16_t>(imgy, imgx) = 0;
-              } else {
-                float h = (min_zi + (max_zi - min_zi) / 2 - center_zi) * this->resolution;
-                h = std::min(std::max(h, min_h), max_h); // Clamp to min/max height
-                height_map.at<uint16_t>(imgy, imgx) = h / hmap_resolution + 32768;
+        for (auto & bk2 : involved_xy_blocks) {
+          std::shared_lock<std::shared_mutex> lk(mutex_blocks_map_);
+          std::shared_lock<std::shared_mutex> lk2(mutex_xy_to_z_blocks);
+          auto zit = xy_to_z_blocks.find(bk2);
+          if (zit != xy_to_z_blocks.end()) {
+            for (auto& z : zit->second) {
+              auto it = blocks_map.find(BlockKey3(bk2.x(), bk2.y(), z));
+              if (it != blocks_map.end()) {
+                auto block_ptr = it->second;
+                if (block_ptr) {
+                  block_data.push_back(block_ptr);
+                }              
               }
             }
           }
         }
-      }
-    });
+
+// #ifdef USE_HEAR_SLAM
+//         tc.tag("AfterRetrieveBlocks");
+// #endif
+
+        for (auto & block : block_data) {
+          f(*block);
+        }
+      };
+
+#endif
+
+      const int32_t center_zi = center_z / this->resolution;
+      const int32_t discrepancy_thr_i = discrepancy_thr / this->resolution;
+      const bool adopt_max_zi = true;
+
+      foreach_block([&](const CubeBlock& block){
+        for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
+          auto voxel = block.voxels[i].atomicClone();
+          if (voxel.u_.status) {
+            auto p = block.getVoxPosition(voxel);
+            auto& vx = p.x();
+            auto& vy = p.y();
+            auto vit = voxelxy_to_imgxy.find(PixelKey(vx, vy));
+            if (vit != voxelxy_to_imgxy.end()) {
+              auto& vzi = p.z();
+              auto& imgx = vit->second.first;
+              auto& imgy = vit->second.second;
+
+              // may race if parallelized
+              auto& max_zi = hmax.at<int32_t>(imgy, imgx);
+              auto& min_zi = hmin.at<int32_t>(imgy, imgx);
+              if (vzi > max_zi) {
+                max_zi = vzi;
+              }
+              if (vzi < min_zi) {
+                min_zi = vzi;
+              }
+
+              if (adopt_max_zi) {
+                float h = (max_zi - center_zi) * this->resolution;
+                h = std::min(std::max(h, min_h), max_h); // Clamp to min/max height
+                height_map.at<uint16_t>(imgy, imgx) = h / hmap_resolution + 32768;
+              } else {
+                if (max_zi - min_zi > discrepancy_thr_i) {
+                  // height_map.at<uint16_t>(imgy, imgx) = 1;
+                  height_map.at<uint16_t>(imgy, imgx) = 0;
+                } else {
+                  float h = (min_zi + (max_zi - min_zi) / 2 - center_zi) * this->resolution;
+                  h = std::min(std::max(h, min_h), max_h); // Clamp to min/max height
+                  height_map.at<uint16_t>(imgy, imgx) = h / hmap_resolution + 32768;
+                }
+              }
+            }
+          }
+        }
+      });
+    };
+
+#ifdef USE_HEAR_SLAM
+    auto pool = thread_pool_group->getNamed("height_map_w");
+    ASSERT(pool);
+    std::vector<hear_slam::TaskID> task_ids;
+
+    const int row_block = 32;
+    for (int start_row=0; start_row<rows; start_row+=row_block) {
+      task_ids.push_back(pool->schedule([&fill_row_range, &row_block, start_row](){
+        fill_row_range(start_row, start_row + row_block);
+      }));
+    }
+
+    pool->waitTasks(task_ids.begin(), task_ids.end());
+    task_ids.clear();
+
+    // fill_row_range(0, rows);
+
+#else
+    fill_row_range(0, rows);
+#endif
+
+
 
 #ifdef USE_HEAR_SLAM
     tc.tag("HeightmapDone");
@@ -959,7 +987,7 @@ public:
       min_height_(min_height) {
 #ifdef USE_HEAR_SLAM
     thread_pool_group_.createNamed("ov_map_rgbd_w", std::thread::hardware_concurrency());
-    thread_pool_group_.createNamed("ov_map_height", std::thread::hardware_concurrency());
+    thread_pool_group_.createNamed("height_map_w", std::thread::hardware_concurrency());
 #endif
     insert_thread_ = std::thread(&SimpleDenseMapBuilder::insert_thread_func, this);
     map_->thread_pool_group = &thread_pool_group_;
