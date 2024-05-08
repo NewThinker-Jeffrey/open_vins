@@ -1114,6 +1114,9 @@ void VioManager::feed_measurement_camera(ov_core::CameraData message) {
     int cam_id0 = msg.sensor_ids[0];
 
     // Ensure frames with depth image be accepted.
+    //
+    // NOTE this might make the actual tracking freq larger than the parameter 'track_frequency' (when
+    // the freq of depth images is higher than the parameter 'track_frequency')
     bool has_depth = false;
     if (params.state_options.use_rgbd) {
       if (!msg.images[1].empty() && cv::countNonZero(msg.images[1]) > 0) {
