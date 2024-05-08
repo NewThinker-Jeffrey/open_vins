@@ -643,6 +643,12 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
     const cv::Mat& depth = c->message->images.at(depth_cam_id);
 
     if (cv::countNonZero(depth) > 0) {
+      static int depth_count = 0;
+      ++ depth_count;
+      if (depth_count % 3 != 0) {
+        return;
+      }
+
       auto jpl_q = state->_imu->quat();
       auto pos = state->_imu->pos();
       Eigen::Quaternionf q(jpl_q[3], jpl_q[0], jpl_q[1], jpl_q[2]);
