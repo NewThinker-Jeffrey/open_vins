@@ -614,7 +614,11 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
   // so we need to loat it atomicly.
   auto rgbd_dense_map_builder = this->rgbd_dense_map_builder;
 
-  if (rgbd_dense_map_builder && is_initialized_vio && state && state->_imu) {
+  if (!is_initialized_vio || !state || state->_clones_IMU.empty()) {
+    return;  // vio not initialized yet.
+  }
+
+  if (rgbd_dense_map_builder) {
     const size_t color_cam_id = 0;
     const size_t depth_cam_id = 1;
     const cv::Mat& color = c->message->images.at(color_cam_id);
