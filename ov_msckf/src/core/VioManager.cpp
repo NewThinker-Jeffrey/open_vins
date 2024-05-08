@@ -436,14 +436,26 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
 void VioManager::feature_tracking_thread_func() {
   pthread_setname_np(pthread_self(), "ov_track");
 
+  // bool no_drop = true;
+  bool no_drop = false;
+
   while(1) {
     ImgProcessContextPtr c;
+    int abandon = 0;
     size_t queue_size;
     {
       std::unique_lock<std::mutex> locker(feature_tracking_task_queue_mutex_);
       feature_tracking_task_queue_cond_.wait(locker, [this](){
         return ! feature_tracking_task_queue_.empty() || stop_request_;
       });
+
+      if (!no_drop) {
+        while (feature_tracking_task_queue_.size() > 2) {
+          feature_tracking_task_queue_.pop_front();
+          abandon ++;
+        }
+      }
+
       queue_size = feature_tracking_task_queue_.size();
       if (queue_size > 0) {
         c = feature_tracking_task_queue_.front();
@@ -453,7 +465,12 @@ void VioManager::feature_tracking_thread_func() {
       }
     }
 
-    if (queue_size > 2) {
+    if (!no_drop) {
+      if (abandon > 0) {
+        PRINT_WARNING(YELLOW "Abandon some feature tracking tasks!! (abandon %d)\n" RESET,
+                      (abandon));
+      }
+    } else if (queue_size > 2) {
       PRINT_WARNING(YELLOW "too many feature tracking tasks in the queue!! (queue size = %d)\n" RESET,
                     (queue_size));
     }
@@ -480,7 +497,8 @@ void VioManager::update_thread_func() {
       update_task_queue_cond_.wait(locker, [this](){
         return ! update_task_queue_.empty() || stop_request_;
       });
-      while (update_task_queue_.size() > 5) {
+      // while (update_task_queue_.size() > 5) {
+      while (update_task_queue_.size() > 2) {
         update_task_queue_.pop_front();
         abandon ++;
       }
