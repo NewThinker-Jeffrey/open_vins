@@ -511,14 +511,26 @@ void VioManager::semantic_masking_thread_func() {
 void VioManager::feature_tracking_thread_func() {
   pthread_setname_np(pthread_self(), "ov_track");
 
+  // bool no_drop = true;
+  bool no_drop = false;
+
   while(1) {
     ImgProcessContextPtr c;
+    int abandon = 0;
     size_t queue_size;
     {
       std::unique_lock<std::mutex> locker(feature_tracking_task_queue_mutex_);
       feature_tracking_task_queue_cond_.wait(locker, [this](){
         return ! feature_tracking_task_queue_.empty() || stop_request_;
       });
+
+      if (!no_drop) {
+        while (feature_tracking_task_queue_.size() > 2) {
+          feature_tracking_task_queue_.pop_front();
+          abandon ++;
+        }
+      }
+
       queue_size = feature_tracking_task_queue_.size();
       if (queue_size > 0) {
         c = feature_tracking_task_queue_.front();
@@ -528,7 +540,12 @@ void VioManager::feature_tracking_thread_func() {
       }
     }
 
-    if (queue_size > 2) {
+    if (!no_drop) {
+      if (abandon > 0) {
+        PRINT_WARNING(YELLOW "Abandon some feature tracking tasks!! (abandon %d)\n" RESET,
+                      (abandon));
+      }
+    } else if (queue_size > 2) {
       PRINT_WARNING(YELLOW "too many feature tracking tasks in the queue!! (queue size = %d)\n" RESET,
                     (queue_size));
     }
@@ -555,7 +572,8 @@ void VioManager::update_thread_func() {
       update_task_queue_cond_.wait(locker, [this](){
         return ! update_task_queue_.empty() || stop_request_;
       });
-      while (update_task_queue_.size() > 5) {
+      // while (update_task_queue_.size() > 5) {
+      while (update_task_queue_.size() > 2) {
         update_task_queue_.pop_front();
         abandon ++;
       }
@@ -720,13 +738,23 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
   // so we need to loat it atomicly.
   auto rgbd_dense_map_builder = this->rgbd_dense_map_builder;
 
-  if (rgbd_dense_map_builder && is_initialized_vio && state && state->_imu) {
+  if (!is_initialized_vio || !state || state->_clones_IMU.empty()) {
+    return;  // vio not initialized yet.
+  }
+
+  if (rgbd_dense_map_builder) {
     const size_t color_cam_id = 0;
     const size_t depth_cam_id = 1;
     const cv::Mat& color = c->message->images.at(color_cam_id);
     const cv::Mat& depth = c->message->images.at(depth_cam_id);
 
     if (cv::countNonZero(depth) > 0) {
+      static int depth_count = 0;
+      ++ depth_count;
+      if (depth_count % 3 != 0) {
+        return;
+      }
+
       auto jpl_q = state->_imu->quat();
       auto pos = state->_imu->pos();
       Eigen::Quaternionf q(jpl_q[3], jpl_q[0], jpl_q[1], jpl_q[2]);
@@ -1216,6 +1244,9 @@ void VioManager::feed_measurement_camera(ov_core::CameraData message) {
     int cam_id0 = msg.sensor_ids[0];
 
     // Ensure frames with depth image be accepted.
+    //
+    // NOTE this might make the actual tracking freq larger than the parameter 'track_frequency' (when
+    // the freq of depth images is higher than the parameter 'track_frequency')
     bool has_depth = false;
     if (params.state_options.use_rgbd) {
       if (!msg.images[1].empty() && cv::countNonZero(msg.images[1]) > 0) {
