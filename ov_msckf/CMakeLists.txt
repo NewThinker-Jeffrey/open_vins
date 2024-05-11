@@ -42,6 +42,7 @@ if (NOT MMDeploy_FOUND)
 else ()
     message(STATUS "MMDeploy: " ${MMDeploy_FOUND})
     add_definitions(-DENABLE_MMSEG=1)
+    set(MMDeployLib mmdeploy)
 endif ()
 
 

@@ -52,7 +52,7 @@ list(APPEND thirdparty_libraries
         ${CERES_LIBRARIES}
         ${Pangolin_LIBRARIES}
         ${catkin_LIBRARIES}
-        mmdeploy
+        ${MMDeployLib}
 )
 
 # If we are not building with ROS then we need to manually link to its headers
