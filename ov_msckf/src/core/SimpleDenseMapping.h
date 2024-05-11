@@ -749,8 +749,16 @@ struct SimpleDenseMapT final {
 
     cv::Mat hmax(rows, cols, CV_32SC1, cv::Scalar(INT_MIN));
     cv::Mat hmin(rows, cols, CV_32SC1, cv::Scalar(INT_MAX));
+    cv::Mat upperbound(rows, cols, CV_32SC1, cv::Scalar(INT_MAX));
+
     float resolution_ratio = hmap_resolution / this->resolution;
     float block_resolution = this->resolution * CubeBlock::kSideLength;
+    const float upperbound_theta_a = 50.0;
+    const float upperbound_tan = tan(upperbound_theta_a * M_PI / 180.0);
+    const float upperbound_b = 0.1;
+    const float upperbound_c = -0.5;
+    const float upperbound_d = 0.0;
+    const int32_t center_zi = center_z / this->resolution;
 
     auto fill_row_range = [&](int row_start, int row_end) {
       if (row_end > rows) {
@@ -769,6 +777,15 @@ struct SimpleDenseMapT final {
         for (int j=0; j<cols; j++) {
           float local_x = (j - cols/2) * hmap_resolution;
           float local_y = (i - rows/2) * hmap_resolution;
+          float xy_dist = sqrt(local_x * local_x + local_y * local_y);
+          float truncated_dist = xy_dist - upperbound_b;
+          float z_thr = upperbound_c;
+          if (truncated_dist > 0) {
+            z_thr += upperbound_tan * truncated_dist;
+          }
+          z_thr = std::min(z_thr, upperbound_d);
+          upperbound.at<int32_t>(i, j) = z_thr / this->resolution;
+
           float global_x = center_x + local_x * c - local_y * s;
           float global_y = center_y + local_x * s + local_y * c;
           BlockKey2 bk2(global_x / block_resolution, global_y / block_resolution);
@@ -864,9 +881,9 @@ struct SimpleDenseMapT final {
 
 #endif
 
-      const int32_t center_zi = center_z / this->resolution;
       const int32_t discrepancy_thr_i = discrepancy_thr / this->resolution;
-      const bool adopt_max_zi = true;
+      // const bool adopt_max_zi = true;
+      const bool adopt_max_zi = false;
 
       foreach_block([&](const CubeBlock& block){
         for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
@@ -884,6 +901,11 @@ struct SimpleDenseMapT final {
               // may race if parallelized
               auto& max_zi = hmax.at<int32_t>(imgy, imgx);
               auto& min_zi = hmin.at<int32_t>(imgy, imgx);
+              const auto& upper_b = upperbound.at<int32_t>(imgy, imgx);
+              if (vzi > upper_b) {
+                continue;
+              }
+
               if (vzi > max_zi) {
                 max_zi = vzi;
               }
