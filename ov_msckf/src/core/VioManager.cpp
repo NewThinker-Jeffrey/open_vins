@@ -471,14 +471,26 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
 void VioManager::semantic_masking_thread_func() {
   pthread_setname_np(pthread_self(), "ov_semantic");
 
+  // bool no_drop = true;
+  bool no_drop = false;
+
   while(1) {
     ImgProcessContextPtr c;
+    int abandon = 0;
     size_t queue_size;
     {
       std::unique_lock<std::mutex> locker(semantic_masking_task_queue_mutex_);
       semantic_masking_task_queue_cond_.wait(locker, [this](){
         return ! semantic_masking_task_queue_.empty() || stop_request_;
       });
+
+      if (!no_drop) {
+        while (semantic_masking_task_queue_.size() > 2) {
+          semantic_masking_task_queue_.pop_front();
+          abandon ++;
+        }
+      }
+
       queue_size = semantic_masking_task_queue_.size();
       if (queue_size > 0) {
         c = semantic_masking_task_queue_.front();
@@ -488,7 +500,12 @@ void VioManager::semantic_masking_thread_func() {
       }
     }
 
-    if (queue_size > 2) {
+    if (!no_drop) {
+      if (abandon > 0) {
+        PRINT_WARNING(YELLOW "Abandon some semantic_masking tasks!! (abandon %d)\n" RESET,
+                      (abandon));
+      }
+    } else if (queue_size > 2) {
       PRINT_WARNING(YELLOW "too many semantic_masking tasks in the queue!! (queue size = %d)\n" RESET,
                     (queue_size));
     }
