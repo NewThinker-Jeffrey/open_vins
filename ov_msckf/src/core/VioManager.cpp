@@ -52,6 +52,12 @@
 #include "utils/chi_square/chi_squared_quantile_table_0_95.h"
 #include "update/UpdaterHelper.h"
 
+#ifdef USE_HEAR_SLAM
+#include "hear_slam/basic/logging.h"
+#include "hear_slam/basic/time.h"
+#endif
+
+
 #if ENABLE_MMSEG
 #include "mmdeploy/segmentor.hpp"
 
@@ -668,6 +674,11 @@ void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
     return;
   }
 
+#ifdef USE_HEAR_SLAM
+    using hear_slam::TimeCounter;
+    TimeCounter tc;
+#endif
+
   ASSERT(semantic_segmentor_wrapper);
 
   ov_core::CameraData &message = *(c->message);
@@ -677,9 +688,18 @@ void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
   cv::Mat img_temp;
   cv::pyrDown(img, img_temp, cv::Size(img.cols / 2, img.rows / 2));
 
+#ifdef USE_HEAR_SLAM
+    tc.tag("PreProcessDone");
+#endif
+
   // apply the detector, the result is an array-like class holding a reference to
   // `mmdeploy_segmentation_t`, will be released automatically on destruction
   mmdeploy::Segmentor::Result seg = semantic_segmentor_wrapper->getSegmentor()->Apply(img_temp);
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("SegmentationDone");
+    tc.report("SemanticSegTiming: ", true);
+#endif
 
   // cv::Mat mask_temp(img.rows / 2, img.cols / 2, CV_8UC1);
   cv::Mat mask_cls(img.rows / 2, img.cols / 2, CV_32SC1, seg->mask);
@@ -712,6 +732,12 @@ void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
 
   // Compose the semantic_mask and the original mask (i.e. message.masks.at(0))
   message.masks.at(0) |= semantic_mask;
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("PostProcessDone");
+    tc.report("SemanticSegTiming: ", true);
+#endif
+
 #endif
 }
 
