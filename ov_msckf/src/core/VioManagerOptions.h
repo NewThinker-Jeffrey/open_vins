@@ -263,6 +263,12 @@ struct VioManagerOptions {
   /// Mask images for each camera
   std::map<size_t, cv::Mat> masks;
 
+  bool use_semantic_masking = false;
+  std::string semantic_masking_model_path = "/slam/seg_model";
+  std::string semantic_masking_profiler_path = "/tmp/mmseg_profile.bin";
+  std::set<int> semantic_masking_labels_to_mask;
+  int semantic_masking_dilate_kernel_size = 5;
+
   bool rgbd_mapping = true;
   int  rgbd_mapping_pixel_downsample = 3;
   int  rgbd_mapping_pixel_start_row = 0;
@@ -342,7 +348,17 @@ struct VioManagerOptions {
       parser->parse_config("rgbd_mapping_min_height", rgbd_mapping_min_height, false);
       parser->parse_config("rgbd_mapping_max_voxels", rgbd_mapping_max_voxels, false);
       parser->parse_config("rgbd_mapping_max_dispaly_voxels", rgbd_mapping_max_dispaly_voxels, false);
-      
+
+      std::vector<int> labels_to_mask = {15};
+      parser->parse_config("use_semantic_masking", use_semantic_masking, false);
+      parser->parse_config("semantic_masking_model_path", semantic_masking_model_path, use_semantic_masking);
+      parser->parse_config("semantic_masking_profiler_path", semantic_masking_profiler_path, false);
+      parser->parse_config("semantic_masking_labels_to_mask", labels_to_mask, use_semantic_masking);
+      // insert all the elements in labels_to_mask into the set semantic_masking_labels_to_mask
+      for (int label : labels_to_mask) {
+        semantic_masking_labels_to_mask.insert(label);
+      }
+      parser->parse_config("semantic_masking_dilate_kernel_size", semantic_masking_dilate_kernel_size, false);
 
       for (int i = 0; i < state_options.num_cameras; i++) {
 
@@ -556,6 +572,16 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - rgbd_mapping_min_height: %.5f\n", rgbd_mapping_min_height);
     PRINT_DEBUG("  - rgbd_mapping_max_voxels: %d\n", rgbd_mapping_max_voxels);
     PRINT_DEBUG("  - rgbd_mapping_max_dispaly_voxels: %d\n", rgbd_mapping_max_dispaly_voxels);    
+
+    PRINT_DEBUG("  - use_semantic_masking: %d\n", use_semantic_masking);
+    PRINT_DEBUG("  - semantic_masking_model_path: %s\n", semantic_masking_model_path.c_str());
+    PRINT_DEBUG("  - semantic_masking_profiler_path: %s\n", semantic_masking_profiler_path.c_str());
+    std::string labels_to_mask_str = "";
+    for (const auto& label : semantic_masking_labels_to_mask) {
+      labels_to_mask_str += std::to_string(label) + " ";
+    }
+    PRINT_DEBUG("  - semantic_masking_labels_to_mask: %s\n", labels_to_mask_str.c_str());
+    PRINT_DEBUG("  - semantic_masking_dilate_kernel_size: %d\n", semantic_masking_dilate_kernel_size);
 
     PRINT_DEBUG("  - use_klt: %d\n", use_klt);
     PRINT_DEBUG("  - klt_left_major_stereo: %d\n", klt_left_major_stereo);

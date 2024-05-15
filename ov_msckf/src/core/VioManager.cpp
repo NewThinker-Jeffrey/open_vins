@@ -55,17 +55,57 @@
 #if ENABLE_MMSEG
 #include "mmdeploy/segmentor.hpp"
 
-static mmdeploy::Segmentor* getSegmentor() {
-  static mmdeploy::Segmentor* segmentor = nullptr;
-  if (!segmentor) {
-    static mmdeploy::Profiler profiler("/tmp/mmseg_profile.bin");
-    static mmdeploy::Context context;
+class SemanticSegmentorWrapper {
+ public:
+  // Example:  model_path="/slam/seg_model",  profiler_path="/tmp/mmseg_profile.bin"
+  SemanticSegmentorWrapper(const std::string model_path,
+                           const std::string profiler_path,
+                           const std::set<int>& labels_to_mask) :
+      profiler(profiler_path) {
+
     context.Add(mmdeploy::Device("cuda"));
     context.Add(profiler);
-    segmentor = new mmdeploy::Segmentor(mmdeploy::Model{"/slam/seg_model"}, context);
+    segmentor.reset(new mmdeploy::Segmentor(mmdeploy::Model{model_path}, context));
+
+    lookup_table = cv::Mat::zeros(256, 1, CV_8UC1);
+    for (int i=0; i<256; i++) {
+      if (labels_to_mask.find(i) != labels_to_mask.end()) {
+        lookup_table.at<uchar>(i) = 255;
+      }
+    }
   }
-  return segmentor;
-}
+
+  mmdeploy::Segmentor* getSegmentor() const {
+    return segmentor.get();
+  }
+
+  const cv::Mat& getLookupTable() const {
+    return lookup_table;
+  }
+
+ private:
+  mmdeploy::Profiler profiler;
+  mmdeploy::Context context;
+  std::unique_ptr<mmdeploy::Segmentor> segmentor;
+  cv::Mat lookup_table;
+};
+
+// static mmdeploy::Segmentor* getSegmentor() {
+//   static mmdeploy::Segmentor* segmentor = nullptr;
+//   if (!segmentor) {
+//     static mmdeploy::Profiler profiler("/tmp/mmseg_profile.bin");
+//     static mmdeploy::Context context;
+//     context.Add(mmdeploy::Device("cuda"));
+//     context.Add(profiler);
+//     segmentor = new mmdeploy::Segmentor(mmdeploy::Model{"/slam/seg_model"}, context);
+//   }
+//   return segmentor;
+// }
+
+#else
+
+class SemanticSegmentorWrapper{};
+
 #endif
 
 
@@ -84,16 +124,21 @@ VioManager::VioManager(VioManagerOptions &params_) :
   PRINT_DEBUG("OPENVINS ON-MANIFOLD EKF IS STARTING\n");
   PRINT_DEBUG("=======================================\n");
 
-#if ENABLE_MMSEG
-  getSegmentor();
-#endif
-
   // Nice debug
   this->params = params_;
   params.print_and_load_estimator();
   params.print_and_load_noise();
   params.print_and_load_state();
   params.print_and_load_trackers();
+
+#if ENABLE_MMSEG
+  if (params.use_semantic_masking) {
+    semantic_segmentor_wrapper = 
+      std::make_shared<SemanticSegmentorWrapper>(params.semantic_masking_model_path,
+                                                 params.semantic_masking_profiler_path,
+                                                 params.semantic_masking_labels_to_mask);
+  }
+#endif
 
   // If rgbd_mapping is enabled
   begin_rgbd_mapping();
@@ -619,6 +664,12 @@ void VioManager::update_thread_func() {
 
 void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
 #if ENABLE_MMSEG
+  if (!params.use_semantic_masking) {
+    return;
+  }
+
+  ASSERT(semantic_segmentor_wrapper);
+
   ov_core::CameraData &message = *(c->message);
 
   // semantic masking for the 1st image
@@ -628,14 +679,28 @@ void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
 
   // apply the detector, the result is an array-like class holding a reference to
   // `mmdeploy_segmentation_t`, will be released automatically on destruction
-  mmdeploy::Segmentor::Result seg = getSegmentor()->Apply(img_temp);
+  mmdeploy::Segmentor::Result seg = semantic_segmentor_wrapper->getSegmentor()->Apply(img_temp);
 
   // cv::Mat mask_temp(img.rows / 2, img.cols / 2, CV_8UC1);
   cv::Mat mask_cls(img.rows / 2, img.cols / 2, CV_32SC1, seg->mask);
 
-  // mask area of person
-  const int person_cls_id = 15;
-  cv::Mat mask_temp = (mask_cls == person_cls_id);
+  // const int person_cls_id = 15;
+  // cv::Mat mask_temp = (mask_cls == person_cls_id);
+
+  // Check max and min value in mask_cls. (Only for debug)
+  double min_val, max_val;
+  cv::minMaxLoc(mask_cls, &min_val, &max_val);
+  PRINT_INFO(GREEN "Semantic labels range: %f to %f\n" RESET, min_val, max_val);
+  if (min_val < 0 || max_val > 255) {
+    // PRINT_INFO(GREEN "Semantic labels range: %f to %f\n" RESET, min_val, max_val);
+    ASSERT(min_val >= 0 && max_val <= 255);
+  }
+
+  // convert to 8-bit
+  cv::Mat mask_cls_u8;
+  mask_cls.convertTo(mask_cls_u8, CV_8UC1);
+  cv::Mat mask_temp = cv::Mat::zeros(mask_cls.size(), CV_8UC1);
+  cv::LUT(mask_cls_u8, semantic_segmentor_wrapper->getLookupTable(), mask_temp);
 
   // do dilating
   cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));

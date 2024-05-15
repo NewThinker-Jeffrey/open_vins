@@ -36,6 +36,7 @@
 #include "state/State.h"
 #include "utils/sensor_data.h"
 
+class SemanticSegmentorWrapper;
 
 namespace ov_core {
 class TrackBase;
@@ -437,6 +438,8 @@ protected:
   // rgbd dense mapping
   std::shared_ptr<dense_mapping::SimpleDenseMapBuilder> rgbd_dense_map_builder;
   std::function<void(std::shared_ptr<dense_mapping::SimpleDenseMapOutput>)> rgbd_dense_map_update_cb;
+
+  std::shared_ptr<SemanticSegmentorWrapper> semantic_segmentor_wrapper;
 };
 
 } // namespace ov_msckf
