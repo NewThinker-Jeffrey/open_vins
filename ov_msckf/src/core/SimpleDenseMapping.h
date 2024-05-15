@@ -734,7 +734,12 @@ struct SimpleDenseMapT final {
                        float min_h = -3.0,
                        float max_h = 3.0,
                        float hmap_resolution = 0.01,
-                       float discrepancy_thr = 0.1) const {
+                       float discrepancy_thr = 0.1,
+                       float upperbound_theta_a = 50.0,
+                       float upperbound_b = 0.1,
+                       float upperbound_c = -0.5,
+                       float upperbound_d = 0.0
+                       ) const {
 #ifdef USE_HEAR_SLAM
     using hear_slam::TimeCounter;
     TimeCounter tc;
@@ -753,11 +758,7 @@ struct SimpleDenseMapT final {
 
     float resolution_ratio = hmap_resolution / this->resolution;
     float block_resolution = this->resolution * CubeBlock::kSideLength;
-    const float upperbound_theta_a = 50.0;
     const float upperbound_tan = tan(upperbound_theta_a * M_PI / 180.0);
-    const float upperbound_b = 0.1;
-    const float upperbound_c = -0.5;
-    const float upperbound_d = 0.0;
     const int32_t center_zi = center_z / this->resolution;
 
     auto fill_row_range = [&](int row_start, int row_end) {
@@ -882,8 +883,8 @@ struct SimpleDenseMapT final {
 #endif
 
       const int32_t discrepancy_thr_i = discrepancy_thr / this->resolution;
-      // const bool adopt_max_zi = true;
-      const bool adopt_max_zi = false;
+      const bool adopt_max_zi = true;
+      // const bool adopt_max_zi = false;
 
       foreach_block([&](const CubeBlock& block){
         for (size_t i=0; i<CubeBlock::kMaxVoxels; i++) {
@@ -967,7 +968,11 @@ struct SimpleDenseMapT final {
                        float min_h = -1.5,
                        float max_h = 0.0,
                        float hmap_resolution = 0.01,
-                       float discrepancy_thr = 0.1) const {
+                       float discrepancy_thr = 0.1,
+                       float upperbound_theta_a = 50.0,
+                       float upperbound_b = 0.1,
+                       float upperbound_c = -0.5,
+                       float upperbound_d = 0.0) const {
     float center_x = pose.translation().x();
     float center_y = pose.translation().y();
     float center_z = pose.translation().z();
@@ -977,7 +982,8 @@ struct SimpleDenseMapT final {
     Eigen::Vector3f Zc = pose.rotation().col(2);
     float orientation = atan2f(Zc.y(), Zc.x());
 
-    return getHeightMap(center_x, center_y, orientation, center_z, min_h, max_h, hmap_resolution);
+    return getHeightMap(center_x, center_y, orientation, center_z, min_h, max_h, hmap_resolution, discrepancy_thr,
+                        upperbound_theta_a, upperbound_b, upperbound_c, upperbound_d);
   }
 
 
