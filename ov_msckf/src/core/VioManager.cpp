@@ -687,14 +687,14 @@ void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
   // const int person_cls_id = 15;
   // cv::Mat mask_temp = (mask_cls == person_cls_id);
 
-  // Check max and min value in mask_cls. (Only for debug)
-  double min_val, max_val;
-  cv::minMaxLoc(mask_cls, &min_val, &max_val);
-  PRINT_INFO(GREEN "Semantic labels range: %f to %f\n" RESET, min_val, max_val);
-  if (min_val < 0 || max_val > 255) {
-    // PRINT_INFO(GREEN "Semantic labels range: %f to %f\n" RESET, min_val, max_val);
-    ASSERT(min_val >= 0 && max_val <= 255);
-  }
+  // // Check max and min value in mask_cls. (Only for debug)
+  // double min_val, max_val;
+  // cv::minMaxLoc(mask_cls, &min_val, &max_val);
+  // PRINT_INFO(GREEN "Semantic labels range: %f to %f\n" RESET, min_val, max_val);
+  // if (min_val < 0 || max_val > 255) {
+  //   // PRINT_INFO(GREEN "Semantic labels range: %f to %f\n" RESET, min_val, max_val);
+  //   ASSERT(min_val >= 0 && max_val <= 255);
+  // }
 
   // convert to 8-bit
   cv::Mat mask_cls_u8;
