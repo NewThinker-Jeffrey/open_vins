@@ -698,7 +698,6 @@ void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
 
 #ifdef USE_HEAR_SLAM
     tc.tag("SegmentationDone");
-    tc.report("SemanticSegTiming: ", true);
 #endif
 
   // cv::Mat mask_temp(img.rows / 2, img.cols / 2, CV_8UC1);
