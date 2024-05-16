@@ -903,7 +903,7 @@ struct SimpleDenseMapT final {
               auto& max_zi = hmax.at<int32_t>(imgy, imgx);
               auto& min_zi = hmin.at<int32_t>(imgy, imgx);
               const auto& upper_b = upperbound.at<int32_t>(imgy, imgx);
-              if (vzi > upper_b) {
+              if (vzi - center_zi > upper_b) {
                 continue;
               }
 
