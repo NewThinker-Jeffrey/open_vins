@@ -618,7 +618,11 @@ void VioManager::feature_tracking_thread_func() {
                     (queue_size));
     }
 
+    auto t0 = std::chrono::high_resolution_clock::now();
     do_feature_tracking(c);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double time_track = std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0).count();
+    PRINT_INFO(GREEN "[TIME]: %.4f seconds for feature tracking\n" RESET, time_track);
 
     {
       std::unique_lock<std::mutex> locker(update_task_queue_mutex_);
@@ -659,12 +663,43 @@ void VioManager::update_thread_func() {
                     (abandon));
     }
 
+#ifdef USE_HEAR_SLAM
+    using hear_slam::TimeCounter;
+    TimeCounter tc;
+#endif
+
     do_update(c);
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("do_update_Done");
+#endif
+
     assert(!is_initialized_vio || !state->_clones_IMU.empty());
     has_drift = check_drift();
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("check_drift_Done");
+#endif
+
     dealwith_localizations();
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("dealwith_localizations_Done");
+#endif
+
     update_rgbd_map(c);
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("update_rgbd_map_Done");
+#endif
+
     update_output(c->message->timestamp);
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("update_output_Done");
+    tc.report("UpdateTiming: ", true);
+#endif
+
   }
 }
 
