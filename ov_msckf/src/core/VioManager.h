@@ -396,6 +396,7 @@ protected:
   std::mutex imu_sync_mutex_;
   std::condition_variable imu_sync_cond_;
   double last_imu_time_ = -1;
+  double last_propagate_time_ = -1;
 
 
   std::atomic<bool> stop_request_;

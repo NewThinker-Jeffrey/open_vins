@@ -384,8 +384,13 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
 
   static int imu_count = 0;
   imu_count ++;
+  double last_propagate_time = -1.0;
   if (params.imu_acc_filter_param >= 2.0) {
     int filter_window = params.imu_acc_filter_param;
+    if (filter_window % 2 == 0) {
+      ++filter_window;  // make sure it's odd
+    }
+
     if (imu_count % 200 == 0) {
       PRINT_INFO("ImuFilter: filter_window = %d\n", filter_window);
     }
@@ -394,7 +399,8 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
       imu_filter_buffer.pop_front();
     }
     if (imu_filter_buffer.size() == filter_window) {
-      ov_core::ImuData filtered_msg = message;
+      const auto& mid_message = imu_filter_buffer.at(filter_window/2);
+      ov_core::ImuData filtered_msg = mid_message;
       filtered_msg.am = Eigen::Vector3d(0,0,0);
       for (const auto & msg : imu_filter_buffer) {
         filtered_msg.am += msg.am;
@@ -402,14 +408,16 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
       filtered_msg.am /= filter_window;
 
       propagator->feed_imu(filtered_msg, oldest_time);
+      last_propagate_time = filtered_msg.timestamp;
     } else {
       // do not feed anything before the filter buffer is full
-    }
+    }    
   } else {
     if (imu_count % 200 == 0) {
       PRINT_INFO("ImuFilter: NO_FILTER\n");
     }
     propagator->feed_imu(message, oldest_time);
+    last_propagate_time = message.timestamp;
   }
 
   trackFEATS->feed_imu(message, oldest_time);
@@ -440,6 +448,7 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
     }
 
     last_imu_time_ = message.timestamp;
+    last_propagate_time_ = last_propagate_time;
     imu_sync_cond_.notify_all();
   }
 
@@ -786,7 +795,7 @@ void VioManager::do_feature_tracking(ImgProcessContextPtr c) {
     // We are able to process if we have at least one IMU measurement greater than the camera time
     std::unique_lock<std::mutex> locker(imu_sync_mutex_);
     imu_sync_cond_.wait(locker, [&](){
-      timestamp_imu_inC = last_imu_time_ - t_d;
+      timestamp_imu_inC = last_propagate_time_ - t_d;
       return  message.timestamp < timestamp_imu_inC || stop_request_;
     });
   }
@@ -835,7 +844,7 @@ void VioManager::do_update(ImgProcessContextPtr c) {
     // We are able to process if we have at least one IMU measurement greater than the camera time
     std::unique_lock<std::mutex> locker(imu_sync_mutex_);
     imu_sync_cond_.wait(locker, [&](){
-      timestamp_imu_inC = last_imu_time_ - state->_calib_dt_CAMtoIMU->value()(0);
+      timestamp_imu_inC = last_propagate_time_ - state->_calib_dt_CAMtoIMU->value()(0);
       return  message.timestamp < timestamp_imu_inC || stop_request_;
     });
   }
