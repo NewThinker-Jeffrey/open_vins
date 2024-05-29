@@ -222,6 +222,8 @@ public:
    */
   static void marginalize_old_clone(std::shared_ptr<State> state);
 
+  static bool is_the_lastframe_a_keyframe(std::shared_ptr<State> state, double* marginal_time=nullptr);
+
   /**
    * @brief Marginalize bad SLAM features
    * @param state Pointer to state

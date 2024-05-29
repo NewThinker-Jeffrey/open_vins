@@ -1873,9 +1873,14 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
 
   size_t delayed_features_used = feats_slam_DELAYED.size();
   size_t delayed_features_outliers = 0;
-  updaterSLAM->delayed_init(state, feats_slam_DELAYED);
-  delayed_features_outliers = delayed_features_used - feats_slam_DELAYED.size();
-  delayed_features_used = feats_slam_DELAYED.size();
+  if (StateHelper::is_the_lastframe_a_keyframe(state)) {
+    updaterSLAM->delayed_init(state, feats_slam_DELAYED);
+    delayed_features_outliers = delayed_features_used - feats_slam_DELAYED.size();
+    delayed_features_used = feats_slam_DELAYED.size();
+  } else {
+    delayed_features_outliers = 0;
+    delayed_features_used = 0;
+  }
   c->rT6 = std::chrono::high_resolution_clock::now();
 
   //===================================================================================
@@ -1922,8 +1927,10 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     trackARUCO->get_feature_database()->cleanup();
   }
 
-  // First do anchor change if we are about to lose an anchor pose
-  updaterSLAM->change_anchors(state);
+  if (StateHelper::is_the_lastframe_a_keyframe(state)) {
+    // First do anchor change if we are about to lose an anchor pose
+    updaterSLAM->change_anchors(state);
+  }
 
   // Cleanup any features older than the marginalization time
   if ((int)state->_clones_IMU.size() > state->_options.max_clone_size) {

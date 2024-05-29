@@ -628,9 +628,32 @@ void StateHelper::augment_clone(std::shared_ptr<State> state, Eigen::Matrix<doub
   }
 }
 
+bool StateHelper::is_the_lastframe_a_keyframe(std::shared_ptr<State> state, double* marginal_time) {
+  return true;  // to disable keyframing.
+
+  std::vector<double> timesteps;
+  timesteps.reserve(state->_clones_IMU.size());
+  for (auto it = state->_clones_IMU.begin(); it != state->_clones_IMU.end(); it++) {
+    timesteps.push_back(it->first);
+  }
+  if (timesteps.size() > 2) {
+    size_t n = timesteps.size();
+    if (timesteps[n-1] - timesteps[n-2] < 0.09) {
+      if (marginal_time) {
+        *marginal_time = timesteps[n-1];
+      }
+      return false;
+    }
+  }
+  return true;
+}
+
+
 void StateHelper::marginalize_old_clone(std::shared_ptr<State> state) {
-  if ((int)state->_clones_IMU.size() > state->_options.max_clone_size) {
-    double marginal_time = state->margtimestep();
+  if ((int)state->_clones_IMU.size() > state->_options.max_clone_size) {    
+    double marginal_time = state->margtimestep();  // oldest time
+    is_the_lastframe_a_keyframe(state, &marginal_time);
+
     assert(marginal_time != INFINITY);
     StateHelper::marginalize(state, state->_clones_IMU.at(marginal_time));
     // Note that the marginalizer should have already deleted the clone
