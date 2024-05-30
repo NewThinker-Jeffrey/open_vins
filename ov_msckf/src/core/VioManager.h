@@ -435,6 +435,7 @@ protected:
 
   // imu filter
   std::deque<ov_core::ImuData> imu_filter_buffer;
+  std::deque<ov_core::ImuData> imu_filter_buffer2;
 
   // rgbd dense mapping
   std::shared_ptr<dense_mapping::SimpleDenseMapBuilder> rgbd_dense_map_builder;

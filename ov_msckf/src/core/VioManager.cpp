@@ -394,21 +394,46 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
     if (imu_count % 200 == 0) {
       PRINT_INFO("ImuFilter: filter_window = %d\n", filter_window);
     }
+    // do mean filter after a median filter.
     imu_filter_buffer.emplace_back(message);
     while (imu_filter_buffer.size() > filter_window) {
       imu_filter_buffer.pop_front();
     }
     if (imu_filter_buffer.size() == filter_window) {
-      const auto& mid_message = imu_filter_buffer.at(filter_window/2);
-      ov_core::ImuData filtered_msg = mid_message;
-      filtered_msg.am = Eigen::Vector3d(0,0,0);
+      ov_core::ImuData median_msg = imu_filter_buffer.at(filter_window/2);
+      std::vector<double> xs, ys, zs;
+      xs.reserve(filter_window);
+      ys.reserve(filter_window);
+      zs.reserve(filter_window);
       for (const auto & msg : imu_filter_buffer) {
-        filtered_msg.am += msg.am;
+        xs.push_back(msg.am.x());
+        ys.push_back(msg.am.y());
+        zs.push_back(msg.am.z());
       }
-      filtered_msg.am /= filter_window;
+      auto median = [](std::vector<double>& arr) {
+        auto m = arr.begin() + arr.size() / 2;
+        std::nth_element(arr.begin(), m, arr.end());
+        return arr[arr.size() / 2];
+      };
+      double x = median(xs);
+      double y = median(ys);
+      double z = median(zs);
+      median_msg.am = Eigen::Vector3d(x,y,z);
 
-      propagator->feed_imu(filtered_msg, oldest_time);
-      last_propagate_time = filtered_msg.timestamp;
+      imu_filter_buffer2.emplace_back(median_msg);
+      while (imu_filter_buffer2.size() > filter_window) {
+        imu_filter_buffer2.pop_front();
+      }
+      if (imu_filter_buffer2.size() == filter_window) {
+        ov_core::ImuData filtered_msg = imu_filter_buffer2.at(filter_window/2);
+        filtered_msg.am = Eigen::Vector3d(0,0,0);
+        for (const auto & msg : imu_filter_buffer2) {
+          filtered_msg.am += msg.am;
+        }
+        filtered_msg.am /= filter_window;
+        propagator->feed_imu(filtered_msg, oldest_time);
+        last_propagate_time = filtered_msg.timestamp;
+      }
     } else {
       // do not feed anything before the filter buffer is full
     }    
