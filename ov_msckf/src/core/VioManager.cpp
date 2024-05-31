@@ -1453,7 +1453,6 @@ void VioManager::feed_measurement_localization(ov_core::LocalizationData message
   }
 }
 
-
 void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
   // Start timing
   auto c = std::make_shared<ImgProcessContext>();
@@ -1474,6 +1473,320 @@ void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
     update_rgbd_map(c);
     update_output(c->message->timestamp);
   }
+}
+
+std::shared_ptr<StereoFeatureForPropagation>
+VioManager::choose_stereo_feature_for_propagation(
+    double prev_image_time,
+    const ov_core::CameraData &message,
+    const Eigen::Matrix3d& R_I1toI0) {
+  // Choose a stereo feature for state propagation.
+  ASSERT(message.sensor_ids.size() == 2);  // we need stereo camera or rgb-d camemra.
+
+  // double prev_image_time = state->_timestamp;
+  double cur_image_time = message.timestamp;
+  std::vector<std::shared_ptr<Feature>> feats = trackFEATS->get_feature_database()->features_containing(prev_image_time, false, true);
+  auto cam_id0 = message.sensor_ids[0];
+  auto cam_id1 = message.sensor_ids[1];
+
+  struct StereoPair {
+    Eigen::Vector2f uv_norm_cam0[2];
+    Eigen::Vector2f uv_norm_cam1[2];
+
+    size_t featid;
+
+    double disparity_square_cam0;
+    // double disparity_square_cam1;
+
+    Eigen::Vector3d feat_pos_frame0;
+    // // Eigen::Matrix3d feat_pos_frame0_cov;
+
+    Eigen::Vector3d feat_pos_frame1;
+    // // Eigen::Matrix3d feat_pos_frame1_cov;
+
+    Eigen::Vector3d p1in0;
+  };
+
+  std::vector<StereoPair> stereo_pairs;
+
+  {
+    std::unique_lock<std::mutex> lck(trackFEATS->get_feature_database()->get_mutex());
+    for (auto feat : feats) {
+      if (!feat->timestamps.count(cam_id0) || !feat->timestamps.count(cam_id1)) {
+        continue;  // skip non-stereo features
+      }
+      if (!feat->uvs_norm.count(cam_id0) || !feat->uvs_norm.count(cam_id1)) {
+        continue;  // skip non-stereo features
+      }
+      if (prev_propagation_feat_id == feat->featid) {
+        continue;  // skip the feature used for prop last time.
+      }
+
+      StereoPair pair;
+
+      auto iter_cam0_cur = std::find(feat->timestamps[cam_id0].rbegin(), feat->timestamps[cam_id0].rend(), cur_image_time);
+      if (iter_cam0_cur == feat->timestamps[cam_id0].rend()) {
+        continue;
+      }
+      auto ridx_cam0_cur = iter_cam0_cur - feat->timestamps[cam_id0].rbegin();
+      pair.uv_norm_cam0[1] = *(feat->uvs_norm[cam_id0].rbegin() + ridx_cam0_cur);
+
+      auto iter_cam1_cur = std::find(feat->timestamps[cam_id1].rbegin(), feat->timestamps[cam_id1].rend(), cur_image_time);
+      if (iter_cam1_cur == feat->timestamps[cam_id1].rend()) {
+        continue;
+      }
+      auto ridx_cam1_cur = iter_cam1_cur - feat->timestamps[cam_id1].rbegin();
+      pair.uv_norm_cam1[1] = *(feat->uvs_norm[cam_id1].rbegin() + ridx_cam1_cur);
+
+      auto iter_cam0_prev = std::find(feat->timestamps[cam_id0].rbegin(), feat->timestamps[cam_id0].rend(), prev_image_time);
+      if (iter_cam0_prev == feat->timestamps[cam_id0].rend()) {
+        continue;
+      }
+      auto ridx_cam0_prev = iter_cam0_prev - feat->timestamps[cam_id0].rbegin();
+      pair.uv_norm_cam0[0] = *(feat->uvs_norm[cam_id0].rbegin() + ridx_cam0_prev);
+
+      auto iter_cam1_prev = std::find(feat->timestamps[cam_id1].rbegin(), feat->timestamps[cam_id1].rend(), prev_image_time);
+      if (iter_cam1_prev == feat->timestamps[cam_id1].rend()) {
+        continue;
+      }
+      auto ridx_cam1_prev = iter_cam1_prev - feat->timestamps[cam_id1].rbegin();
+      pair.uv_norm_cam1[0] = *(feat->uvs_norm[cam_id1].rbegin() + ridx_cam1_prev);
+
+      pair.featid = feat->featid;
+      stereo_pairs.push_back(pair);
+    }
+  }
+
+  Eigen::Matrix4d T_C0toI = *params.T_CtoIs.at(cam_id0);
+  Eigen::Matrix3d R_C0toI = T_C0toI.block<3,3>(0,0);
+  Eigen::Vector3d p_C0inI = T_C0toI.block<3,1>(0,3);
+
+  Eigen::Matrix4d T_C1toI;
+  Eigen::Matrix3d R_C1toI;
+  Eigen::Vector3d p_C1inI;
+  if (params.state_options.use_rgbd) {
+    T_C1toI = T_C0toI;
+    Eigen::Vector3d p_C1inC0(params.state_options.virtual_baseline_for_rgbd, 0, 0);
+    R_C1toI = T_C1toI.block<3,3>(0,0);
+    p_C1inI = p_C0inI + R_C0toI * p_C1inC0;
+    T_C1toI.block<3,1>(0,3) = p_C1inI;
+  } else {
+    T_C1toI = *params.T_CtoIs.at(cam_id1);
+    R_C1toI = T_C1toI.block<3,3>(0,0);
+    p_C1inI = T_C1toI.block<3,1>(0,3);
+  }
+
+  Eigen::Matrix4d T_C1toC0 = T_C0toI.inverse() * T_C1toI;
+  Eigen::Matrix3d R_C1toC0 = T_C1toC0.block<3,3>(0,0);
+  Eigen::Vector3d p_C1inC0 = T_C1toC0.block<3,1>(0,3);
+
+  for (auto& pair : stereo_pairs) {
+    Eigen::Vector3d homo0_cam0(pair.uv_norm_cam0[0].x(), pair.uv_norm_cam0[0].y(), 1.0);
+    Eigen::Vector3d homo0_cam1(pair.uv_norm_cam1[0].x(), pair.uv_norm_cam1[0].y(), 1.0);
+    homo0_cam1 = R_C1toC0 * homo0_cam1;
+    double homo0_cam0_square = homo0_cam0.dot(homo0_cam0);
+    double homo0_cam1_square = homo0_cam1.dot(homo0_cam1);
+    double dot = homo0_cam0.dot(homo0_cam1);
+    pair.disparity_square_cam0 = 1 - (dot * dot) / (homo0_cam0_square * homo0_cam1_square);
+  }
+
+  // select 20 pairs with the max disparities.
+  size_t n_select = std::min(size_t(20), stereo_pairs.size());
+  auto comp_disparity = [](const StereoPair& a, const StereoPair& b) {
+        return a.disparity_square_cam0 > b.disparity_square_cam0;
+      };
+  std::nth_element(
+      stereo_pairs.begin(), stereo_pairs.begin() + n_select, stereo_pairs.end(),
+      comp_disparity);
+  std::sort(stereo_pairs.begin(), stereo_pairs.begin() + n_select, comp_disparity);
+
+  { // print debug info
+    std::ostringstream oss;
+    oss.setf(std::ios::fixed);
+    oss.precision(4);
+    for (size_t i=0; i<n_select; i++) {
+      const auto& pair = stereo_pairs[i];
+      oss << " " << sqrt(pair.disparity_square_cam0) * 180 / M_PI << "° ";
+    }
+    if (n_select < stereo_pairs.size()) {
+      oss << " |(more) ";
+      size_t more = std::min(size_t(2), stereo_pairs.size() - n_select);
+      for (size_t i=0; i<more; i++) {
+        const auto& pair = stereo_pairs[i+n_select];
+        oss << " " << sqrt(pair.disparity_square_cam0) * 180 / M_PI << "° ";
+      }
+      oss << " ...";
+    }
+    PRINT_INFO("DEBUG_STEREO_PROPAGATION: disparities: %s\n", oss.str().c_str());
+  }
+
+
+  auto triangulate = [&](Eigen::Vector2f uvn_cam0, Eigen::Vector2f uvn_cam1) {
+    Eigen::Vector3d homo0(uvn_cam0.x(), uvn_cam0.y(), 1.0);
+    Eigen::Vector3d homo1(uvn_cam1.x(), uvn_cam1.y(), 1.0);
+
+    // homo0 = R_C0toI * homo0;
+    // homo1 = R_C1toI * homo1;
+    homo1 = R_C1toC0 * homo1;
+
+    homo0.normalize();
+    homo1.normalize();
+    Eigen::Matrix3d skew_homo0 = skew_x(homo0);
+    Eigen::Matrix3d skew_homo1 = skew_x(homo1);
+    Eigen::Matrix3d square_skew_homo0 = skew_homo0.transpose() * skew_homo0;
+    Eigen::Matrix3d square_skew_homo1 = skew_homo1.transpose() * skew_homo1;
+    Eigen::Matrix3d A = square_skew_homo0 + square_skew_homo1;
+
+    // Eigen::Vector3d b = square_skew_homo0 * p_C0inI +  square_skew_homo1 * p_C1inI;
+    Eigen::Vector3d b = square_skew_homo1 * p_C1inC0;
+
+    // Eigen::Vector3d p_feat_in_I = A.colPivHouseholderQr().solve(b);
+    // return p_feat_in_I;
+
+    Eigen::Vector3d p_feat_in_C0 = A.colPivHouseholderQr().solve(b);
+    return p_feat_in_C0;
+  };
+
+  // Estimate p1in0 with each selected pair
+  for (size_t i=0; i<n_select; i++) {
+    auto& pair = stereo_pairs[i];
+
+    // estimate feat_pos in frame0 and in frame1
+    pair.feat_pos_frame0 = triangulate(pair.uv_norm_cam0[0], pair.uv_norm_cam1[0]);
+    pair.feat_pos_frame1 = triangulate(pair.uv_norm_cam0[1], pair.uv_norm_cam1[1]);
+
+    // estimate pos of frame1 in frame0 (with known rotation).
+    pair.p1in0 = pair.feat_pos_frame0 - R_I1toI0 * pair.feat_pos_frame1;
+  }
+
+  { // print debug info
+    std::ostringstream oss;
+    oss.setf(std::ios::fixed);
+    oss.precision(4);
+    for (size_t i=0; i<n_select; i++) {
+      const auto& pair = stereo_pairs[i];
+      oss << "(" << pair.p1in0.transpose() << ")  ";
+    }
+    PRINT_INFO("DEBUG_STEREO_PROPAGATION: estimated p_1_in_0: %s\n", oss.str().c_str());
+  }
+
+
+  auto ret = std::make_shared<StereoFeatureForPropagation>();
+
+  const double pos_diff_thr = 0.02;
+  const size_t con_thr = 2;
+  int best_idx = -1;
+  if (n_select > con_thr) {
+    for (size_t i=0; i<n_select-con_thr; i++) {
+      size_t n_con = 0;
+      for (size_t j=i+1; j<n_select; j++) {
+        double pos_diff = (stereo_pairs[i].p1in0 - stereo_pairs[j].p1in0).norm();
+        if (pos_diff < pos_diff_thr) {
+          ++n_con;
+        }
+      }
+      if (n_con >= con_thr) {
+        best_idx = i;
+        PRINT_INFO("DEBUG_STEREO_PROPAGATION: best_idx=%d, n_con = %d\n", best_idx, n_con);
+        break;
+      }
+    }
+  }
+
+  if (best_idx < 0) {
+    PRINT_INFO("DEBUG_STEREO_PROPAGATION: best_idx=%d, n_con = %d\n", best_idx, 0);
+    ret->feat_pos_frame0 = Eigen::Vector3d(1000, 1000, 1000);
+    ret->feat_pos_frame1 = Eigen::Vector3d(1000, 1000, 1000);
+    ret->feat_pos_frame0_cov = Eigen::Matrix3d::Identity();
+    ret->feat_pos_frame1_cov = Eigen::Matrix3d::Identity();
+    prev_propagation_feat_id = 0;
+    return ret;
+    // return nullptr;
+  }
+
+  // Use extrinsics to compute disparity and feature position.
+  // 
+  // TODO: for non-rectified stereo cameras, we need to triangulate the features
+  //       with the extrinsics between cameras.
+
+  // const double bearing_sigma = 0.005;  // rad
+  const double bearing_sigma = 0.0025;  // rad
+  double baseline = p_C1inC0.norm();
+
+  auto get_cov = [&](const Eigen::Vector3d& feat_in_C0) {
+#if 0    
+    double distance = feat_in_C0.norm();
+    const double tangent_sigma = distance * bearing_sigma;
+    const double radial_sigma = distance * bearing_sigma / (baseline / distance);
+
+    Eigen::Vector3d tan_vec_0;
+    if (fabs(feat_in_C0.z()) < fabs(feat_in_C0.x()) &&
+        fabs(feat_in_C0.z()) < fabs(feat_in_C0.y())) {
+      tan_vec_0 = Eigen::Vector3d(0,0,1);
+    } else if (fabs(feat_in_C0.x()) < fabs(feat_in_C0.y())) {
+      tan_vec_0 = Eigen::Vector3d(1,0,0);
+    } else {
+      tan_vec_0 = Eigen::Vector3d(0,1,0);
+    }
+
+    Eigen::Vector3d radial_vec = feat_in_C0 / feat_in_C0.norm();
+    Eigen::Vector3d tan_vec_1 = tan_vec_0.cross(radial_vec);  // tan_vec_1 perp to radial_vec
+    tan_vec_1.normalize();
+    tan_vec_0 = tan_vec_1.cross(radial_vec);  // tan_vec_0 perp to feat_in_C0 and tan_vec_1
+    Eigen::Matrix3d tan_rad_cov = Eigen::Matrix3d::Identity();
+    tan_rad_cov(0,0) = tangent_sigma * tangent_sigma;
+    tan_rad_cov(1,1) = tangent_sigma * tangent_sigma;
+    tan_rad_cov(2,2) = radial_sigma * radial_sigma;
+
+    Eigen::Matrix3d tan_rad_to_cam0;
+    tan_rad_to_cam0 << tan_vec_0, tan_vec_1, radial_vec;
+    Eigen::Matrix3d cov_in_cam0 = tan_rad_to_cam0 * tan_rad_cov * tan_rad_to_cam0.transpose();
+#else
+    double z = feat_in_C0.z();
+    const double xy_sigma = z * bearing_sigma;
+    const double z_sigma = z * bearing_sigma / (baseline / z);
+    Eigen::Matrix3d cov_in_cam0 = Eigen::Matrix3d::Identity();
+    cov_in_cam0(0,0) = xy_sigma * xy_sigma;
+    cov_in_cam0(1,1) = xy_sigma * xy_sigma;
+    cov_in_cam0(2,2) = z_sigma * z_sigma;
+#endif
+
+    Eigen::Matrix3d cov_in_imu = R_C0toI * cov_in_cam0 * R_C0toI.transpose();
+    return cov_in_imu;
+  };
+
+  ret->feat_pos_frame0 = R_C0toI * stereo_pairs[best_idx].feat_pos_frame0 + p_C0inI;
+  ret->feat_pos_frame0_cov = get_cov(stereo_pairs[best_idx].feat_pos_frame0);
+
+  ret->feat_pos_frame1 = R_C0toI * stereo_pairs[best_idx].feat_pos_frame1 + p_C0inI;
+  ret->feat_pos_frame1_cov = get_cov(stereo_pairs[best_idx].feat_pos_frame1);
+
+  { // print debug info
+    std::ostringstream oss;
+    oss.setf(std::ios::fixed);
+    oss.precision(4);
+    oss << "pos0: (" << ret->feat_pos_frame0.transpose();
+    oss << "), cov0: ";
+    oss << "(" << ret->feat_pos_frame0_cov.row(0) << ") "
+        << "(" << ret->feat_pos_frame0_cov.row(1) << ") "
+        << "(" << ret->feat_pos_frame0_cov.row(2) << ") ";
+    PRINT_INFO("DEBUG_STEREO_PROPAGATION: pos_and_cov0: %s\n", oss.str().c_str());
+  }
+  { // print debug info
+    std::ostringstream oss;
+    oss.setf(std::ios::fixed);
+    oss.precision(4);
+    oss << "pos1: (" << ret->feat_pos_frame1.transpose();
+    oss << "), cov1: ";
+    oss << "(" << ret->feat_pos_frame1_cov.row(0) << ") "
+        << "(" << ret->feat_pos_frame1_cov.row(1) << ") "
+        << "(" << ret->feat_pos_frame1_cov.row(2) << ") ";
+    PRINT_INFO("DEBUG_STEREO_PROPAGATION: pos_and_cov1: %s\n", oss.str().c_str());
+  }
+
+  prev_propagation_feat_id = stereo_pairs[best_idx].featid;
+
+  return ret;
 }
 
 void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
@@ -1497,7 +1810,12 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   // NOTE: then no need to prop since we already are at the desired timestep
   if (state->_timestamp != message.timestamp) {
     Eigen::Matrix3d new_gyro_rotation = Eigen::Matrix3d::Identity();
-    propagator->propagate_and_clone(state, message.timestamp, &new_gyro_rotation);
+    // propagator->propagate_and_clone(state, message.timestamp, &new_gyro_rotation);
+    propagator->propagate_and_clone_with_stereo_feature(
+        state, message.timestamp,
+        [this, &message](double prev_image_time, const Eigen::Matrix3d& R_I1toI0) {
+          return choose_stereo_feature_for_propagation(prev_image_time, message, R_I1toI0);          
+        }, &new_gyro_rotation);
     update_gyro_integrated_rotations(message.timestamp, new_gyro_rotation);
   }
   c->rT3 = std::chrono::high_resolution_clock::now();

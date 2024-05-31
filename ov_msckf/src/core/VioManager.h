@@ -54,6 +54,7 @@ class UpdaterMSCKF;
 class UpdaterSLAM;
 class UpdaterZeroVelocity;
 class Propagator;
+struct StereoFeatureForPropagation;
 
 namespace dense_mapping {
 struct SimpleDenseMapOutput;
@@ -239,6 +240,12 @@ protected:
     feat_posinG = active_tracks_posinG;
     feat_tracks_uvd = active_tracks_uvd;
   }
+
+  std::shared_ptr<StereoFeatureForPropagation>
+  choose_stereo_feature_for_propagation(
+      double prev_image_time,
+      const ov_core::CameraData &message,
+      const Eigen::Matrix3d& R_I1toI0);
 
   /**
    * @brief Given a new set of camera images, this will track them.
@@ -442,6 +449,8 @@ protected:
   std::function<void(std::shared_ptr<dense_mapping::SimpleDenseMapOutput>)> rgbd_dense_map_update_cb;
 
   std::shared_ptr<SemanticSegmentorWrapper> semantic_segmentor_wrapper;
+
+  size_t prev_propagation_feat_id = 0;
 };
 
 } // namespace ov_msckf

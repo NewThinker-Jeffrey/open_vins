@@ -26,9 +26,15 @@
 #include "utils/quat_ops.h"
 #include <Eigen/Geometry>
 
+#ifdef USE_HEAR_SLAM
+#include "hear_slam/basic/logging.h"
+#include "hear_slam/basic/time.h"
+#endif
+
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
+
 
 void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timestamp, Eigen::Matrix3d* output_rotation) {
 
@@ -484,3 +490,213 @@ void Propagator::predict_mean_rk4(std::shared_ptr<State> state, double dt, const
   new_p = p_0 + (1.0 / 6.0) * k1_p + (1.0 / 3.0) * k2_p + (1.0 / 3.0) * k3_p + (1.0 / 6.0) * k4_p;
   new_v = v_0 + (1.0 / 6.0) * k1_v + (1.0 / 3.0) * k2_v + (1.0 / 3.0) * k3_v + (1.0 / 6.0) * k4_v;
 }
+
+
+////////////////////////////////
+// propagate_and_clone_with_stereo_feature
+////////////////////////////////
+
+
+void Propagator::propagate_and_clone_with_stereo_feature(
+    std::shared_ptr<State> state, double timestamp,
+    const GetStereoFeatureForPropagationFunc& get_stereo_feat_func,
+    Eigen::Matrix3d* output_rotation) {
+  // If the difference between the current update time and state is zero
+  // We should crash, as this means we would have two clones at the same time!!!!
+  if (state->_timestamp == timestamp) {
+    PRINT_ERROR(RED "Propagator::propagate_and_clone_with_stereo_feature(): Propagation called again at same timestep at last update timestep!!!!\n" RESET);
+    std::exit(EXIT_FAILURE);
+  }
+
+  // We should crash if we are trying to propagate backwards
+  if (state->_timestamp > timestamp) {
+    PRINT_ERROR(RED "Propagator::propagate_and_clone_with_stereo_feature(): Propagation called trying to propagate backwards in time!!!!\n" RESET);
+    PRINT_ERROR(RED "Propagator::propagate_and_clone_with_stereo_feature(): desired propagation = %.4f\n" RESET, (timestamp - state->_timestamp));
+    std::exit(EXIT_FAILURE);
+  }
+
+  //===================================================================================
+  //===================================================================================
+  //===================================================================================
+
+  // Set the last time offset value if we have just started the system up
+  if (!have_last_prop_time_offset) {
+    last_prop_time_offset = state->_calib_dt_CAMtoIMU->value()(0);
+    have_last_prop_time_offset = true;
+  }
+
+  // Get what our IMU-camera offset should be (t_imu = t_cam + calib_dt)
+  double t_off_new = state->_calib_dt_CAMtoIMU->value()(0);
+
+  // First lets construct an IMU vector of measurements we need
+  double time0 = state->_timestamp + last_prop_time_offset;
+  double time1 = timestamp + t_off_new;
+  std::vector<ov_core::ImuData> prop_data;
+  {
+    std::lock_guard<std::mutex> lck(imu_data_mtx);
+    prop_data = ov_core::select_imu_readings(imu_data, time0, time1);
+  }
+
+  prop_data = fill_imu_data_gaps(prop_data);
+
+  //////////////
+
+  size_t n = prop_data.size() - 1;
+  std::vector<Eigen::Matrix3d> R;
+  std::vector<Eigen::Matrix3d> C;
+  std::vector<Eigen::Vector3d> so3vec;
+
+  R.reserve(n + 1);
+  C.reserve(n + 1);
+  so3vec.reserve(n);
+  Eigen::Vector3d bw = state->_imu->bias_g();
+  auto qk = state->_imu->quat();
+  Eigen::Quaterniond qk_eigen(qk[3], qk[0], qk[1], qk[2]);
+
+  for (size_t i=0; i<n; i++) {
+    Eigen::Vector3d wm = 0.5 * (prop_data.at(i).wm + prop_data.at(i+1).wm) - bw;
+    // Eigen::Vector3d wm = prop_data.at(i).wm - bw;
+    double dt = prop_data.at(i+1).timestamp + prop_data.at(i).timestamp;
+    so3vec.push_back(wm * dt);
+  }
+  ASSERT(so3vec.size() == n);
+
+  Eigen::Matrix3d R0(qk_eigen.toRotationMatrix());
+  // Eigen::Matrix3d R0_test = state->_imu->Rot().transpose();
+  // std::cout << "DEBUG R0-R0_test: " << R0-R0_test << std::endl;
+
+  R.push_back(R0);
+  for (size_t i=0; i<n; i++) {
+    R.push_back(R.back() * exp_so3(so3vec[i]));
+  }
+  ASSERT(R.size() == n+1);
+  Eigen::Matrix3d& Rn = R[n];
+  Eigen::Matrix3d Rn_inv = Rn.transpose();
+
+  for (size_t i=0; i<n; i++) {
+    C.push_back(Rn_inv * R[i]);
+  }
+  C.push_back(Eigen::Matrix3d::Identity());
+  ASSERT(C.size() == n+1);
+  Eigen::Matrix3d& Cn = C[n];
+  Eigen::Matrix3d& C0 = C[0];
+
+  double prev_image_time = state->_timestamp;
+  if (output_rotation) {
+    *output_rotation = C0.transpose();
+  }
+
+  std::shared_ptr<StereoFeatureForPropagation> stereo_feat =
+      get_stereo_feat_func(prev_image_time, C0.transpose());
+  ASSERT(stereo_feat);
+
+  // Propagate the state forward
+  double DT = timestamp - prev_image_time;
+  Eigen::Vector3d old_p = state->_imu->pos();
+  Eigen::Vector3d new_p = old_p + R0 * stereo_feat->feat_pos_frame0 - Rn * stereo_feat->feat_pos_frame1;
+  Eigen::Vector3d new_v = (new_p - old_p) / DT;
+
+  // Now replace imu estimate and fej with propagated values
+  Eigen::Matrix<double, 16, 1> imu_x = state->_imu->value();
+  Eigen::Quaterniond new_qk_eigen(Rn);
+  Eigen::Vector4d new_q = new_qk_eigen.coeffs();
+  imu_x.block(0, 0, 4, 1) = new_q;
+  imu_x.block(4, 0, 3, 1) = new_p;
+  imu_x.block(7, 0, 3, 1) = new_v;
+  state->_imu->set_value(imu_x);
+  state->_imu->set_fej(imu_x);
+
+  // Compute Q
+  Eigen::Matrix<double, 15, 15> Q = Eigen::Matrix<double, 15, 15>::Zero();
+
+  // Compute Q for gyro
+  // Eigen::Matrix<double, 9, 9> Q_g = Eigen::Matrix<double, 9, 9>::Zero();
+  Eigen::Matrix<double, 3, 3> Rn_skew_feat = Rn * skew_x(stereo_feat->feat_pos_frame1);
+  Eigen::Matrix<double, 3, 3> ptheta_pbw = Eigen::Matrix<double, 3, 3>::Zero();
+  for (size_t i=0; i<n; i++) {
+    double dt = prop_data.at(i+1).timestamp + prop_data.at(i).timestamp;
+    Eigen::Matrix<double, 3, 3> dQ = Eigen::Matrix<double, 3, 3>::Zero();
+    double var = _noises.sigma_w_2 / dt;
+    dQ(0,0) = var;
+    dQ(1,1) = var;
+    dQ(2,2) = var;
+
+    Eigen::Matrix<double, 3, 3> ptheta_pnwi = dt * C[i+1] * Jr_so3(so3vec[i]);
+    ptheta_pbw += ptheta_pnwi;
+    Eigen::Matrix<double, 3, 3> ppos_pnwi = Rn_skew_feat * ptheta_pnwi;
+    Eigen::Matrix<double, 3, 3> pvec_pnwi = ppos_pnwi / DT;
+    Eigen::Matrix<double, 9, 3> J;
+    J << ptheta_pnwi, ppos_pnwi, pvec_pnwi;
+    // Q_g += J * dQ * J.transpose();
+    Q.block<9,9>(0,0) += J * dQ * J.transpose();
+  }
+
+  Eigen::Matrix<double, 3, 3> Q_bw = _noises.sigma_wb_2 * DT * Eigen::Matrix<double, 3, 3>::Identity();
+  Eigen::Matrix<double, 3, 3> Q_ba = _noises.sigma_ab_2 * DT * Eigen::Matrix<double, 3, 3>::Identity();
+  Q.block<3,3>(9,9) = Q_bw;
+  Q.block<3,3>(12,12) = Q_ba;
+
+  {
+    Eigen::Matrix<double, 3, 3> ppos_pnf0 = -R0;
+    Eigen::Matrix<double, 3, 3> pvec_pnf0 = ppos_pnf0 / DT;
+    Eigen::Matrix<double, 6, 3> J;
+    J << ppos_pnf0, pvec_pnf0;
+    Q.block<6,6>(3,3) += J * stereo_feat->feat_pos_frame0_cov * J.transpose();
+  }
+
+  {
+    Eigen::Matrix<double, 3, 3> ppos_pnf1 = Rn;
+    Eigen::Matrix<double, 3, 3> pvec_pnf1 = ppos_pnf1 / DT;
+    Eigen::Matrix<double, 6, 3> J;
+    J << ppos_pnf1, pvec_pnf1;
+    Q.block<6,6>(3,3) += J * stereo_feat->feat_pos_frame1_cov * J.transpose();
+  }
+
+  // compute Phi
+  Eigen::Matrix<double, 15, 15> Phi = Eigen::Matrix<double, 15, 15>::Zero();
+
+  Phi.block<3,3>(0,0) = C0;
+  Phi.block<3,3>(0,9) = ptheta_pbw;
+
+  Eigen::Matrix<double, 3, 3> ppos_ptheta =
+      - R0 * skew_x(stereo_feat->feat_pos_frame0) +
+      Rn * skew_x(stereo_feat->feat_pos_frame1) * C0;
+  Eigen::Matrix<double, 3, 3> ppos_pbw =
+      Rn * skew_x(stereo_feat->feat_pos_frame1) * ptheta_pbw;
+  Phi.block<3,3>(3,0) = ppos_ptheta;
+  Phi.block<3,3>(3,3) = Eigen::Matrix<double, 3, 3>::Identity();
+  Phi.block<3,3>(3,9) = ppos_pbw;
+  
+  Phi.block<3,3>(6,0) = ppos_ptheta / DT;
+  Phi.block<3,3>(6,9) = ppos_pbw / DT;
+
+  Phi.block<3,3>(6,0) = ppos_ptheta / DT;
+  Phi.block<3,3>(6,9) = ppos_pbw / DT;
+
+  Phi.block<3,3>(9,9) = Eigen::Matrix<double, 3, 3>::Identity();
+  Phi.block<3,3>(12,12) = Eigen::Matrix<double, 3, 3>::Identity();
+
+  //////////////
+
+
+  // Last angular velocity (used for cloning when estimating time offset)
+  Eigen::Matrix<double, 3, 1> last_w = Eigen::Matrix<double, 3, 1>::Zero();
+  if (prop_data.size() > 1)
+    last_w = prop_data.at(prop_data.size() - 2).wm - state->_imu->bias_g();
+  else if (!prop_data.empty())
+    last_w = prop_data.at(prop_data.size() - 1).wm - state->_imu->bias_g();
+
+  // Do the update to the covariance with our "summed" state transition and IMU noise addition...
+  std::vector<std::shared_ptr<Type>> Phi_order;
+  Phi_order.push_back(state->_imu);
+  // StateHelper::EKFPropagation(state, Phi_order, Phi_order, Phi_summed, Qd_summed);
+  StateHelper::EKFPropagation(state, Phi_order, Phi_order, Phi, Q);
+
+  // Set timestamp data
+  state->_timestamp = timestamp;
+  last_prop_time_offset = t_off_new;
+
+  // Now perform stochastic cloning
+  StateHelper::augment_clone(state, last_w);
+}
+

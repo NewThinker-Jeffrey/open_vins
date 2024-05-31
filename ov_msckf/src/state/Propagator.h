@@ -34,6 +34,18 @@ namespace ov_msckf {
 
 class State;
 
+struct StereoFeatureForPropagation {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  Eigen::Vector3d feat_pos_frame0;
+  Eigen::Matrix3d feat_pos_frame0_cov;
+
+  Eigen::Vector3d feat_pos_frame1;
+  Eigen::Matrix3d feat_pos_frame1_cov;
+};
+
+using GetStereoFeatureForPropagationFunc = std::function<std::shared_ptr<StereoFeatureForPropagation>(double prev_image_time, const Eigen::Matrix3d& R_I1toI0)>;
+
 /**
  * @brief Performs the state covariance and mean propagation using imu measurements
  *
@@ -108,6 +120,11 @@ public:
    * @param timestamp Time to propagate to and clone at (CAM clock frame)
    */
   void propagate_and_clone(std::shared_ptr<State> state, double timestamp, Eigen::Matrix3d* output_rotation=nullptr);
+
+
+  void propagate_and_clone_with_stereo_feature(std::shared_ptr<State> state, double timestamp,
+                                               const GetStereoFeatureForPropagationFunc& get_stereo_feat_func,
+                                               Eigen::Matrix3d* output_rotation);
 
   /**
    * @brief Gets what the state and its covariance will be at a given timestamp
