@@ -638,6 +638,13 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   // Eigen::Matrix<double, 9, 9> Q_g = Eigen::Matrix<double, 9, 9>::Zero();
   Eigen::Matrix<double, 3, 3> Rn_skew_feat = Rn * skew_x(stereo_feat->feat_pos_frame1);
   Eigen::Matrix<double, 3, 3> ptheta_pbw = Eigen::Matrix<double, 3, 3>::Zero();
+
+// #define DEBUG_EQUIVALENT_FORM
+#ifdef DEBUG_EQUIVALENT_FORM
+  // For debug another equivalent form.
+  Eigen::Matrix<double, 3, 3> ptheta_pbw_debug = Eigen::Matrix<double, 3, 3>::Zero();
+#endif
+
   for (size_t i=0; i<n; i++) {
     double dt = prop_data.at(i+1).timestamp - prop_data.at(i).timestamp;
     Eigen::Matrix<double, 3, 3> dQ = Eigen::Matrix<double, 3, 3>::Zero();
@@ -646,8 +653,15 @@ void Propagator::propagate_and_clone_with_stereo_feature(
     dQ(1,1) = var;
     dQ(2,2) = var;
 
-    Eigen::Matrix<double, 3, 3> ptheta_pnwi = dt * C[i+1] * Jr_so3(so3vec[i]);
+    Eigen::Matrix<double, 3, 3> ptheta_pnwi = - dt * C[i] * Jr_so3(-so3vec[i]);
     ptheta_pbw += ptheta_pnwi;
+
+#ifdef DEBUG_EQUIVALENT_FORM
+    // For debug another equivalent form.
+    Eigen::Matrix<double, 3, 3> ptheta_pnwi_debug = - dt * C[i+1] * Jr_so3(so3vec[i]);
+    ptheta_pbw_debug += ptheta_pnwi_debug;
+#endif
+
     Eigen::Matrix<double, 3, 3> ppos_pnwi = Rn_skew_feat * ptheta_pnwi;
     Eigen::Matrix<double, 3, 3> pvec_pnwi = ppos_pnwi / DT;
     Eigen::Matrix<double, 9, 3> J;
@@ -655,6 +669,11 @@ void Propagator::propagate_and_clone_with_stereo_feature(
     // Q_g += J * dQ * J.transpose();
     Q.block<9,9>(0,0) += J * dQ * J.transpose();
   }
+
+#ifdef DEBUG_EQUIVALENT_FORM
+  // debug equivalent form.
+  std::cout << "DEBUG_ptheta_pbw_equivalent_form (the diff should be nearly 0):\n" << ptheta_pbw_debug - ptheta_pbw << std::endl;
+#endif
 
 
   Eigen::Matrix<double, 3, 3> Q_bw = _noises.sigma_wb_2 * DT * Eigen::Matrix<double, 3, 3>::Identity();
@@ -677,8 +696,7 @@ void Propagator::propagate_and_clone_with_stereo_feature(
     J << ppos_pnf1, pvec_pnf1;
     Q.block<6,6>(3,3) += J * stereo_feat->feat_pos_frame1_cov * J.transpose();
   }
-std::cout << "DEBUG_Q:\n" << Q << std::endl;
-// Q = Eigen::Matrix<double, 15, 15>::Zero();
+  // std::cout << "DEBUG_Q:\n" << Q << std::endl;
 
   // compute Phi
   Eigen::Matrix<double, 15, 15> Phi = Eigen::Matrix<double, 15, 15>::Zero();
@@ -702,7 +720,7 @@ std::cout << "DEBUG_Q:\n" << Q << std::endl;
   Phi.block<3,3>(12,12) = Eigen::Matrix<double, 3, 3>::Identity();
 
 
-std::cout << "DEBUG_Phi:\n" << Phi << std::endl;
+  // std::cout << "DEBUG_Phi:\n" << Phi << std::endl;
 
 
   //////////////
@@ -720,14 +738,14 @@ std::cout << "DEBUG_Phi:\n" << Phi << std::endl;
   Phi_order.push_back(state->_imu);
 
 
-auto P = StateHelper::get_marginal_covariance(state, Phi_order);
-std::cout << "DEBUG_P:\n" << P << std::endl;
+  // auto P = StateHelper::get_marginal_covariance(state, Phi_order);
+  // std::cout << "DEBUG_P:\n" << P << std::endl;
 
   // StateHelper::EKFPropagation(state, Phi_order, Phi_order, Phi_summed, Qd_summed);
   StateHelper::EKFPropagation(state, Phi_order, Phi_order, Phi, Q);
 
-auto P2 = StateHelper::get_marginal_covariance(state, Phi_order);
-std::cout << "DEBUG_P-P:\n" << P2 - (Phi * P * Phi.transpose() + Q) << std::endl;
+  // auto P2 = StateHelper::get_marginal_covariance(state, Phi_order);
+  // std::cout << "DEBUG_P-P:\n" << P2 - (Phi * P * Phi.transpose() + Q) << std::endl;
 
 
 
