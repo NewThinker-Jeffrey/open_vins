@@ -1590,8 +1590,8 @@ VioManager::choose_stereo_feature_for_propagation(
     pair.disparity_square_cam0 = 1 - (dot * dot) / (homo0_cam0_square * homo0_cam1_square);
   }
 
-  // select 20 pairs with the max disparities.
-  size_t n_select = std::min(size_t(20), stereo_pairs.size());
+  // select "n_select" pairs with the max disparities.
+  size_t n_select = std::min(size_t(5), stereo_pairs.size());
   auto comp_disparity = [](const StereoPair& a, const StereoPair& b) {
         return a.disparity_square_cam0 > b.disparity_square_cam0;
       };
@@ -1617,7 +1617,7 @@ VioManager::choose_stereo_feature_for_propagation(
       }
       oss << " ...";
     }
-    PRINT_INFO("DEBUG_STEREO_PROPAGATION: disparities: %s\n", oss.str().c_str());
+    PRINT_INFO("DEBUG_STEREO_PROPAGATION: dt = %.4f, disparities: %s\n", cur_image_time - prev_image_time, oss.str().c_str());
   }
 
 
@@ -1673,7 +1673,8 @@ VioManager::choose_stereo_feature_for_propagation(
 
   auto ret = std::make_shared<StereoFeatureForPropagation>();
 
-  const double pos_diff_thr = 0.02;
+  // const double pos_diff_thr = 0.02;
+  const double pos_diff_thr = 0.05;
   const size_t con_thr = 2;
   int best_idx = -1;
   if (n_select > con_thr) {
@@ -1695,13 +1696,22 @@ VioManager::choose_stereo_feature_for_propagation(
 
   if (best_idx < 0) {
     PRINT_INFO("DEBUG_STEREO_PROPAGATION: best_idx=%d, n_con = %d\n", best_idx, 0);
-    ret->feat_pos_frame0 = Eigen::Vector3d(1000, 1000, 1000);
-    ret->feat_pos_frame1 = Eigen::Vector3d(1000, 1000, 1000);
-    ret->feat_pos_frame0_cov = Eigen::Matrix3d::Identity();
-    ret->feat_pos_frame1_cov = Eigen::Matrix3d::Identity();
     prev_propagation_feat_id = 0;
-    return ret;
+
     // return nullptr;
+
+    // ret->feat_pos_frame0 = Eigen::Vector3d(1000, 1000, 1000);
+    // ret->feat_pos_frame1 = Eigen::Vector3d(1000, 1000, 1000);
+    // ret->feat_pos_frame0_cov = Eigen::Matrix3d::Identity();
+    // ret->feat_pos_frame1_cov = Eigen::Matrix3d::Identity();
+
+
+    // makeup    
+    ret->feat_pos_frame1 = Eigen::Vector3d(5, 5, 5);
+    ret->feat_pos_frame0 = R_I1toI0 * ret->feat_pos_frame1;
+    ret->feat_pos_frame0_cov = 0.5 * Eigen::Matrix3d::Identity();
+    ret->feat_pos_frame1_cov = 0.5 * Eigen::Matrix3d::Identity();
+    return ret;
   }
 
   // Use extrinsics to compute disparity and feature position.

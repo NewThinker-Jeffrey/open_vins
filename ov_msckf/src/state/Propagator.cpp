@@ -539,6 +539,27 @@ void Propagator::propagate_and_clone_with_stereo_feature(
 
   prop_data = fill_imu_data_gaps(prop_data);
 
+// // For debug
+// ov_core::ImuData mean;
+// mean.wm = Eigen::Vector3d::Zero();
+// mean.am = Eigen::Vector3d::Zero();
+// for (const auto& imu_data_i : prop_data) {
+//   mean.wm += imu_data_i.wm;
+//   mean.am += imu_data_i.am;
+// }
+// mean.wm /= prop_data.size();
+// mean.am /= prop_data.size();
+// std::vector<ov_core::ImuData> prop_data_2;
+// prop_data_2.push_back(prop_data[0]);
+// prop_data_2.push_back(prop_data.back());
+// prop_data_2[0].am = mean.am;
+// prop_data_2[0].wm = mean.wm;
+// prop_data_2[1].am = mean.am;
+// prop_data_2[1].wm = mean.wm;
+// std::swap(prop_data_2, prop_data);
+// ASSERT(prop_data.size() == 2);  
+
+
   //////////////
 
   size_t n = prop_data.size() - 1;
@@ -556,7 +577,7 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   for (size_t i=0; i<n; i++) {
     Eigen::Vector3d wm = 0.5 * (prop_data.at(i).wm + prop_data.at(i+1).wm) - bw;
     // Eigen::Vector3d wm = prop_data.at(i).wm - bw;
-    double dt = prop_data.at(i+1).timestamp + prop_data.at(i).timestamp;
+    double dt = prop_data.at(i+1).timestamp - prop_data.at(i).timestamp;
     so3vec.push_back(wm * dt);
   }
   ASSERT(so3vec.size() == n);
@@ -588,6 +609,10 @@ void Propagator::propagate_and_clone_with_stereo_feature(
 
   std::shared_ptr<StereoFeatureForPropagation> stereo_feat =
       get_stereo_feat_func(prev_image_time, C0.transpose());
+  // if (!stereo_feat) {
+  //   propagate_and_clone(state, timestamp, output_rotation);
+  //   return;
+  // }
   ASSERT(stereo_feat);
 
   // Propagate the state forward
@@ -614,7 +639,7 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   Eigen::Matrix<double, 3, 3> Rn_skew_feat = Rn * skew_x(stereo_feat->feat_pos_frame1);
   Eigen::Matrix<double, 3, 3> ptheta_pbw = Eigen::Matrix<double, 3, 3>::Zero();
   for (size_t i=0; i<n; i++) {
-    double dt = prop_data.at(i+1).timestamp + prop_data.at(i).timestamp;
+    double dt = prop_data.at(i+1).timestamp - prop_data.at(i).timestamp;
     Eigen::Matrix<double, 3, 3> dQ = Eigen::Matrix<double, 3, 3>::Zero();
     double var = _noises.sigma_w_2 / dt;
     dQ(0,0) = var;
@@ -630,6 +655,7 @@ void Propagator::propagate_and_clone_with_stereo_feature(
     // Q_g += J * dQ * J.transpose();
     Q.block<9,9>(0,0) += J * dQ * J.transpose();
   }
+
 
   Eigen::Matrix<double, 3, 3> Q_bw = _noises.sigma_wb_2 * DT * Eigen::Matrix<double, 3, 3>::Identity();
   Eigen::Matrix<double, 3, 3> Q_ba = _noises.sigma_ab_2 * DT * Eigen::Matrix<double, 3, 3>::Identity();
@@ -651,6 +677,8 @@ void Propagator::propagate_and_clone_with_stereo_feature(
     J << ppos_pnf1, pvec_pnf1;
     Q.block<6,6>(3,3) += J * stereo_feat->feat_pos_frame1_cov * J.transpose();
   }
+std::cout << "DEBUG_Q:\n" << Q << std::endl;
+// Q = Eigen::Matrix<double, 15, 15>::Zero();
 
   // compute Phi
   Eigen::Matrix<double, 15, 15> Phi = Eigen::Matrix<double, 15, 15>::Zero();
@@ -670,11 +698,12 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   Phi.block<3,3>(6,0) = ppos_ptheta / DT;
   Phi.block<3,3>(6,9) = ppos_pbw / DT;
 
-  Phi.block<3,3>(6,0) = ppos_ptheta / DT;
-  Phi.block<3,3>(6,9) = ppos_pbw / DT;
-
   Phi.block<3,3>(9,9) = Eigen::Matrix<double, 3, 3>::Identity();
   Phi.block<3,3>(12,12) = Eigen::Matrix<double, 3, 3>::Identity();
+
+
+std::cout << "DEBUG_Phi:\n" << Phi << std::endl;
+
 
   //////////////
 
@@ -689,8 +718,18 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   // Do the update to the covariance with our "summed" state transition and IMU noise addition...
   std::vector<std::shared_ptr<Type>> Phi_order;
   Phi_order.push_back(state->_imu);
+
+
+auto P = StateHelper::get_marginal_covariance(state, Phi_order);
+std::cout << "DEBUG_P:\n" << P << std::endl;
+
   // StateHelper::EKFPropagation(state, Phi_order, Phi_order, Phi_summed, Qd_summed);
   StateHelper::EKFPropagation(state, Phi_order, Phi_order, Phi, Q);
+
+auto P2 = StateHelper::get_marginal_covariance(state, Phi_order);
+std::cout << "DEBUG_P-P:\n" << P2 - (Phi * P * Phi.transpose() + Q) << std::endl;
+
+
 
   // Set timestamp data
   state->_timestamp = timestamp;
