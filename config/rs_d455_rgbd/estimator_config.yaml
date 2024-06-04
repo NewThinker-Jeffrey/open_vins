@@ -12,7 +12,7 @@ use_stereo: true # if we have more than 1 camera, if we should try to track ster
 max_cameras: 1 # how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)
 
 propagate_with_stereo_feature: false
-grivaty_update_after_propagate_with_stereo_feature: false
+grivaty_update_after_propagate_with_stereo_feature: true
 
 use_rgbd: true
 virtual_baseline_for_rgbd: 0.095
