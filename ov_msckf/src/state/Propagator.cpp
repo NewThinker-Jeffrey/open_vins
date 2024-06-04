@@ -783,6 +783,7 @@ void Propagator::gravity_update(std::shared_ptr<State> state) {
     mean_acc += imu_data.am;
   }
   mean_acc /= prop_data.size();
+  mean_acc -= state->_imu->bias_a();
 
   std::shared_ptr<ov_type::PoseJPL> pose = state->_clones_IMU.at(target_time);
 
