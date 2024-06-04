@@ -539,27 +539,6 @@ void Propagator::propagate_and_clone_with_stereo_feature(
 
   prop_data = fill_imu_data_gaps(prop_data);
 
-// // For debug
-// ov_core::ImuData mean;
-// mean.wm = Eigen::Vector3d::Zero();
-// mean.am = Eigen::Vector3d::Zero();
-// for (const auto& imu_data_i : prop_data) {
-//   mean.wm += imu_data_i.wm;
-//   mean.am += imu_data_i.am;
-// }
-// mean.wm /= prop_data.size();
-// mean.am /= prop_data.size();
-// std::vector<ov_core::ImuData> prop_data_2;
-// prop_data_2.push_back(prop_data[0]);
-// prop_data_2.push_back(prop_data.back());
-// prop_data_2[0].am = mean.am;
-// prop_data_2[0].wm = mean.wm;
-// prop_data_2[1].am = mean.am;
-// prop_data_2[1].wm = mean.wm;
-// std::swap(prop_data_2, prop_data);
-// ASSERT(prop_data.size() == 2);  
-
-
   //////////////
 
   size_t n = prop_data.size() - 1;
