@@ -2234,6 +2234,11 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   delayed_features_used = feats_slam_DELAYED.size();
   c->rT6 = std::chrono::high_resolution_clock::now();
 
+
+  if (params.propagate_with_stereo_feature && params.grivaty_update_after_propagate_with_stereo_feature) {
+    propagator->gravity_update(state);
+  }
+
   //===================================================================================
   // Update our visualization feature set, and clean up the old features
   //===================================================================================

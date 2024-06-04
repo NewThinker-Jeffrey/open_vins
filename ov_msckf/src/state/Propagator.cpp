@@ -736,3 +736,106 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   StateHelper::augment_clone(state, last_w);
 }
 
+void Propagator::gravity_update(std::shared_ptr<State> state) {
+  // a naive implementation (regardless of bias).
+
+  std::vector<double> cloned_times;
+  for (const auto &clone_imu : state->_clones_IMU) {
+    cloned_times.push_back(clone_imu.first);
+  }
+
+  if (cloned_times.size() < 3) {
+    return;
+  }
+
+  double target_time = -1;
+  const double half_time_window = 0.03;  // 
+  for (size_t i=cloned_times.size()-2; i>=0; i--) {
+    if (cloned_times[i] < state->_timestamp - half_time_window) {
+      target_time = cloned_times[i];
+      break;
+    }
+  }
+
+  if (target_time <= next_gravity_update_time) {
+    return;
+  }
+
+  // Get what our IMU-camera offset should be (t_imu = t_cam + calib_dt)
+  double t_offset = state->_calib_dt_CAMtoIMU->value()(0);
+
+  // const double filter_window = 0.05;
+  double time0 = target_time - half_time_window + t_offset;
+  double time1 = target_time + half_time_window + t_offset;
+  std::vector<ov_core::ImuData> prop_data;
+  {
+    std::lock_guard<std::mutex> lck(imu_data_mtx);
+    if (imu_data[0].timestamp > time0) {
+      return;
+    }
+    prop_data = ov_core::select_imu_readings(imu_data, time0, time1);
+  }
+  prop_data = fill_imu_data_gaps(prop_data);
+
+  // calc mean acc
+  Eigen::Vector3d mean_acc(0, 0, 0);
+  for (const auto &imu_data : prop_data) {
+    mean_acc += imu_data.am;
+  }
+  mean_acc /= prop_data.size();
+
+  std::shared_ptr<ov_type::PoseJPL> pose = state->_clones_IMU.at(target_time);
+
+  Eigen::Matrix3d Rinv = pose->Rot();
+
+  std::cout << "DEBUG_gravity_update: mean_acc = " << (Rinv.transpose() * mean_acc).transpose() << std::endl;
+  // if ((mean_acc - Rinv*Eigen::Vector3d(0, 0, 9.81)).norm() > 2.0) {
+  //   return;
+  // }
+
+  mean_acc.normalize();
+
+
+  Eigen::Vector3d Z(0,0,1);
+  Eigen::Vector3d ZinI = Rinv * Z;
+  Eigen::Vector3d XinI;
+  if (fabs(ZinI.z()) < fabs(ZinI.x()) && fabs(ZinI.z()) < fabs(ZinI.y())) {
+    XinI = Eigen::Vector3d(0, 0, 1);
+  } else if (fabs(ZinI.x()) < fabs(ZinI.y())) {
+    XinI = Eigen::Vector3d(1, 0, 0);
+  } else {
+    XinI = Eigen::Vector3d(0, 1, 0);
+  }
+  Eigen::Vector3d YinI = ZinI.cross(XinI);
+  YinI.normalize();
+  XinI = YinI.cross(ZinI);
+
+  Eigen::Matrix<double, 2, 3> A;
+  A << XinI.transpose(), YinI.transpose();
+
+  Eigen::Matrix<double, 2, 3> H = A * skew_x(ZinI);
+
+  const double direction_sigma = 0.1;  // rad
+  const double direction_sigma2 = direction_sigma * direction_sigma;
+  Eigen::Matrix<double, 2, 2> R = direction_sigma2 * Eigen::Matrix<double, 2, 2>::Identity();
+
+  Eigen::Vector2d res = A * (mean_acc - ZinI);
+  std::cout << "DEBUG_gravity_update: res = " << (pose->Rot().transpose() * (mean_acc - ZinI)).transpose() << std::endl;
+
+  Eigen::MatrixXd q_cov = StateHelper::get_marginal_covariance(state, {pose->q()});
+  double mal_square = res.transpose() * (H * q_cov * H.transpose() + R).inverse() * res;
+  std::cout << "DEBUG_gravity_update: mal = " << sqrt(mal_square) << std::endl;
+
+  if (mal_square > 2.0 * 2.0) {
+    return;
+  }
+
+  std::cout << "DEBUG_gravity_update: ACCEPTED++++++++++++++++++++++++++++++++++++++++++" << std::endl;
+
+  std::vector<std::shared_ptr<Type>> H_order;
+  H_order.push_back(pose->q());
+
+  StateHelper::EKFUpdate(state, H_order, H, res, R);
+
+  next_gravity_update_time = target_time + half_time_window;
+}

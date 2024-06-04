@@ -113,6 +113,9 @@ struct VioManagerOptions {
 
   bool propagate_with_stereo_feature = false;
 
+  bool grivaty_update_after_propagate_with_stereo_feature = false;
+
+
   // /// If we should record the timing performance to file
   // bool record_timing_information = false;
 
@@ -148,6 +151,7 @@ struct VioManagerOptions {
 
 
       parser->parse_config("propagate_with_stereo_feature", propagate_with_stereo_feature);      
+      parser->parse_config("grivaty_update_after_propagate_with_stereo_feature", grivaty_update_after_propagate_with_stereo_feature);      
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
@@ -167,6 +171,7 @@ struct VioManagerOptions {
 
 
     PRINT_DEBUG("  - propagate_with_stereo_feature?: %d\n", propagate_with_stereo_feature);
+    PRINT_DEBUG("  - grivaty_update_after_propagate_with_stereo_feature?: %d\n", grivaty_update_after_propagate_with_stereo_feature);
   }
 
   // NOISE / CHI2 ============================
