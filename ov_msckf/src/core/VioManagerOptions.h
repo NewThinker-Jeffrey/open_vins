@@ -111,6 +111,8 @@ struct VioManagerOptions {
   /// If we should only use the zupt at the very beginning static initialization phase
   bool zupt_only_at_beginning = false;
 
+  bool propagate_with_stereo_feature = false;
+
   // /// If we should record the timing performance to file
   // bool record_timing_information = false;
 
@@ -143,6 +145,9 @@ struct VioManagerOptions {
       // parser->parse_config("record_timing_information", record_timing_information);
       // parser->parse_config("record_timing_filepath", record_timing_filepath);
       // parser->parse_config("output_dir", output_dir, false);
+
+
+      parser->parse_config("propagate_with_stereo_feature", propagate_with_stereo_feature);      
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
@@ -159,6 +164,9 @@ struct VioManagerOptions {
     // PRINT_DEBUG("  - record timing?: %d\n", (int)record_timing_information);
     // PRINT_DEBUG("  - record timing filepath: %s\n", record_timing_filepath.c_str());
     // PRINT_DEBUG("  - output_dir: %d\n", output_dir);
+
+
+    PRINT_DEBUG("  - propagate_with_stereo_feature?: %d\n", propagate_with_stereo_feature);
   }
 
   // NOISE / CHI2 ============================

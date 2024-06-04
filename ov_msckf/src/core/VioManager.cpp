@@ -1820,12 +1820,15 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   // NOTE: then no need to prop since we already are at the desired timestep
   if (state->_timestamp != message.timestamp) {
     Eigen::Matrix3d new_gyro_rotation = Eigen::Matrix3d::Identity();
-    // propagator->propagate_and_clone(state, message.timestamp, &new_gyro_rotation);
-    propagator->propagate_and_clone_with_stereo_feature(
-        state, message.timestamp,
-        [this, &message](double prev_image_time, const Eigen::Matrix3d& R_I1toI0) {
-          return choose_stereo_feature_for_propagation(prev_image_time, message, R_I1toI0);          
-        }, &new_gyro_rotation);
+    if (params.propagate_with_stereo_feature) {
+      propagator->propagate_and_clone_with_stereo_feature(
+          state, message.timestamp,
+          [this, &message](double prev_image_time, const Eigen::Matrix3d& R_I1toI0) {
+            return choose_stereo_feature_for_propagation(prev_image_time, message, R_I1toI0);          
+          }, &new_gyro_rotation);
+    } else {
+      propagator->propagate_and_clone(state, message.timestamp, &new_gyro_rotation);
+    }
     update_gyro_integrated_rotations(message.timestamp, new_gyro_rotation);
   }
   c->rT3 = std::chrono::high_resolution_clock::now();
