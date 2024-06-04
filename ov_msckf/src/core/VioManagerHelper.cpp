@@ -109,6 +109,9 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
     // Try to initialize the system
     // We will wait for a jerk if we do not have the zero velocity update enabled
     // Otherwise we can initialize right away as the zero velocity will handle the stationary case
+
+    // bool is_stereo_tracking = (params.state_options.num_cameras == 2 && params.use_stereo) || params.state_options.use_rgbd;
+    // bool wait_for_jerk = (updaterZUPT == nullptr && !is_stereo_tracking);
     bool wait_for_jerk = (updaterZUPT == nullptr);
     bool success = initializer->initialize(timestamp, covariance, order, state->_imu, wait_for_jerk);
 
@@ -395,7 +398,8 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
   PRINT_ALL(CYAN "[RETRI-TIME]: %.4f seconds total\n" RESET, std::chrono::duration_cast<std::chrono::duration<double>>(retri_rT3 - retri_rT1).count());
 }
 
-cv::Mat VioManager::get_historical_viz_image(std::shared_ptr<Output> output) {
+// cv::Mat VioManager::get_historical_viz_image(std::shared_ptr<Output> output) {
+cv::Mat VioManager::get_historical_viz_image(const Output& output) {
 
   // Return if not ready yet
   if (state == nullptr || trackFEATS == nullptr)
@@ -403,10 +407,10 @@ cv::Mat VioManager::get_historical_viz_image(std::shared_ptr<Output> output) {
 
   // Build an id-list of what features we should highlight (i.e. SLAM)
   std::vector<size_t> highlighted_ids;
-  for (const auto &feat : output->state_clone->_features_SLAM) {
+  for (const auto &feat : output.state_clone->_features_SLAM) {
     highlighted_ids.push_back(feat.first);
   }
-  auto & good_feature_ids_MSCKF = output->visualization.good_feature_ids_MSCKF;
+  const auto & good_feature_ids_MSCKF = output.visualization.good_feature_ids_MSCKF;
   highlighted_ids.insert(highlighted_ids.end(), good_feature_ids_MSCKF.begin(), good_feature_ids_MSCKF.end());
 
   // Text we will overlay if needed
@@ -415,13 +419,13 @@ cv::Mat VioManager::get_historical_viz_image(std::shared_ptr<Output> output) {
 
   // Get the current active tracks
   cv::Mat img_history;
-  // double img_timestamp = output->status.timestamp;
-  double img_timestamp = output->status.prev_timestamp;  // we need the 'prev_timestamp' so that msckf points can be visulized  
+  // double img_timestamp = output.status.timestamp;
+  double img_timestamp = output.status.prev_timestamp;  // we need the 'prev_timestamp' so that msckf points can be visulized  
   if (img_timestamp <= 0) {
-    img_timestamp = output->status.timestamp;
+    img_timestamp = output.status.timestamp;
   }
 
-  // std::cout << "prev_timestamp: " << output->status.prev_timestamp << ", cur_timestamp: " << output->status.timestamp << ", img_timestamp" << img_timestamp << std::endl;
+  // std::cout << "prev_timestamp: " << output.status.prev_timestamp << ", cur_timestamp: " << output.status.timestamp << ", img_timestamp" << img_timestamp << std::endl;
 
   trackFEATS->display_history(img_timestamp, img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
   if (trackARUCO != nullptr) {

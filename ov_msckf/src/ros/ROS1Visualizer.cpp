@@ -649,7 +649,7 @@ void ROS1Visualizer::publish_images() {
   last_visualization_timestamp_image = cur_state_timestamp;
 
   // Get our image of history tracks
-  cv::Mat img_history = _app->get_historical_viz_image(_vis_output);
+  cv::Mat img_history = _app->get_historical_viz_image(*_vis_output);
   if (img_history.empty())
     return;
 

@@ -733,7 +733,6 @@ void VioManager::update_thread_func() {
     tc.tag("update_output_Done");
     tc.report("UpdateTiming: ", true);
 #endif
-
   }
 }
 

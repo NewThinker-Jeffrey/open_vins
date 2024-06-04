@@ -176,7 +176,8 @@ public:
   std::shared_ptr<Propagator> get_propagator() { return propagator; }
 
   /// Get a nice visualization image of what tracks we have
-  cv::Mat get_historical_viz_image(std::shared_ptr<Output> output);
+  // cv::Mat get_historical_viz_image(std::shared_ptr<Output> output);
+  cv::Mat get_historical_viz_image(const Output& output);
 
   // clear older tracking cache (used for visualization)
   void clear_older_tracking_cache(double timestamp);
