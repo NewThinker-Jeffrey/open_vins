@@ -1590,7 +1590,7 @@ VioManager::choose_stereo_feature_for_propagation(
   }
 
   // select "n_select" pairs with the max disparities.
-  size_t n_select = std::min(size_t(5), stereo_pairs.size());
+  size_t n_select = std::min(size_t(params.propagation_feature_n_select), stereo_pairs.size());
   auto comp_disparity = [](const StereoPair& a, const StereoPair& b) {
         return a.disparity_square_cam0 > b.disparity_square_cam0;
       };
@@ -1672,9 +1672,9 @@ VioManager::choose_stereo_feature_for_propagation(
 
   auto ret = std::make_shared<StereoFeatureForPropagation>();
 
-  // const double pos_diff_thr = 0.02;
-  const double pos_diff_thr = 0.05;
-  const size_t con_thr = 2;
+  const double pos_diff_thr = params.propagation_feature_con_trans_diff_thr;
+  const size_t con_thr = params.propagation_feature_n_con_thr;
+
   int best_idx = -1;
   if (n_select > con_thr) {
     for (size_t i=0; i<n_select-con_thr; i++) {
@@ -1693,33 +1693,27 @@ VioManager::choose_stereo_feature_for_propagation(
     }
   }
 
-  if (best_idx < 0) {
-    PRINT_INFO("DEBUG_STEREO_PROPAGATION: best_idx=%d, n_con = %d\n", best_idx, 0);
+  if (params.propagation_feature_force_psuedo_stationary || best_idx < 0) {
+    if (best_idx < 0) {
+      PRINT_INFO("DEBUG_STEREO_PROPAGATION: best_idx=%d, n_con = -\n", best_idx);
+    }
+    if (params.propagation_feature_force_psuedo_stationary) {
+      PRINT_INFO("DEBUG_STEREO_PROPAGATION: force stationary propagation!!\n");
+    }
     prev_propagation_feat_id = 0;
 
-    // return nullptr;
+    const double feat_pos_cov = params.propagation_feature_psuedo_stationary_sigma * params.propagation_feature_psuedo_stationary_sigma;
 
-    // ret->feat_pos_frame0 = Eigen::Vector3d(1000, 1000, 1000);
-    // ret->feat_pos_frame1 = Eigen::Vector3d(1000, 1000, 1000);
-    // ret->feat_pos_frame0_cov = Eigen::Matrix3d::Identity();
-    // ret->feat_pos_frame1_cov = Eigen::Matrix3d::Identity();
-
-
-    // makeup    
+    // makeup data
     ret->feat_pos_frame1 = Eigen::Vector3d(5, 5, 5);
     ret->feat_pos_frame0 = R_I1toI0 * ret->feat_pos_frame1;
-    ret->feat_pos_frame0_cov = 0.5 * Eigen::Matrix3d::Identity();
-    ret->feat_pos_frame1_cov = 0.5 * Eigen::Matrix3d::Identity();
+    ret->feat_pos_frame0_cov = feat_pos_cov * Eigen::Matrix3d::Identity();
+    ret->feat_pos_frame1_cov = feat_pos_cov * Eigen::Matrix3d::Identity();
     return ret;
   }
 
   // Use extrinsics to compute disparity and feature position.
-  // 
-  // TODO: for non-rectified stereo cameras, we need to triangulate the features
-  //       with the extrinsics between cameras.
-
-  // const double bearing_sigma = 0.005;  // rad
-  const double bearing_sigma = 0.0025;  // rad
+  const double bearing_sigma = params.propagation_feature_bearing_sigma;  // rad
   double baseline = p_C1inC0.norm();
 
   auto get_cov = [&](const Eigen::Vector3d& feat_in_C0) {

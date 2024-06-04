@@ -115,6 +115,17 @@ struct VioManagerOptions {
 
   bool grivaty_update_after_propagate_with_stereo_feature = false;
 
+  int propagation_feature_n_select = 5;
+
+  int propagation_feature_n_con_thr = 2;
+
+  double propagation_feature_con_trans_diff_thr = 0.02;  // metre
+
+  double propagation_feature_bearing_sigma = 0.0025;  // 1/400 rad.
+
+  bool propagation_feature_force_psuedo_stationary = false;
+
+  double propagation_feature_psuedo_stationary_sigma = 0.7;  // metre
 
   // /// If we should record the timing performance to file
   // bool record_timing_information = false;
@@ -152,6 +163,13 @@ struct VioManagerOptions {
 
       parser->parse_config("propagate_with_stereo_feature", propagate_with_stereo_feature);      
       parser->parse_config("grivaty_update_after_propagate_with_stereo_feature", grivaty_update_after_propagate_with_stereo_feature);      
+
+      parser->parse_config("propagation_feature_n_select", propagation_feature_n_select);
+      parser->parse_config("propagation_feature_n_con_thr", propagation_feature_n_con_thr);
+      parser->parse_config("propagation_feature_con_trans_diff_thr", propagation_feature_con_trans_diff_thr);
+      parser->parse_config("propagation_feature_bearing_sigma", propagation_feature_bearing_sigma);
+      parser->parse_config("propagation_feature_force_psuedo_stationary", propagation_feature_force_psuedo_stationary);
+      parser->parse_config("propagation_feature_psuedo_stationary_sigma", propagation_feature_psuedo_stationary_sigma);
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
@@ -172,6 +190,12 @@ struct VioManagerOptions {
 
     PRINT_DEBUG("  - propagate_with_stereo_feature?: %d\n", propagate_with_stereo_feature);
     PRINT_DEBUG("  - grivaty_update_after_propagate_with_stereo_feature?: %d\n", grivaty_update_after_propagate_with_stereo_feature);
+    PRINT_DEBUG("  - propagation_feature_n_select?: %d\n", propagation_feature_n_select);
+    PRINT_DEBUG("  - propagation_feature_n_con_thr?: %d\n", propagation_feature_n_con_thr);
+    PRINT_DEBUG("  - propagation_feature_con_trans_diff_thr?: %f\n", propagation_feature_con_trans_diff_thr);
+    PRINT_DEBUG("  - propagation_feature_bearing_sigma?: %d\n", propagation_feature_bearing_sigma);
+    PRINT_DEBUG("  - propagation_feature_force_psuedo_stationary?: %d\n", propagation_feature_force_psuedo_stationary);
+    PRINT_DEBUG("  - propagation_feature_psuedo_stationary_sigma?: %f\n", propagation_feature_psuedo_stationary_sigma);
   }
 
   // NOISE / CHI2 ============================
