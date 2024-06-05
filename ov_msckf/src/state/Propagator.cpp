@@ -628,9 +628,15 @@ void Propagator::propagate_and_clone_with_stereo_feature(
     double dt = prop_data.at(i+1).timestamp - prop_data.at(i).timestamp;
     Eigen::Matrix<double, 3, 3> dQ = Eigen::Matrix<double, 3, 3>::Zero();
     double var = _noises.sigma_w_2 / dt;
-    dQ(0,0) = var;
-    dQ(1,1) = var;
-    dQ(2,2) = var;
+
+    // consider gyro scale error (0.02)
+    const double scale_error = 0.02;
+    const double scale_error2 = scale_error * scale_error;
+    const Eigen::Vector3d omega = so3vec[i] / dt;
+
+    dQ(0,0) = var + scale_error2 * omega.x() * omega.x();
+    dQ(1,1) = var + scale_error2 * omega.y() * omega.y();
+    dQ(2,2) = var + scale_error2 * omega.z() * omega.z();
 
     Eigen::Matrix<double, 3, 3> ptheta_pnwi = - dt * C[i] * Jr_so3(-so3vec[i]);
     ptheta_pbw += ptheta_pnwi;
