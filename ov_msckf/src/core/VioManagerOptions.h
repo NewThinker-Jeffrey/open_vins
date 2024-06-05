@@ -129,6 +129,9 @@ struct VioManagerOptions {
 
   double propagation_feature_psuedo_stationary_sigma = 0.7;  // metre
 
+  // for testing propagation
+  bool disable_visual_update = false;
+
   // /// If we should record the timing performance to file
   // bool record_timing_information = false;
 
@@ -173,6 +176,8 @@ struct VioManagerOptions {
       parser->parse_config("propagation_feature_bearing_sigma", propagation_feature_bearing_sigma);
       parser->parse_config("propagation_feature_force_psuedo_stationary", propagation_feature_force_psuedo_stationary);
       parser->parse_config("propagation_feature_psuedo_stationary_sigma", propagation_feature_psuedo_stationary_sigma);
+
+      parser->parse_config("disable_visual_update", disable_visual_update);      
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
@@ -200,6 +205,8 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - propagation_feature_bearing_sigma?: %d\n", propagation_feature_bearing_sigma);
     PRINT_DEBUG("  - propagation_feature_force_psuedo_stationary?: %d\n", propagation_feature_force_psuedo_stationary);
     PRINT_DEBUG("  - propagation_feature_psuedo_stationary_sigma?: %f\n", propagation_feature_psuedo_stationary_sigma);
+
+    PRINT_DEBUG("  - disable_visual_update?: %d\n", disable_visual_update);
   }
 
   // NOISE / CHI2 ============================

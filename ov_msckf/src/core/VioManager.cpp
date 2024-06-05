@@ -1504,6 +1504,7 @@ VioManager::choose_stereo_feature_for_propagation(
     Eigen::Matrix3d feat_pos_frame1_cov;
 
     Eigen::Vector3d p1in0;
+    Eigen::Matrix3d p1in0_cov;
   };
 
   std::vector<StereoPair> stereo_pairs;
@@ -1691,6 +1692,7 @@ VioManager::choose_stereo_feature_for_propagation(
 
     // estimate pos of frame1 in frame0 (with known rotation).
     pair.p1in0 = pair.feat_pos_frame0 - R_I1toI0 * pair.feat_pos_frame1;
+    pair.p1in0_cov = pair.feat_pos_frame0_cov + R_I1toI0 * pair.feat_pos_frame1_cov * R_I1toI0.transpose();
   }
 
   { // print debug info
@@ -1721,8 +1723,17 @@ VioManager::choose_stereo_feature_for_propagation(
       for (size_t j=0; j<n_select; j++) {
         if (j == i) continue;
 
-        double pos_diff = (stereo_pairs[i].p1in0 - stereo_pairs[j].p1in0).norm();
-        if (pos_diff < pos_diff_thr) {
+        // double pos_diff = (stereo_pairs[i].p1in0 - stereo_pairs[j].p1in0).norm();
+        // if (pos_diff < pos_diff_thr) {
+        //   ++n_con;
+        // }
+
+        Eigen::Vector3d err = stereo_pairs[i].p1in0 - stereo_pairs[j].p1in0;
+        Eigen::Matrix3d err_cov = stereo_pairs[i].p1in0_cov + stereo_pairs[j].p1in0_cov;
+        double mal_square = err.transpose() * err_cov.inverse() * err;
+        const double mal_dis_thr = 2.0;
+        const double mal_square_thr = mal_dis_thr * mal_dis_thr;
+        if (mal_square < mal_square_thr) {
           ++n_con;
         }
       }
@@ -2239,7 +2250,9 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end() - state->_options.max_msckf_in_update);
   size_t msckf_features_used = featsup_MSCKF.size();
   size_t msckf_features_outliers = 0;
-  updaterMSCKF->update(state, featsup_MSCKF);
+  if (!params.disable_visual_update) {
+    updaterMSCKF->update(state, featsup_MSCKF);
+  }
   msckf_features_outliers = msckf_features_used - featsup_MSCKF.size();
   msckf_features_used = featsup_MSCKF.size();
   c->rT4 = std::chrono::high_resolution_clock::now();
@@ -2258,7 +2271,9 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     feats_slam_UPDATE.erase(feats_slam_UPDATE.begin(),
                             feats_slam_UPDATE.begin() + std::min(state->_options.max_slam_in_update, (int)feats_slam_UPDATE.size()));
     // Do the update
-    updaterSLAM->update(state, featsup_TEMP);
+    if (!params.disable_visual_update) {
+      updaterSLAM->update(state, featsup_TEMP);
+    }
     feats_slam_UPDATE_TEMP.insert(feats_slam_UPDATE_TEMP.end(), featsup_TEMP.begin(), featsup_TEMP.end());
   }
   feats_slam_UPDATE = feats_slam_UPDATE_TEMP;
@@ -2268,7 +2283,9 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
 
   size_t delayed_features_used = feats_slam_DELAYED.size();
   size_t delayed_features_outliers = 0;
-  updaterSLAM->delayed_init(state, feats_slam_DELAYED);
+  if (!params.disable_visual_update) {
+    updaterSLAM->delayed_init(state, feats_slam_DELAYED);
+  }
   delayed_features_outliers = delayed_features_used - feats_slam_DELAYED.size();
   delayed_features_used = feats_slam_DELAYED.size();
   c->rT6 = std::chrono::high_resolution_clock::now();
