@@ -1498,10 +1498,10 @@ VioManager::choose_stereo_feature_for_propagation(
     // double disparity_square_cam1;
 
     Eigen::Vector3d feat_pos_frame0;
-    // // Eigen::Matrix3d feat_pos_frame0_cov;
+    Eigen::Matrix3d feat_pos_frame0_cov;
 
     Eigen::Vector3d feat_pos_frame1;
-    // // Eigen::Matrix3d feat_pos_frame1_cov;
+    Eigen::Matrix3d feat_pos_frame1_cov;
 
     Eigen::Vector3d p1in0;
   };
@@ -1620,7 +1620,7 @@ VioManager::choose_stereo_feature_for_propagation(
   }
 
 
-  auto triangulate = [&](Eigen::Vector2f uvn_cam0, Eigen::Vector2f uvn_cam1) {
+  auto triangulate = [&](const Eigen::Vector2f& uvn_cam0, const Eigen::Vector2f& uvn_cam1) {
     Eigen::Vector3d homo0(uvn_cam0.x(), uvn_cam0.y(), 1.0);
     Eigen::Vector3d homo1(uvn_cam1.x(), uvn_cam1.y(), 1.0);
 
@@ -1641,9 +1641,42 @@ VioManager::choose_stereo_feature_for_propagation(
 
     // Eigen::Vector3d p_feat_in_I = A.colPivHouseholderQr().solve(b);
     // return p_feat_in_I;
-
     Eigen::Vector3d p_feat_in_C0 = A.colPivHouseholderQr().solve(b);
     return p_feat_in_C0;
+  };
+
+  const double bearing_sigma = params.propagation_feature_bearing_sigma;  // rad
+
+  auto refine_triangulate =
+      [&](const Eigen::Vector2f& uvn_cam0, const Eigen::Vector2f& uvn_cam1,
+          Eigen::Vector3d& p_feat_in_C0, Eigen::Matrix3d& cov) {
+    p_feat_in_C0 = triangulate(uvn_cam0, uvn_cam1);
+    auto jaco_proj = [](const Eigen::Vector3d& p) {
+      Eigen::Matrix<double, 2, 3> J;
+      const double& x = p.x();
+      const double& y = p.y();
+      const double& z = p.z();
+      double z2 = z*z;
+      J << 1/z, 0, -x/z2,
+           0, 1/z, -y/z2;
+      return J;
+    };
+
+    Eigen::Vector3d p_feat_in_C1 = R_C1toC0.transpose() * (p_feat_in_C0 - p_C1inC0);
+
+    Eigen::Matrix<double, 4, 3> J;
+    J << jaco_proj(p_feat_in_C0), jaco_proj(p_feat_in_C1);
+    Eigen::Matrix<double, 4, 1> err;
+    err << p_feat_in_C0.x() / p_feat_in_C0.z() - uvn_cam0.x(),
+           p_feat_in_C0.y() / p_feat_in_C0.z() - uvn_cam0.y(),
+           p_feat_in_C1.x() / p_feat_in_C1.z() - uvn_cam1.x(),
+           p_feat_in_C1.y() / p_feat_in_C1.z() - uvn_cam1.y();
+    Eigen::Matrix3d JTJ = J.transpose() * J;
+    // Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(JTJ);
+    // Eigen::Matrix3d inverse_JTJ = eigensolver.operatorInverse();
+    Eigen::Matrix3d inverse_JTJ = JTJ.inverse();
+    cov = inverse_JTJ * (bearing_sigma * bearing_sigma);
+    p_feat_in_C0 = p_feat_in_C0 + inverse_JTJ * J.transpose() * err;
   };
 
   // Estimate p1in0 with each selected pair
@@ -1651,8 +1684,10 @@ VioManager::choose_stereo_feature_for_propagation(
     auto& pair = stereo_pairs[i];
 
     // estimate feat_pos in frame0 and in frame1
-    pair.feat_pos_frame0 = triangulate(pair.uv_norm_cam0[0], pair.uv_norm_cam1[0]);
-    pair.feat_pos_frame1 = triangulate(pair.uv_norm_cam0[1], pair.uv_norm_cam1[1]);
+    refine_triangulate(pair.uv_norm_cam0[0], pair.uv_norm_cam1[0],
+                       pair.feat_pos_frame0, pair.feat_pos_frame0_cov);
+    refine_triangulate(pair.uv_norm_cam0[1], pair.uv_norm_cam1[1],
+                       pair.feat_pos_frame1, pair.feat_pos_frame1_cov);
 
     // estimate pos of frame1 in frame0 (with known rotation).
     pair.p1in0 = pair.feat_pos_frame0 - R_I1toI0 * pair.feat_pos_frame1;
@@ -1674,29 +1709,39 @@ VioManager::choose_stereo_feature_for_propagation(
 
   const double pos_diff_thr = params.propagation_feature_con_trans_diff_thr;
   const size_t con_thr = params.propagation_feature_n_con_thr;
+  const size_t con_thr2 = params.propagation_feature_n_con_thr2;
+  ASSERT(con_thr2 >= con_thr);
 
   int best_idx = -1;
+  int best_n_con = 0;
   if (n_select > con_thr) {
     for (size_t i=0; i<n_select-con_thr; i++) {
       size_t n_con = 0;
-      for (size_t j=i+1; j<n_select; j++) {
+      // for (size_t j=i+1; j<n_select; j++) {
+      for (size_t j=0; j<n_select; j++) {
+        if (j == i) continue;
+
         double pos_diff = (stereo_pairs[i].p1in0 - stereo_pairs[j].p1in0).norm();
         if (pos_diff < pos_diff_thr) {
           ++n_con;
         }
       }
-      if (n_con >= con_thr) {
+      if (n_con > best_n_con) {
         best_idx = i;
-        PRINT_INFO("DEBUG_STEREO_PROPAGATION: best_idx=%d, n_con = %d\n", best_idx, n_con);
+        best_n_con = n_con;
+      }
+      if (best_n_con >= con_thr2) {
         break;
       }
     }
   }
 
+  PRINT_INFO("DEBUG_STEREO_PROPAGATION: best_idx=%d, best_n_con = %d\n", best_idx, best_n_con);
+  if (best_n_con < con_thr) {
+    PRINT_WARNING("DEBUG_STEREO_PROPAGATION: best_n_con(%d) less than con_thr(%d)!!!!!\n", best_n_con, con_thr);
+  }
+
   if (params.propagation_feature_force_psuedo_stationary || best_idx < 0) {
-    if (best_idx < 0) {
-      PRINT_INFO("DEBUG_STEREO_PROPAGATION: best_idx=%d, n_con = -\n", best_idx);
-    }
     if (params.propagation_feature_force_psuedo_stationary) {
       PRINT_INFO("DEBUG_STEREO_PROPAGATION: force stationary propagation!!\n");
     }
@@ -1713,7 +1758,6 @@ VioManager::choose_stereo_feature_for_propagation(
   }
 
   // Use extrinsics to compute disparity and feature position.
-  const double bearing_sigma = params.propagation_feature_bearing_sigma;  // rad
   double baseline = p_C1inC0.norm();
 
   auto get_cov = [&](const Eigen::Vector3d& feat_in_C0) {
@@ -1759,10 +1803,12 @@ VioManager::choose_stereo_feature_for_propagation(
   };
 
   ret->feat_pos_frame0 = R_C0toI * stereo_pairs[best_idx].feat_pos_frame0 + p_C0inI;
-  ret->feat_pos_frame0_cov = get_cov(stereo_pairs[best_idx].feat_pos_frame0);
+  // ret->feat_pos_frame0_cov = get_cov(stereo_pairs[best_idx].feat_pos_frame0);
+  ret->feat_pos_frame0_cov = R_C0toI * stereo_pairs[best_idx].feat_pos_frame0_cov * R_C0toI.transpose();
 
   ret->feat_pos_frame1 = R_C0toI * stereo_pairs[best_idx].feat_pos_frame1 + p_C0inI;
-  ret->feat_pos_frame1_cov = get_cov(stereo_pairs[best_idx].feat_pos_frame1);
+  // ret->feat_pos_frame1_cov = get_cov(stereo_pairs[best_idx].feat_pos_frame1);
+  ret->feat_pos_frame1_cov = R_C0toI * stereo_pairs[best_idx].feat_pos_frame1_cov * R_C0toI.transpose();
 
   { // print debug info
     std::ostringstream oss;
