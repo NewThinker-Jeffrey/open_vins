@@ -44,7 +44,7 @@ struct StereoFeatureForPropagation {
   Eigen::Matrix3d feat_pos_frame1_cov;
 };
 
-using GetStereoFeatureForPropagationFunc = std::function<std::shared_ptr<StereoFeatureForPropagation>(double prev_image_time, const Eigen::Matrix3d& R_I1toI0)>;
+using GetStereoFeatureForPropagationFunc = std::function<std::vector<std::shared_ptr<StereoFeatureForPropagation>>(double prev_image_time, const Eigen::Matrix3d& R_I1toI0)>;
 
 /**
  * @brief Performs the state covariance and mean propagation using imu measurements

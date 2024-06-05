@@ -1474,7 +1474,7 @@ void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
   }
 }
 
-std::shared_ptr<StereoFeatureForPropagation>
+std::vector<std::shared_ptr<StereoFeatureForPropagation>>
 VioManager::choose_stereo_feature_for_propagation(
     double prev_image_time,
     const ov_core::CameraData &message,
@@ -1518,8 +1518,8 @@ VioManager::choose_stereo_feature_for_propagation(
       if (!feat->uvs_norm.count(cam_id0) || !feat->uvs_norm.count(cam_id1)) {
         continue;  // skip non-stereo features
       }
-      if (prev_propagation_feat_id == feat->featid) {
-        continue;  // skip the feature used for prop last time.
+      if (prev_propagation_feat_ids.count(feat->featid)) {
+        continue;  // skip features used for prop last time.
       }
 
       StereoPair pair;
@@ -1706,8 +1706,7 @@ VioManager::choose_stereo_feature_for_propagation(
     PRINT_INFO("DEBUG_STEREO_PROPAGATION: estimated p_1_in_0: %s\n", oss.str().c_str());
   }
 
-
-  auto ret = std::make_shared<StereoFeatureForPropagation>();
+  std::vector<std::shared_ptr<StereoFeatureForPropagation>> ret_vec;
 
   const double pos_diff_thr = params.propagation_feature_con_trans_diff_thr;
   const size_t con_thr = params.propagation_feature_n_con_thr;
@@ -1756,16 +1755,18 @@ VioManager::choose_stereo_feature_for_propagation(
     if (params.propagation_feature_force_psuedo_stationary) {
       PRINT_INFO("DEBUG_STEREO_PROPAGATION: force stationary propagation!!\n");
     }
-    prev_propagation_feat_id = 0;
+    prev_propagation_feat_ids.clear();
 
     const double feat_pos_cov = params.propagation_feature_psuedo_stationary_sigma * params.propagation_feature_psuedo_stationary_sigma;
 
     // makeup data
+    auto ret = std::make_shared<StereoFeatureForPropagation>();
     ret->feat_pos_frame1 = Eigen::Vector3d(5, 5, 5);
     ret->feat_pos_frame0 = R_I1toI0 * ret->feat_pos_frame1;
     ret->feat_pos_frame0_cov = feat_pos_cov * Eigen::Matrix3d::Identity();
     ret->feat_pos_frame1_cov = feat_pos_cov * Eigen::Matrix3d::Identity();
-    return ret;
+    ret_vec.emplace_back(std::move(ret));
+    return ret_vec;
   }
 
   // Use extrinsics to compute disparity and feature position.
@@ -1813,6 +1814,7 @@ VioManager::choose_stereo_feature_for_propagation(
     return cov_in_imu;
   };
 
+  auto ret = std::make_shared<StereoFeatureForPropagation>();
   ret->feat_pos_frame0 = R_C0toI * stereo_pairs[best_idx].feat_pos_frame0 + p_C0inI;
   // ret->feat_pos_frame0_cov = get_cov(stereo_pairs[best_idx].feat_pos_frame0);
   ret->feat_pos_frame0_cov = R_C0toI * stereo_pairs[best_idx].feat_pos_frame0_cov * R_C0toI.transpose();
@@ -1843,10 +1845,11 @@ VioManager::choose_stereo_feature_for_propagation(
         << "(" << ret->feat_pos_frame1_cov.row(2) << ") ";
     PRINT_INFO("DEBUG_STEREO_PROPAGATION: pos_and_cov1: %s\n", oss.str().c_str());
   }
+  ret_vec.emplace_back(std::move(ret));
 
-  prev_propagation_feat_id = stereo_pairs[best_idx].featid;
+  prev_propagation_feat_ids.insert(stereo_pairs[best_idx].featid);
 
-  return ret;
+  return ret_vec;
 }
 
 void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {

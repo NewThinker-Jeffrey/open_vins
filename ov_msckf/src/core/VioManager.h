@@ -242,7 +242,7 @@ protected:
     feat_tracks_uvd = active_tracks_uvd;
   }
 
-  std::shared_ptr<StereoFeatureForPropagation>
+  std::vector<std::shared_ptr<StereoFeatureForPropagation>>
   choose_stereo_feature_for_propagation(
       double prev_image_time,
       const ov_core::CameraData &message,
@@ -451,7 +451,7 @@ protected:
 
   std::shared_ptr<SemanticSegmentorWrapper> semantic_segmentor_wrapper;
 
-  size_t prev_propagation_feat_id = 0;
+  std::set<size_t> prev_propagation_feat_ids;
 };
 
 } // namespace ov_msckf

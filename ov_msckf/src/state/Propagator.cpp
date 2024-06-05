@@ -586,18 +586,42 @@ void Propagator::propagate_and_clone_with_stereo_feature(
     *output_rotation = C0.transpose();
   }
 
-  std::shared_ptr<StereoFeatureForPropagation> stereo_feat =
+  std::vector<std::shared_ptr<StereoFeatureForPropagation>> stereo_feats =
       get_stereo_feat_func(prev_image_time, C0.transpose());
-  // if (!stereo_feat) {
+  // if (stereo_feats.empty()) {
   //   propagate_and_clone(state, timestamp, output_rotation);
   //   return;
   // }
-  ASSERT(stereo_feat);
+  ASSERT(!stereo_feats.empty());
+
+  // Compute W_j for each feature j.
+  std::vector<Eigen::Matrix3d> Sl, Wl;
+  Eigen::Matrix3d Ql;
+  Eigen::Matrix3d Ql_inv = Eigen::Matrix3d::Zero();
+  Sl.reserve(stereo_feats.size());
+  Wl.reserve(stereo_feats.size());
+
+  for (const auto& stereo_feat : stereo_feats) {
+    Eigen::Matrix3d tmpcov = R0 * stereo_feat->feat_pos_frame0_cov * R0.transpose() + Rn * stereo_feat->feat_pos_frame1_cov * Rn.transpose();
+    Sl.push_back(tmpcov.inverse());
+    Ql_inv += Sl.back();
+  }
+
+  Ql = Ql_inv.inverse();
+  for (const auto& Sl_j : Sl) {
+    Wl.push_back(Ql * Sl_j);
+  }
+
+
+  // auto stereo_feat = stereo_feats[0];
 
   // Propagate the state forward
   double DT = timestamp - prev_image_time;
   Eigen::Vector3d old_p = state->_imu->pos();
-  Eigen::Vector3d new_p = old_p + R0 * stereo_feat->feat_pos_frame0 - Rn * stereo_feat->feat_pos_frame1;
+  Eigen::Vector3d new_p = old_p;
+  for (size_t j=0; j<stereo_feats.size(); j++) {
+    new_p += Wl[j] * (R0 * stereo_feats[j]->feat_pos_frame0 - Rn * stereo_feats[j]->feat_pos_frame1);
+  }
   Eigen::Vector3d new_v = (new_p - old_p) / DT;
 
   // Now replace imu estimate and fej with propagated values
@@ -615,7 +639,22 @@ void Propagator::propagate_and_clone_with_stereo_feature(
 
   // Compute Q for gyro
   // Eigen::Matrix<double, 9, 9> Q_g = Eigen::Matrix<double, 9, 9>::Zero();
-  Eigen::Matrix<double, 3, 3> Rn_skew_feat = Rn * skew_x(stereo_feat->feat_pos_frame1);
+
+
+  Eigen::Matrix<double, 3, 3> R0_skew_feat = Eigen::Matrix<double, 3, 3>::Zero();
+  Eigen::Matrix<double, 3, 3> Rn_skew_feat = Eigen::Matrix<double, 3, 3>::Zero();
+  // Eigen::Matrix<double, 3, 3> Rn_skew_feat = Rn * skew_x(stereo_feat->feat_pos_frame1);
+
+  // debug Wl
+  if (stereo_feats.size() == 1) {
+    std::cout << "DEBUG_Wl-I:\n" << Wl[0] - Eigen::Matrix<double, 3, 3>::Identity() << std::endl;
+  }
+
+  for (size_t j=0; j<stereo_feats.size(); j++) {
+    R0_skew_feat += Wl[j] * R0 * skew_x(stereo_feats[j]->feat_pos_frame0);
+    Rn_skew_feat += Wl[j] * Rn * skew_x(stereo_feats[j]->feat_pos_frame1);
+  }
+
   Eigen::Matrix<double, 3, 3> ptheta_pbw = Eigen::Matrix<double, 3, 3>::Zero();
 
 // #define DEBUG_EQUIVALENT_FORM
@@ -666,21 +705,31 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   Q.block<3,3>(9,9) = Q_bw;
   Q.block<3,3>(12,12) = Q_ba;
 
-  {
+  Eigen::Matrix<double, 6, 6> Ql66;
+  Ql66 << Ql,         Ql / DT,
+          Ql / DT,    Ql / (DT * DT);
+  Q.block<6,6>(3,3) += Ql66;
+
+  // debug Ql66
+  if (stereo_feats.size() == 1) {
+    Eigen::Matrix<double, 6, 6> tmp_Ql66 = Eigen::Matrix<double, 6, 6>::Zero();
+
     Eigen::Matrix<double, 3, 3> ppos_pnf0 = -R0;
     Eigen::Matrix<double, 3, 3> pvec_pnf0 = ppos_pnf0 / DT;
-    Eigen::Matrix<double, 6, 3> J;
-    J << ppos_pnf0, pvec_pnf0;
-    Q.block<6,6>(3,3) += J * stereo_feat->feat_pos_frame0_cov * J.transpose();
-  }
+    Eigen::Matrix<double, 6, 3> J1;
+    J1 << ppos_pnf0, pvec_pnf0;
+    tmp_Ql66 += J1 * stereo_feats[0]->feat_pos_frame0_cov * J1.transpose();
 
-  {
     Eigen::Matrix<double, 3, 3> ppos_pnf1 = Rn;
     Eigen::Matrix<double, 3, 3> pvec_pnf1 = ppos_pnf1 / DT;
-    Eigen::Matrix<double, 6, 3> J;
-    J << ppos_pnf1, pvec_pnf1;
-    Q.block<6,6>(3,3) += J * stereo_feat->feat_pos_frame1_cov * J.transpose();
+    Eigen::Matrix<double, 6, 3> J2;
+    J2 << ppos_pnf1, pvec_pnf1;
+    tmp_Ql66 += J2 * stereo_feats[0]->feat_pos_frame1_cov * J2.transpose();
+
+    std::cout << "DEBUG_Ql66-tmp_Ql66:\n" << Ql66 - tmp_Ql66 << std::endl;
   }
+
+
   // std::cout << "DEBUG_Q:\n" << Q << std::endl;
 
   // compute Phi
@@ -690,10 +739,9 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   Phi.block<3,3>(0,9) = ptheta_pbw;
 
   Eigen::Matrix<double, 3, 3> ppos_ptheta =
-      - R0 * skew_x(stereo_feat->feat_pos_frame0) +
-      Rn * skew_x(stereo_feat->feat_pos_frame1) * C0;
+      - R0_skew_feat + Rn_skew_feat * C0;
   Eigen::Matrix<double, 3, 3> ppos_pbw =
-      Rn * skew_x(stereo_feat->feat_pos_frame1) * ptheta_pbw;
+      Rn_skew_feat * ptheta_pbw;
   Phi.block<3,3>(3,0) = ppos_ptheta;
   Phi.block<3,3>(3,3) = Eigen::Matrix<double, 3, 3>::Identity();
   Phi.block<3,3>(3,9) = ppos_pbw;
