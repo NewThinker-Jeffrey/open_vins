@@ -1518,9 +1518,14 @@ VioManager::choose_stereo_feature_for_propagation(
       if (!feat->uvs_norm.count(cam_id0) || !feat->uvs_norm.count(cam_id1)) {
         continue;  // skip non-stereo features
       }
-      if (prev_propagation_feat_ids.count(feat->featid)) {
-        continue;  // skip features used for prop last time.
-      }
+
+      // // NOTE:
+      // //    Though theoretically we should skip those features that're used for propagation
+      // //    at the previous image time, remaining them might produce better performance in
+      // //    practice.
+      // if (prev_propagation_feat_ids.count(feat->featid)) {
+      //   continue;  // skip features used for prop last time.
+      // }
 
       StereoPair pair;
 
@@ -1556,6 +1561,7 @@ VioManager::choose_stereo_feature_for_propagation(
       stereo_pairs.push_back(pair);
     }
   }
+  prev_propagation_feat_ids.clear();
 
   Eigen::Matrix4d T_C0toI = *params.T_CtoIs.at(cam_id0);
   Eigen::Matrix3d R_C0toI = T_C0toI.block<3,3>(0,0);
@@ -1720,7 +1726,9 @@ VioManager::choose_stereo_feature_for_propagation(
       size_t n_con = 0;
       // for (size_t j=i+1; j<n_select; j++) {
       for (size_t j=0; j<n_select; j++) {
-        if (j == i) continue;
+        if (j == i) {
+          continue;
+        }
 
         // double pos_diff = (stereo_pairs[i].p1in0 - stereo_pairs[j].p1in0).norm();
         // if (pos_diff < pos_diff_thr) {
@@ -1755,7 +1763,6 @@ VioManager::choose_stereo_feature_for_propagation(
     if (params.propagation_feature_force_psuedo_stationary) {
       PRINT_INFO("DEBUG_STEREO_PROPAGATION: force stationary propagation!!\n");
     }
-    prev_propagation_feat_ids.clear();
 
     const double feat_pos_cov = params.propagation_feature_psuedo_stationary_sigma * params.propagation_feature_psuedo_stationary_sigma;
 
@@ -1814,16 +1821,55 @@ VioManager::choose_stereo_feature_for_propagation(
     return cov_in_imu;
   };
 
-  auto ret = std::make_shared<StereoFeatureForPropagation>();
-  ret->feat_pos_frame0 = R_C0toI * stereo_pairs[best_idx].feat_pos_frame0 + p_C0inI;
-  // ret->feat_pos_frame0_cov = get_cov(stereo_pairs[best_idx].feat_pos_frame0);
-  ret->feat_pos_frame0_cov = R_C0toI * stereo_pairs[best_idx].feat_pos_frame0_cov * R_C0toI.transpose();
+  std::vector<int> inliers;
+  inliers.reserve(best_n_con + 1);
+  inliers.push_back(best_idx);
 
-  ret->feat_pos_frame1 = R_C0toI * stereo_pairs[best_idx].feat_pos_frame1 + p_C0inI;
-  // ret->feat_pos_frame1_cov = get_cov(stereo_pairs[best_idx].feat_pos_frame1);
-  ret->feat_pos_frame1_cov = R_C0toI * stereo_pairs[best_idx].feat_pos_frame1_cov * R_C0toI.transpose();
+  // If we want to use multi-feature propagation:
+  bool use_multi_feature_propagation = true;
+  if (use_multi_feature_propagation) {
+    for (size_t j=0; j<n_select; j++) {
+      if (j == best_idx) {
+        continue;
+      }
+
+      // double pos_diff = (stereo_pairs[best_idx].p1in0 - stereo_pairs[j].p1in0).norm();
+      // if (pos_diff < pos_diff_thr) {
+      //   ++n_con;
+      // }
+
+      Eigen::Vector3d err = stereo_pairs[best_idx].p1in0 - stereo_pairs[j].p1in0;
+      Eigen::Matrix3d err_cov = stereo_pairs[best_idx].p1in0_cov + stereo_pairs[j].p1in0_cov;
+      double mal_square = err.transpose() * err_cov.inverse() * err;
+      const double mal_dis_thr = 2.0;
+      const double mal_square_thr = mal_dis_thr * mal_dis_thr;
+      if (mal_square < mal_square_thr) {
+        inliers.push_back(j);
+      }
+    }
+  }
+
+  ASSERT(prev_propagation_feat_ids.empty());
+  for (const int i : inliers) {
+    auto ret = std::make_shared<StereoFeatureForPropagation>();
+    ret->feat_pos_frame0 = R_C0toI * stereo_pairs[i].feat_pos_frame0 + p_C0inI;
+    // ret->feat_pos_frame0_cov = get_cov(stereo_pairs[i].feat_pos_frame0);
+    ret->feat_pos_frame0_cov = R_C0toI * stereo_pairs[i].feat_pos_frame0_cov * R_C0toI.transpose();
+
+    ret->feat_pos_frame1 = R_C0toI * stereo_pairs[i].feat_pos_frame1 + p_C0inI;
+    // ret->feat_pos_frame1_cov = get_cov(stereo_pairs[i].feat_pos_frame1);
+    ret->feat_pos_frame1_cov = R_C0toI * stereo_pairs[i].feat_pos_frame1_cov * R_C0toI.transpose();
+
+    ret_vec.emplace_back(std::move(ret));
+    prev_propagation_feat_ids.insert(stereo_pairs[best_idx].featid);
+  }
+
+  ASSERT(ret_vec.size() == inliers.size());
+  PRINT_INFO("DEBUG_STEREO_PROPAGATION: number of features for propagation: %d\n", ret_vec.size());
+
 
   { // print debug info
+    const auto& ret = ret_vec[0];
     std::ostringstream oss;
     oss.setf(std::ios::fixed);
     oss.precision(4);
@@ -1835,6 +1881,7 @@ VioManager::choose_stereo_feature_for_propagation(
     PRINT_INFO("DEBUG_STEREO_PROPAGATION: pos_and_cov0: %s\n", oss.str().c_str());
   }
   { // print debug info
+    const auto& ret = ret_vec[0];
     std::ostringstream oss;
     oss.setf(std::ios::fixed);
     oss.precision(4);
@@ -1845,9 +1892,8 @@ VioManager::choose_stereo_feature_for_propagation(
         << "(" << ret->feat_pos_frame1_cov.row(2) << ") ";
     PRINT_INFO("DEBUG_STEREO_PROPAGATION: pos_and_cov1: %s\n", oss.str().c_str());
   }
-  ret_vec.emplace_back(std::move(ret));
 
-  prev_propagation_feat_ids.insert(stereo_pairs[best_idx].featid);
+
 
   return ret_vec;
 }
