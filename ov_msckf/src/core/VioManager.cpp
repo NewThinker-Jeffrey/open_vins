@@ -2421,7 +2421,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   double time_total = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT7 - c->rT0).count();
 
   // Timing information
-  PRINT_INFO("[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f), total(%d + %d, %.4f), timestampe: %.6f\n" RESET,
+  PRINT_INFO(GREEN "[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f), total(%d + %d, %.4f), timestampe: %.6f\n" RESET,
                     msckf_features_used, msckf_features_outliers, time_msckf,
                     slam_features_used, slam_features_outliers, time_slam_update,
                     delayed_features_used, delayed_features_outliers, time_slam_delay,
