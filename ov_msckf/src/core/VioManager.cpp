@@ -2303,21 +2303,31 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   if ((int)featsup_MSCKF.size() > state->_options.max_msckf_in_update)
     featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end() - state->_options.max_msckf_in_update);
   
-  // remove those features which are observed less than 3 times.
-  // Note featsup_MSCKF is already a sorted vector that features with less observations
-  // are at the front.
-  for (auto it=featsup_MSCKF.begin(); it != featsup_MSCKF.end(); it++) {
-    size_t asize = 0;  // number of observations
-    for (const auto &pair : (*it)->timestamps) {
-      asize += pair.second.size();
-    }
-    if (asize >= 3) {
-      featsup_MSCKF.erase(featsup_MSCKF.begin(), it);
-      break;
-    }
-    if (it == featsup_MSCKF.end() - 1) {
-      featsup_MSCKF.clear();
-      break;
+  if (params.state_options.use_rgbd) {
+    // If a feature is only observed twice, then it can produce a 1d constraint for
+    // the relative pose between the previous and the current frame (mono) or for the
+    // extrinsics between two cameras (stereo).
+    //
+    // However for RGB-D mode, we're assuming the extrinsics between the main camera and the
+    // virtual right camera is fixed, so a stereo feature with two observations at a single
+    // image time provide almost no information. so we just remove those features which are
+    // observed less than 3 times.
+    //
+    // Note featsup_MSCKF is already a sorted vector that features with less observations
+    // are at the front.
+    for (auto it=featsup_MSCKF.begin(); it != featsup_MSCKF.end(); it++) {
+      size_t asize = 0;  // number of observations
+      for (const auto &pair : (*it)->timestamps) {
+        asize += pair.second.size();
+      }
+      if (asize >= 3) {
+        featsup_MSCKF.erase(featsup_MSCKF.begin(), it);
+        break;
+      }
+      if (it == featsup_MSCKF.end() - 1) {
+        featsup_MSCKF.clear();
+        break;
+      }
     }
   }
 
