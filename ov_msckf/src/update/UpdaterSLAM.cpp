@@ -795,3 +795,309 @@ void UpdaterSLAM::perform_anchor_change(std::shared_ptr<State> state, std::share
   landmark->set_from_xyz(new_feat.p_FinA_fej, true);
   landmark->has_had_anchor_change = true;
 }
+
+void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec, const FeatToMappointMatches& featid_to_mappoint) {
+
+  // Return if no features
+  if (feature_vec.empty())
+    return;
+
+  // Start timing
+  std::chrono::high_resolution_clock::time_point rT0, rT1, rT2, rT3;
+  rT0 = std::chrono::high_resolution_clock::now();
+
+  // 0. Get all timestamps our clones are at (and thus valid measurement times)
+  std::vector<double> clonetimes;
+  for (const auto &clone_imu : state->_clones_IMU) {
+    clonetimes.emplace_back(clone_imu.first);
+  }
+  double max_clonetime = *std::max_element(clonetimes.begin(), clonetimes.end());
+
+  // create cloned features containing no 'future' observations.
+  std::map<std::shared_ptr<Feature>, std::shared_ptr<Feature>> cloned_features;
+
+  // 1. Clean all feature measurements and make sure they all have valid clone times
+  auto it0 = feature_vec.begin();
+  while (it0 != feature_vec.end()) {
+    {
+      std::unique_lock<std::mutex> lck(_db->get_mutex());
+      // Clean the feature
+      (*it0)->clean_old_measurements(clonetimes);
+      cloned_features[*it0] = std::make_shared<Feature>(*(*it0));
+    }
+    auto& cloned_feature = cloned_features[*it0];
+    cloned_feature->clean_future_measurements(max_clonetime);
+
+    // Count how many measurements
+    int ct_meas = 0;
+    for (const auto &pair : cloned_feature->timestamps) {
+      // ct_meas += (*it0)->timestamps[pair.first].size();
+      ct_meas += cloned_feature->timestamps[pair.first].size();
+    }
+
+    // // Get the landmark and its representation
+    // // For single depth representation we need at least two measurement
+    // // This is because we do nullspace projection
+    // std::shared_ptr<Landmark> landmark = state->_features_SLAM.at(cloned_feature->featid);
+    // int required_meas = (landmark->_feat_representation == LandmarkRepresentation::Representation::ANCHORED_INVERSE_DEPTH_SINGLE) ? 2 : 1;
+    int required_meas = 1;
+
+    // Remove if we don't have enough
+    if (ct_meas < 1) {
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it0)->to_delete = true;
+      }
+      it0 = feature_vec.erase(it0);
+    } else if (ct_meas < required_meas) {
+      it0 = feature_vec.erase(it0);
+    } else {
+      it0++;
+    }
+  }
+  rT1 = std::chrono::high_resolution_clock::now();
+
+  // Calculate the max possible measurement size
+  size_t max_meas_size = 0;
+  for (size_t i = 0; i < feature_vec.size(); i++) {
+    // for (const auto &pair : feature_vec.at(i)->timestamps) {
+    //   max_meas_size += 2 * feature_vec.at(i)->timestamps[pair.first].size();
+    // }
+    for (const auto &pair : cloned_features[feature_vec.at(i)]->timestamps) {
+      max_meas_size += 2 * cloned_features[feature_vec.at(i)]->timestamps[pair.first].size();
+    }
+  }
+
+  // Calculate max possible state size (i.e. the size of our covariance)
+  size_t max_hx_size = state->max_covariance_size();
+
+  // Large Jacobian, residual, and measurement noise of *all* features for this update
+  Eigen::VectorXd res_big = Eigen::VectorXd::Zero(max_meas_size);
+  Eigen::MatrixXd Hx_big = Eigen::MatrixXd::Zero(max_meas_size, max_hx_size);
+  Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(max_meas_size, max_meas_size);
+  std::unordered_map<std::shared_ptr<Type>, size_t> Hx_mapping;
+  std::vector<std::shared_ptr<Type>> Hx_order_big;
+  size_t ct_jacob = 0;
+  size_t ct_meas = 0;
+
+  // 4. Compute linear system for each feature, nullspace project, and reject
+  auto it2 = feature_vec.begin();
+  while (it2 != feature_vec.end()) {
+    auto& cloned_feature = cloned_features[*it2];
+
+    // // Ensure we have the landmark and it is the same
+    // assert(state->_features_SLAM.find(cloned_feature->featid) != state->_features_SLAM.end());
+    // assert(state->_features_SLAM.at(cloned_feature->featid)->_featid == cloned_feature->featid);
+
+    // // Get our landmark from the state
+    // std::shared_ptr<Landmark> landmark = state->_features_SLAM.at(cloned_feature->featid);
+
+    // Convert the state landmark into our current format
+    UpdaterHelper::UpdaterHelperFeature feat;
+    feat.featid = cloned_feature->featid;
+    feat.uvs = cloned_feature->uvs;
+    feat.uvs_norm = cloned_feature->uvs_norm;
+    feat.timestamps = cloned_feature->timestamps;
+
+    // // If we are using single inverse depth, then it is equivalent to using the msckf inverse depth
+    // feat.feat_representation = landmark->_feat_representation;
+    // if (landmark->_feat_representation == LandmarkRepresentation::Representation::ANCHORED_INVERSE_DEPTH_SINGLE) {
+    //   feat.feat_representation = LandmarkRepresentation::Representation::ANCHORED_MSCKF_INVERSE_DEPTH;
+    // }
+    feat.feat_representation = ov_type::LandmarkRepresentation::Representation::GLOBAL_3D;
+
+    // // Save the position and its fej value
+    // if (LandmarkRepresentation::is_relative_representation(feat.feat_representation)) {
+    //   feat.anchor_cam_id = landmark->_anchor_cam_id;
+    //   feat.anchor_clone_timestamp = landmark->_anchor_clone_timestamp;
+    //   feat.p_FinA = landmark->get_xyz(false);
+    //   feat.p_FinA_fej = landmark->get_xyz(true);
+    // } else {
+    //   feat.p_FinG = landmark->get_xyz(false);
+    //   feat.p_FinG_fej = landmark->get_xyz(true);
+    // }
+
+    const Eigen::Vector3d& mappoint = featid_to_mappoint.at(feat.featid).p;
+    const Eigen::Matrix3d& mappoint_cov = featid_to_mappoint.at(feat.featid).cov;
+
+    feat.p_FinG = mappoint;
+    feat.p_FinG_fej = mappoint;
+
+    // Our return values (feature jacobian, state jacobian, residual, and order of state jacobian)
+    Eigen::MatrixXd H_f;
+    Eigen::MatrixXd H_x;
+    Eigen::VectorXd res;
+    std::vector<std::shared_ptr<Type>> Hx_order;
+
+    // Get the Jacobian for this feature
+    UpdaterHelper::get_feature_jacobian_full(state, feat, H_f, H_x, res, Hx_order);
+
+    // double absolute_residual_thr =
+    //     ((int)feat.featid < state->_options.max_aruco_features) ? _options_aruco.absolute_residual_thr : _options_slam.absolute_residual_thr;
+    double absolute_residual_thr = _options_mappoint.absolute_residual_thr;
+    if (absolute_residual_thr > 0.0) {
+      const double absolute_residual_square_thr = absolute_residual_thr * absolute_residual_thr;
+      std::cout << "absolute_residuals: ";
+      double max_error_square = 0.0;
+      for (size_t i=0; i<res.size()/2; i++) {
+        double& px = res[2*i];
+        double& py = res[2*i+1];
+        double error_square = px * px + py * py;
+        if (error_square > max_error_square) {
+          max_error_square = error_square;
+        }
+        std::cout << sqrt(error_square) << "  ";
+        if (error_square > absolute_residual_square_thr) {
+          break;
+        }
+      }
+      std::cout << std::endl;
+      if (max_error_square > absolute_residual_square_thr) {
+        // if ((int)feat.featid < state->_options.max_aruco_features) {
+        //   PRINT_WARNING(YELLOW "[SLAM-UP]: rejecting aruco tag %d for absolute_residual_check (%.3f > %.3f)\n" RESET, (int)feat.featid, sqrt(max_error_square),
+        //                 absolute_residual_thr);
+        // } else {
+        //   landmark->update_fail_count++;
+        // }
+        {
+          std::unique_lock<std::mutex> lck(_db->get_mutex());
+          (*it2)->to_delete = true;
+        }
+        it2 = feature_vec.erase(it2);
+        std::cout << "absolute_residual_check_failed!! res = " << res.transpose() << std::endl;
+        continue;
+      }
+    }
+
+    // Place Jacobians in one big Jacobian, since the landmark is already in our state vector
+    // Eigen::MatrixXd H_xf = H_x;
+
+    // if (landmark->_feat_representation == LandmarkRepresentation::Representation::ANCHORED_INVERSE_DEPTH_SINGLE) {
+    //   // Append the Jacobian in respect to the depth of the feature
+    //   H_xf.conservativeResize(H_x.rows(), H_x.cols() + 1);
+    //   H_xf.block(0, H_x.cols(), H_x.rows(), 1) = H_f.block(0, H_f.cols() - 1, H_f.rows(), 1);
+    //   H_f.conservativeResize(H_f.rows(), H_f.cols() - 1);
+
+    //   // Nullspace project the bearing portion
+    //   // This takes into account that we have marginalized the bearing already
+    //   // Thus this is crucial to ensuring estimator consistency as we are not taking the bearing to be true
+    //   UpdaterHelper::nullspace_project_inplace(H_f, H_xf, res);
+
+    // } else {
+
+    //   // Else we have the full feature in our state, so just append it
+    //   H_xf.conservativeResize(H_x.rows(), H_x.cols() + H_f.cols());
+    //   H_xf.block(0, H_x.cols(), H_x.rows(), H_f.cols()) = H_f;
+    // }
+
+    // Append to our Jacobian order vector
+    // std::vector<std::shared_ptr<Type>> Hxf_order = Hx_order;
+    // Hxf_order.push_back(landmark);
+
+    // Chi2 distance check
+    // Eigen::MatrixXd P_marg = StateHelper::get_marginal_covariance(state, Hxf_order);
+    Eigen::MatrixXd P_marg = StateHelper::get_marginal_covariance(state, Hx_order);
+    Eigen::MatrixXd S = H_x * P_marg * H_x.transpose();
+
+    // double sigma_pix_sq =
+    //     ((int)feat.featid < state->_options.max_aruco_features) ? _options_aruco.sigma_pix_sq : _options_slam.sigma_pix_sq;
+    double sigma_pix_sq = _options_mappoint.sigma_pix_sq;
+    S.diagonal() += sigma_pix_sq * Eigen::VectorXd::Ones(S.rows());
+    S += H_f * mappoint_cov * H_f.transpose();
+    double chi2 = res.dot(S.llt().solve(res));
+
+    // Get our threshold (we precompute up to 500 but handle the case that it is more)
+    double chi2_check;
+    // if (res.rows() < 500) {
+    //   chi2_check = chi_squared_table[res.rows()];
+    // } else {
+    //   boost::math::chi_squared chi_squared_dist(res.rows());
+    //   chi2_check = boost::math::quantile(chi_squared_dist, 0.95);
+    //   PRINT_WARNING(YELLOW "chi2_check over the residual limit - %d\n" RESET, (int)res.rows());
+    // }
+    chi2_check = ::chi_squared_quantile_table_0_95[res.rows()];
+
+    // Check if we should delete or not
+    // double chi2_multipler =
+    //     ((int)feat.featid < state->_options.max_aruco_features) ? _options_aruco.chi2_multipler : _options_slam.chi2_multipler;
+    double chi2_multipler = _options_mappoint.chi2_multipler;
+    if (chi2 > chi2_multipler * chi2_check) {
+      // if ((int)feat.featid < state->_options.max_aruco_features) {
+      //   PRINT_WARNING(YELLOW "[SLAM-UP]: rejecting aruco tag %d for chi2 thresh (%.3f > %.3f)\n" RESET, (int)feat.featid, chi2,
+      //                 chi2_multipler * chi2_check);
+      // } else {
+      //   landmark->update_fail_count++;
+      // }
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it2)->to_delete = true;
+      }
+      it2 = feature_vec.erase(it2);
+      continue;
+    }
+
+    // // Debug print when we are going to update the aruco tags
+    // if ((int)feat.featid < state->_options.max_aruco_features) {
+    //   PRINT_DEBUG("[SLAM-UP]: accepted aruco tag %d for chi2 thresh (%.3f < %.3f)\n", (int)feat.featid, chi2, chi2_multipler * chi2_check);
+    // }
+
+    // We are good!!! Append to our large H vector
+    size_t ct_hx = 0;
+    // for (const auto &var : Hxf_order) {
+    for (const auto &var : Hx_order) {
+
+      // Ensure that this variable is in our Jacobian
+      if (Hx_mapping.find(var) == Hx_mapping.end()) {
+        Hx_mapping.insert({var, ct_jacob});
+        Hx_order_big.push_back(var);
+        ct_jacob += var->size();
+      }
+
+      // Append to our large Jacobian
+      // Hx_big.block(ct_meas, Hx_mapping[var], H_xf.rows(), var->size()) = H_xf.block(0, ct_hx, H_xf.rows(), var->size());
+      Hx_big.block(ct_meas, Hx_mapping[var], H_x.rows(), var->size()) = H_x.block(0, ct_hx, H_x.rows(), var->size());
+      ct_hx += var->size();
+    }
+
+    // Our isotropic measurement noise
+    R_big.block(ct_meas, ct_meas, res.rows(), res.rows()) *= sigma_pix_sq;
+    R_big.block(ct_meas, ct_meas, res.rows(), res.rows()) += H_f * mappoint_cov * H_f.transpose();
+
+    // Append our residual and move forward
+    res_big.block(ct_meas, 0, res.rows(), 1) = res;
+    ct_meas += res.rows();
+    it2++;
+  }
+  rT2 = std::chrono::high_resolution_clock::now();
+
+  // We have appended all features to our Hx_big, res_big
+  // Delete it so we do not reuse information
+  {
+    std::unique_lock<std::mutex> lck(_db->get_mutex());
+    for (size_t f = 0; f < feature_vec.size(); f++) {
+      // feature_vec[f]->to_delete = true;
+      feature_vec[f]->clean_older_measurements(max_clonetime);
+    }
+  }
+
+  // Return if we don't have anything and resize our matrices
+  if (ct_meas < 1) {
+    return;
+  }
+  assert(ct_meas <= max_meas_size);
+  assert(ct_jacob <= max_hx_size);
+  res_big.conservativeResize(ct_meas, 1);
+  Hx_big.conservativeResize(ct_meas, ct_jacob);
+  R_big.conservativeResize(ct_meas, ct_meas);
+
+  // 5. With all good SLAM features update the state
+  StateHelper::EKFUpdate(state, Hx_order_big, Hx_big, res_big, R_big);
+  rT3 = std::chrono::high_resolution_clock::now();
+
+  // Debug print timing information
+  PRINT_ALL("[MAPPOINT-UP]: %.4f seconds to clean\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT1 - rT0).count());
+  PRINT_ALL("[MAPPOINT-UP]: %.4f seconds creating linear system\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT2 - rT1).count());
+  PRINT_ALL("[MAPPOINT-UP]: %.4f seconds to update (%d feats of %d size)\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT3 - rT2).count(), (int)feature_vec.size(),
+            (int)Hx_big.rows());
+  PRINT_ALL("[MAPPOINT-UP]: %.4f seconds total\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT3 - rT1).count());
+}

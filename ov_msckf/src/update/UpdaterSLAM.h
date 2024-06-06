@@ -70,6 +70,15 @@ public:
    */
   void update(std::shared_ptr<State> state, std::vector<std::shared_ptr<ov_core::Feature>> &feature_vec);
 
+
+  struct Mappoint {
+    Eigen::Vector3d p;
+    Eigen::Matrix3d cov;
+  };
+  using FeatToMappointMatches = std::map<size_t, Mappoint>;
+
+  void mappoint_update(std::shared_ptr<State> state, std::vector<std::shared_ptr<ov_core::Feature>> &feature_vec, const FeatToMappointMatches& featid_to_mappoint);
+
   /**
    * @brief Given max track features, this will try to use them to initialize them in the state.
    * @param state State of the filter
@@ -103,6 +112,9 @@ protected:
 
   /// Options used during update for aruco features
   UpdaterOptions _options_aruco;
+
+  /// Options used during update for mappoint features
+  UpdaterOptions _options_mappoint;
 
   /// Feature initializer class object
   std::shared_ptr<ov_core::FeatureInitializer> initializer_feat;
