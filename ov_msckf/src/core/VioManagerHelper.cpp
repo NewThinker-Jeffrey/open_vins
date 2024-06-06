@@ -422,34 +422,29 @@ cv::Mat VioManager::get_historical_viz_image(const Output& output) {
   }
 
   // Text we will overlay if needed
-  std::string overlay = (did_zupt_update) ? "zvupt" : "";
-  overlay = (!is_initialized_vio) ? "init" : overlay;
+  std::string overlay1 = (did_zupt_update) ? "zvupt" : "     ";
+  overlay1 = (!is_initialized_vio) ? "init " : overlay1;
+  overlay1 += " " + std::to_string(highlighted_ids.size());
 
   // Get the current active tracks
   cv::Mat img_history1;
 
-  // // double img_timestamp = output.status.timestamp;
-  // double img_timestamp = output.status.prev_timestamp;  // we need the 'prev_timestamp' so that msckf points can be visulized  
-  // if (img_timestamp <= 0) {
-  //   img_timestamp = output.status.timestamp;
-  // }
-  // std::cout << "prev_timestamp: " << output.status.prev_timestamp << ", cur_timestamp: " << output.status.timestamp << ", img_timestamp" << img_timestamp << std::endl;
-
-  trackFEATS->display_history(output.status.timestamp, img_history1, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay, false);
+  trackFEATS->display_history(output.status.timestamp, img_history1, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay1, false);
   if (trackARUCO != nullptr) {
-    trackARUCO->display_history(output.status.timestamp, img_history1, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay, false);
-    // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay);
+    trackARUCO->display_history(output.status.timestamp, img_history1, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay1, false);
+    // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay1);
   }
 
   if (img_history1.empty()) {
     return cv::Mat();
   }
 
+  std::string overlay2 = "      " + std::to_string(highlighted_ids_prev.size());
   cv::Mat img_history2;
   if (output.status.prev_timestamp > 0) {
-    trackFEATS->display_history(output.status.prev_timestamp, img_history2, 255, 255, 0, 255, 255, 255, highlighted_ids_prev, overlay, true);
+    trackFEATS->display_history(output.status.prev_timestamp, img_history2, 255, 255, 0, 255, 255, 255, highlighted_ids_prev, overlay2, false);
     if (trackARUCO != nullptr) {
-      trackARUCO->display_history(output.status.prev_timestamp, img_history2, 0, 255, 255, 255, 255, 255, highlighted_ids_prev, "msckf_features_in_prev_image", true);
+      trackARUCO->display_history(output.status.prev_timestamp, img_history2, 0, 255, 255, 255, 255, 255, highlighted_ids_prev, overlay2, false);
       // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay);
     }
   }

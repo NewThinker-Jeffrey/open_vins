@@ -2302,6 +2302,25 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   // NOTE: this should only really be used if you want to track a lot of features, or have limited computational resources
   if ((int)featsup_MSCKF.size() > state->_options.max_msckf_in_update)
     featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end() - state->_options.max_msckf_in_update);
+  
+  // remove those features which are observed less than 3 times.
+  // Note featsup_MSCKF is already a sorted vector that features with less observations
+  // are at the front.
+  for (auto it=featsup_MSCKF.begin(); it != featsup_MSCKF.end(); it++) {
+    size_t asize = 0;  // number of observations
+    for (const auto &pair : (*it)->timestamps) {
+      asize += pair.second.size();
+    }
+    if (asize >= 3) {
+      featsup_MSCKF.erase(featsup_MSCKF.begin(), it);
+      break;
+    }
+    if (it == featsup_MSCKF.end() - 1) {
+      featsup_MSCKF.clear();
+      break;
+    }
+  }
+
   size_t msckf_features_used = featsup_MSCKF.size();
   size_t msckf_features_outliers = 0;
   if (!params.disable_visual_update) {
