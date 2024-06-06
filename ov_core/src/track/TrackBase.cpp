@@ -315,7 +315,7 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
         continue;
 
       // Draw the history of this point (start at the last inserted one)
-      for (size_t z = feat.uvs[pair.first].size() - 1; z > 0; z--) {
+      for (int z = feat.uvs[pair.first].size() - 1; z >= 0; z--) {
         // Check if we have reached the max
         if (feat.uvs[pair.first].size() - z > maxtracks)
           break;

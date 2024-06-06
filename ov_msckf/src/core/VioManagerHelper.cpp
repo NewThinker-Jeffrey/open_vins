@@ -429,9 +429,11 @@ cv::Mat VioManager::get_historical_viz_image(const Output& output) {
   // Get the current active tracks
   cv::Mat img_history1;
 
-  trackFEATS->display_history(output.status.timestamp, img_history1, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay1, false);
+  bool highlighted_only_1 = params.feat_viz_cur_only_highlighted;
+
+  trackFEATS->display_history(output.status.timestamp, img_history1, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay1, highlighted_only_1);
   if (trackARUCO != nullptr) {
-    trackARUCO->display_history(output.status.timestamp, img_history1, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay1, false);
+    trackARUCO->display_history(output.status.timestamp, img_history1, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay1, highlighted_only_1);
     // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay1);
   }
 
@@ -441,10 +443,11 @@ cv::Mat VioManager::get_historical_viz_image(const Output& output) {
 
   std::string overlay2 = "      " + std::to_string(highlighted_ids_prev.size());
   cv::Mat img_history2;
+  bool highlighted_only_2 = params.feat_viz_prev_only_highlighted;
   if (output.status.prev_timestamp > 0) {
-    trackFEATS->display_history(output.status.prev_timestamp, img_history2, 255, 255, 0, 255, 255, 255, highlighted_ids_prev, overlay2, false);
+    trackFEATS->display_history(output.status.prev_timestamp, img_history2, 255, 255, 0, 255, 255, 255, highlighted_ids_prev, overlay2, highlighted_only_2);
     if (trackARUCO != nullptr) {
-      trackARUCO->display_history(output.status.prev_timestamp, img_history2, 0, 255, 255, 255, 255, 255, highlighted_ids_prev, overlay2, false);
+      trackARUCO->display_history(output.status.prev_timestamp, img_history2, 0, 255, 255, 255, 255, 255, highlighted_ids_prev, overlay2, highlighted_only_2);
       // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay);
     }
   }

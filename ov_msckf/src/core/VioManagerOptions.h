@@ -136,6 +136,10 @@ struct VioManagerOptions {
   // for testing propagation
   bool disable_visual_update = false;
 
+  // for visualizing feature-tracking
+  bool feat_viz_cur_only_highlighted = false;
+  bool feat_viz_prev_only_highlighted = false;
+
   // /// If we should record the timing performance to file
   // bool record_timing_information = false;
 
@@ -184,6 +188,9 @@ struct VioManagerOptions {
       parser->parse_config("propagation_feature_psuedo_stationary_sigma", propagation_feature_psuedo_stationary_sigma);
 
       parser->parse_config("disable_visual_update", disable_visual_update);      
+
+      parser->parse_config("feat_viz_cur_only_highlighted", feat_viz_cur_only_highlighted);
+      parser->parse_config("feat_viz_prev_only_highlighted", feat_viz_prev_only_highlighted);
     }
     PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
     PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
@@ -215,6 +222,9 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - propagation_feature_psuedo_stationary_sigma?: %f\n", propagation_feature_psuedo_stationary_sigma);
 
     PRINT_DEBUG("  - disable_visual_update?: %d\n", disable_visual_update);
+
+    PRINT_DEBUG("  - feat_viz_cur_only_highlighted?: %d\n", feat_viz_cur_only_highlighted);
+    PRINT_DEBUG("  - feat_viz_prev_only_highlighted?: %d\n", feat_viz_prev_only_highlighted);
   }
 
   // NOISE / CHI2 ============================
