@@ -1327,6 +1327,7 @@ void VioManager::update_output(double timestamp) {
   output.state_clone = std::const_pointer_cast<State>(state->clone(true));
   output.visualization.good_features_MSCKF = good_features_MSCKF;
   output.visualization.good_feature_ids_MSCKF = good_feature_ids_MSCKF;
+  output.visualization.maxtrack_feature_ids = maxtrack_feature_ids;
   output.visualization.features_SLAM = get_features_SLAM();
   output.visualization.feature_ids_SLAM = get_feature_ids_SLAM();
   output.visualization.features_ARUCO = get_features_ARUCO();
@@ -1363,11 +1364,11 @@ std::shared_ptr<VioManager::Output> VioManager::getLastOutput(bool need_state, b
 
 
 void VioManager::clear_older_tracking_cache(double timestamp) {
-  trackFEATS->clear_older_history(timestamp);
+  trackFEATS->clear_older_history(timestamp - 2.0);
   trackFEATS->get_feature_database()->cleanup_measurements_cache(timestamp - 2.0);  // 2s
 
   if (trackARUCO) {
-    trackARUCO->clear_older_history(timestamp);
+    trackARUCO->clear_older_history(timestamp - 2.0);
     trackARUCO->get_feature_database()->cleanup_measurements_cache(timestamp - 2.0);  // 2s
   }  
 }
@@ -2014,6 +2015,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
 
   // Find tracks that have reached max length, these can be made into SLAM features
   std::vector<std::shared_ptr<Feature>> feats_maxtracks;
+  maxtrack_feature_ids.clear();
   auto it2 = feats_marg.begin();
   while (it2 != feats_marg.end()) {
     // See if any of our camera's reached max track
@@ -2035,6 +2037,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     }
     // If max track, then add it to our possible slam feature list
     if (reached_max) {
+      maxtrack_feature_ids.insert((*it2)->featid);
       feats_maxtracks.push_back(*it2);
       it2 = feats_marg.erase(it2);
     } else {

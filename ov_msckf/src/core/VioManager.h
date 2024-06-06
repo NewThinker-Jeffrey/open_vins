@@ -98,6 +98,7 @@ public:
       // Good features that where used in the last update (used in visualization)
       std::vector<Eigen::Vector3d> good_features_MSCKF;
       std::vector<size_t> good_feature_ids_MSCKF;
+      std::set<size_t> maxtrack_feature_ids;
 
       /// Returns 3d SLAM features in the global frame
       std::vector<Eigen::Vector3d> features_SLAM;
@@ -343,6 +344,7 @@ protected:
   // Good features that where used in the last update (used in visualization)
   std::vector<Eigen::Vector3d> good_features_MSCKF;
   std::vector<size_t> good_feature_ids_MSCKF;
+  std::set<size_t> maxtrack_feature_ids;
 
   /// Feature initializer used to triangulate all active tracks
   std::shared_ptr<ov_core::FeatureInitializer> active_tracks_initializer;

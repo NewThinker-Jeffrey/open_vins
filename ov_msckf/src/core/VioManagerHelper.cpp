@@ -406,31 +406,60 @@ cv::Mat VioManager::get_historical_viz_image(const Output& output) {
     return cv::Mat();
 
   // Build an id-list of what features we should highlight (i.e. SLAM)
-  std::vector<size_t> highlighted_ids;
+  std::vector<size_t> highlighted_ids, highlighted_ids_prev;
   for (const auto &feat : output.state_clone->_features_SLAM) {
     highlighted_ids.push_back(feat.first);
   }
   const auto & good_feature_ids_MSCKF = output.visualization.good_feature_ids_MSCKF;
-  highlighted_ids.insert(highlighted_ids.end(), good_feature_ids_MSCKF.begin(), good_feature_ids_MSCKF.end());
+  const auto & maxtrack_feature_ids = output.visualization.maxtrack_feature_ids;
+  // highlighted_ids.insert(highlighted_ids.end(), good_feature_ids_MSCKF.begin(), good_feature_ids_MSCKF.end());
+  for (size_t featid : good_feature_ids_MSCKF) {
+    if (maxtrack_feature_ids.count(featid)) {
+      highlighted_ids.push_back(featid);
+    } else {
+      highlighted_ids_prev.push_back(featid);
+    }
+  }
 
   // Text we will overlay if needed
   std::string overlay = (did_zupt_update) ? "zvupt" : "";
   overlay = (!is_initialized_vio) ? "init" : overlay;
 
   // Get the current active tracks
-  cv::Mat img_history;
-  // double img_timestamp = output.status.timestamp;
-  double img_timestamp = output.status.prev_timestamp;  // we need the 'prev_timestamp' so that msckf points can be visulized  
-  if (img_timestamp <= 0) {
-    img_timestamp = output.status.timestamp;
-  }
+  cv::Mat img_history1;
 
+  // // double img_timestamp = output.status.timestamp;
+  // double img_timestamp = output.status.prev_timestamp;  // we need the 'prev_timestamp' so that msckf points can be visulized  
+  // if (img_timestamp <= 0) {
+  //   img_timestamp = output.status.timestamp;
+  // }
   // std::cout << "prev_timestamp: " << output.status.prev_timestamp << ", cur_timestamp: " << output.status.timestamp << ", img_timestamp" << img_timestamp << std::endl;
 
-  trackFEATS->display_history(img_timestamp, img_history, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay);
+  trackFEATS->display_history(output.status.timestamp, img_history1, 255, 255, 0, 255, 255, 255, highlighted_ids, overlay, false);
   if (trackARUCO != nullptr) {
-    trackARUCO->display_history(img_timestamp, img_history, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay);
+    trackARUCO->display_history(output.status.timestamp, img_history1, 0, 255, 255, 255, 255, 255, highlighted_ids, overlay, false);
     // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay);
+  }
+
+  if (img_history1.empty()) {
+    return cv::Mat();
+  }
+
+  cv::Mat img_history2;
+  if (output.status.prev_timestamp > 0) {
+    trackFEATS->display_history(output.status.prev_timestamp, img_history2, 255, 255, 0, 255, 255, 255, highlighted_ids_prev, overlay, true);
+    if (trackARUCO != nullptr) {
+      trackARUCO->display_history(output.status.prev_timestamp, img_history2, 0, 255, 255, 255, 255, 255, highlighted_ids_prev, "msckf_features_in_prev_image", true);
+      // trackARUCO->display_active(img_history, 0, 255, 255, 255, 255, 255, overlay);
+    }
+  }
+
+  cv::Mat img_history(img_history1.rows * 2, img_history1.cols, CV_8UC3);
+  cv::Mat roi1(img_history, cv::Rect(0, 0, img_history1.cols, img_history1.rows));
+  cv::Mat roi2(img_history, cv::Rect(0, img_history1.rows, img_history1.cols, img_history1.rows));
+  img_history1.copyTo(roi1);
+  if (!img_history2.empty()) {
+    img_history2.copyTo(roi2);
   }
 
   // Finally return the image

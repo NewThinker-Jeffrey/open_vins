@@ -128,7 +128,7 @@ public:
    * @param overlay Text overlay to replace to normal "cam0" in the top left of screen
    */
   virtual void display_history(double timestamp, cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::vector<size_t> highlighted = {},
-                               std::string overlay = "");
+                               std::string overlay = "", bool only_highlighted = false);
 
   /**
    * @brief Get the feature database with all the track information

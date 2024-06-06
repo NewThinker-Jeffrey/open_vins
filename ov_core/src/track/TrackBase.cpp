@@ -149,7 +149,7 @@ void TrackBase::display_active(double timestamp, cv::Mat &img_out, int r1, int g
 }
 
 void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int g1, int b1, int r2, int g2, int b2, std::vector<size_t> highlighted,
-                                std::string overlay) {
+                                std::string overlay, bool only_highlighted) {
 
   // Cache the images to prevent other threads from editing while we viz (which can be slow)
   std::map<size_t, cv::Mat> img_last_cache, img_mask_last_cache;
@@ -260,8 +260,6 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
 
     // draw, loop through all keypoints
 
-    bool highlighted_only = false;
-
     // bool no_tail = true;
     bool no_tail = false;
 
@@ -288,13 +286,6 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
         }
       }
 
-      if (is_stereo && pair.first == 0 && right_pt_idx >= 0) {
-        // draw disparity for stereo feature
-        cv::Point2f pt_l = pts_last_cache[pair.first].at(i).pt;
-        cv::Point2f pt_r = pts_last_cache[1].at(right_pt_idx).pt;
-        cv::line(img_temp, pt_l, pt_r, cv::Scalar(0, 255, 0));
-      }
-
       // If a highlighted point, then put a nice box around it
       if (std::find(highlighted.begin(), highlighted.end(), ids_last_cache[pair.first].at(i)) != highlighted.end()) {
         cv::Point2f pt_c = pts_last_cache[pair.first].at(i).pt;
@@ -307,7 +298,7 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
         cv::rectangle(img_temp, pt_l_top, pt_l_bot, color, 1);
         // cv::circle(img_temp, pt_c, (is_small) ? 1 : 2, color, cv::FILLED);
         cv::circle(img_temp, pt_c, (is_small) ? 2 : 3, color, cv::FILLED);
-      } else if (highlighted_only) {
+      } else if (only_highlighted) {
         continue;
       }
 
@@ -318,6 +309,11 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
       // if (feat.uvs.empty() || feat.uvs[pair.first].empty() || feat.to_delete)
       if (feat.uvs.empty() || feat.uvs[pair.first].empty())
         continue;
+
+      // skip features that only been observed once.
+      if (feat.uvs[pair.first].size() < 2)
+        continue;
+
       // Draw the history of this point (start at the last inserted one)
       for (size_t z = feat.uvs[pair.first].size() - 1; z > 0; z--) {
         // Check if we have reached the max
@@ -335,10 +331,17 @@ void TrackBase::display_history(double timestamp, cv::Mat &img_out, int r1, int 
           cv::Point2f pt_n(feat.uvs[pair.first].at(z + 1)(0), feat.uvs[pair.first].at(z + 1)(1));
           cv::line(img_temp, pt_c, pt_n, cv::Scalar(color_r, color_g, color_b));
         }
-        // If the first point, display the ID
         if (z == feat.uvs[pair.first].size() - 1) {
+          // If the first point, display the ID
           // cv::putText(img_out0, std::to_string(feat->featid), pt_c, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 255), 1,
           // cv::LINE_AA); cv::circle(img_out0, pt_c, 2, cv::Scalar(color,color,255), CV_FILLED);
+
+          // then draw disparity for stereo feature
+          if (is_stereo && pair.first == 0 && right_pt_idx >= 0) {
+            cv::Point2f pt_l = pts_last_cache[pair.first].at(i).pt;
+            cv::Point2f pt_r = pts_last_cache[1].at(right_pt_idx).pt;
+            cv::line(img_temp, pt_l, pt_r, cv::Scalar(0, 255, 0));
+          }
         }
       }
     }
