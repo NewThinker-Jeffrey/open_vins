@@ -1519,13 +1519,15 @@ VioManager::choose_stereo_feature_for_propagation(
         continue;  // skip non-stereo features
       }
 
-      // // NOTE:
-      // //    Though theoretically we should skip those features that're used for propagation
-      // //    at the previous image time, remaining them might produce better performance in
-      // //    practice.
-      // if (prev_propagation_feat_ids.count(feat->featid)) {
-      //   continue;  // skip features used for prop last time.
-      // }
+      // NOTE:
+      //    Though theoretically we should skip those features that're used for propagation
+      //    at the previous image time, remaining them might produce better performance in
+      //    practice.
+      if (params.propagation_feature_skip_latest_used) {
+        if (prev_propagation_feat_ids.count(feat->featid)) {
+          continue;  // skip features used for prop last time.
+        }
+      }
 
       StereoPair pair;
 
@@ -1826,9 +1828,9 @@ VioManager::choose_stereo_feature_for_propagation(
   inliers.push_back(best_idx);
 
   // If we want to use multi-feature propagation:
-  bool use_multi_feature_propagation = true;
+  bool use_multi_feature_propagation = (params.propagation_feature_n_max_adopt > 1);
   if (use_multi_feature_propagation) {
-    for (size_t j=0; j<n_select; j++) {
+    for (size_t j=0; j<n_select && inliers.size() < params.propagation_feature_n_max_adopt; j++) {
       if (j == best_idx) {
         continue;
       }
@@ -2419,7 +2421,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   double time_total = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT7 - c->rT0).count();
 
   // Timing information
-  PRINT_INFO(BLUE "[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f), total(%d + %d, %.4f), timestampe: %.6f\n" RESET,
+  PRINT_INFO("[used_features_and_time]: msckf(%d + %d, %.4f), slam(%d + %d, %.4f), delayed(%d + %d, %.4f), total(%d + %d, %.4f), timestampe: %.6f\n" RESET,
                     msckf_features_used, msckf_features_outliers, time_msckf,
                     slam_features_used, slam_features_outliers, time_slam_update,
                     delayed_features_used, delayed_features_outliers, time_slam_delay,

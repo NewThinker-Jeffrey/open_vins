@@ -115,11 +115,15 @@ struct VioManagerOptions {
 
   bool grivaty_update_after_propagate_with_stereo_feature = false;
 
-  int propagation_feature_n_select = 5;
+  int propagation_feature_n_select = 20;
 
-  int propagation_feature_n_con_thr = 2;
+  int propagation_feature_n_max_adopt = 1;
 
-  int propagation_feature_n_con_thr2 = 3;
+  bool propagation_feature_skip_latest_used = true;
+
+  int propagation_feature_n_con_thr = 4;
+
+  int propagation_feature_n_con_thr2 = 10;
 
   double propagation_feature_con_trans_diff_thr = 0.02;  // metre
 
@@ -170,6 +174,8 @@ struct VioManagerOptions {
       parser->parse_config("grivaty_update_after_propagate_with_stereo_feature", grivaty_update_after_propagate_with_stereo_feature);      
 
       parser->parse_config("propagation_feature_n_select", propagation_feature_n_select);
+      parser->parse_config("propagation_feature_n_max_adopt", propagation_feature_n_max_adopt);
+      parser->parse_config("propagation_feature_skip_latest_used", propagation_feature_skip_latest_used);
       parser->parse_config("propagation_feature_n_con_thr", propagation_feature_n_con_thr);
       parser->parse_config("propagation_feature_n_con_thr2", propagation_feature_n_con_thr2);
       parser->parse_config("propagation_feature_con_trans_diff_thr", propagation_feature_con_trans_diff_thr);
@@ -199,6 +205,8 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - propagate_with_stereo_feature?: %d\n", propagate_with_stereo_feature);
     PRINT_DEBUG("  - grivaty_update_after_propagate_with_stereo_feature?: %d\n", grivaty_update_after_propagate_with_stereo_feature);
     PRINT_DEBUG("  - propagation_feature_n_select?: %d\n", propagation_feature_n_select);
+    PRINT_DEBUG("  - propagation_feature_n_max_adopt?: %d\n", propagation_feature_n_max_adopt);
+    PRINT_DEBUG("  - propagation_feature_skip_latest_used?: %d\n", propagation_feature_skip_latest_used);    
     PRINT_DEBUG("  - propagation_feature_n_con_thr?: %d\n", propagation_feature_n_con_thr);
     PRINT_DEBUG("  - propagation_feature_n_con_thr2?: %d\n", propagation_feature_n_con_thr2);
     PRINT_DEBUG("  - propagation_feature_con_trans_diff_thr?: %f\n", propagation_feature_con_trans_diff_thr);
