@@ -874,7 +874,7 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
   // Large Jacobian, residual, and measurement noise of *all* features for this update
   Eigen::VectorXd res_big = Eigen::VectorXd::Zero(max_meas_size);
   Eigen::MatrixXd Hx_big = Eigen::MatrixXd::Zero(max_meas_size, max_hx_size);
-  Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(max_meas_size, max_meas_size);
+  // Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(max_meas_size, max_meas_size);
   std::unordered_map<std::shared_ptr<Type>, size_t> Hx_mapping;
   std::vector<std::shared_ptr<Type>> Hx_order_big;
   size_t ct_jacob = 0;
@@ -884,6 +884,10 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
   auto it2 = feature_vec.begin();
   while (it2 != feature_vec.end()) {
     auto& cloned_feature = cloned_features[*it2];
+    auto feat_id = cloned_feature->featid;
+    if (featid_to_mappoint.count(feat_id) == 0) {
+      continue;
+    }
 
     // // Ensure we have the landmark and it is the same
     // assert(state->_features_SLAM.find(cloned_feature->featid) != state->_features_SLAM.end());
@@ -894,7 +898,7 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
 
     // Convert the state landmark into our current format
     UpdaterHelper::UpdaterHelperFeature feat;
-    feat.featid = cloned_feature->featid;
+    feat.featid = feat_id;
     feat.uvs = cloned_feature->uvs;
     feat.uvs_norm = cloned_feature->uvs_norm;
     feat.timestamps = cloned_feature->timestamps;
@@ -917,8 +921,8 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
     //   feat.p_FinG_fej = landmark->get_xyz(true);
     // }
 
-    const Eigen::Vector3d& mappoint = featid_to_mappoint.at(feat.featid).p;
-    const Eigen::Matrix3d& mappoint_cov = featid_to_mappoint.at(feat.featid).cov;
+    const Eigen::Vector3d& mappoint = featid_to_mappoint.at(feat_id).p;
+    const Eigen::Matrix3d& mappoint_cov = featid_to_mappoint.at(feat_id).cov;
 
     feat.p_FinG = mappoint;
     feat.p_FinG_fej = mappoint;
@@ -998,12 +1002,13 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
     // Eigen::MatrixXd P_marg = StateHelper::get_marginal_covariance(state, Hxf_order);
     Eigen::MatrixXd P_marg = StateHelper::get_marginal_covariance(state, Hx_order);
     Eigen::MatrixXd S = H_x * P_marg * H_x.transpose();
-
+    
     // double sigma_pix_sq =
     //     ((int)feat.featid < state->_options.max_aruco_features) ? _options_aruco.sigma_pix_sq : _options_slam.sigma_pix_sq;
     double sigma_pix_sq = _options_mappoint.sigma_pix_sq;
-    S.diagonal() += sigma_pix_sq * Eigen::VectorXd::Ones(S.rows());
-    S += H_f * mappoint_cov * H_f.transpose();
+    Eigen::MatrixXd R = H_f * mappoint_cov * H_f.transpose();
+    R.diagonal() += sigma_pix_sq * Eigen::VectorXd::Ones(R.rows());
+    S += R;
     double chi2 = res.dot(S.llt().solve(res));
 
     // Get our threshold (we precompute up to 500 but handle the case that it is more)
@@ -1036,16 +1041,16 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
       continue;
     }
 
-    // // Debug print when we are going to update the aruco tags
-    // if ((int)feat.featid < state->_options.max_aruco_features) {
-    //   PRINT_DEBUG("[SLAM-UP]: accepted aruco tag %d for chi2 thresh (%.3f < %.3f)\n", (int)feat.featid, chi2, chi2_multipler * chi2_check);
-    // }
+    Eigen::MatrixXd sqrt_info = R.llt().matrixL().solve(Eigen::MatrixXd::Identity(R.rows(), R.cols()));
+    Eigen::MatrixXd normalized_Hx =  sqrt_info* H_x;
+    Eigen::MatrixXd normalized_res =  sqrt_info* res;
+
+    std::cout << "DEBUG_mappoint_udpate: H_x.cols() = " << H_x.cols() << std::endl;
 
     // We are good!!! Append to our large H vector
     size_t ct_hx = 0;
     // for (const auto &var : Hxf_order) {
     for (const auto &var : Hx_order) {
-
       // Ensure that this variable is in our Jacobian
       if (Hx_mapping.find(var) == Hx_mapping.end()) {
         Hx_mapping.insert({var, ct_jacob});
@@ -1055,16 +1060,12 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
 
       // Append to our large Jacobian
       // Hx_big.block(ct_meas, Hx_mapping[var], H_xf.rows(), var->size()) = H_xf.block(0, ct_hx, H_xf.rows(), var->size());
-      Hx_big.block(ct_meas, Hx_mapping[var], H_x.rows(), var->size()) = H_x.block(0, ct_hx, H_x.rows(), var->size());
+      Hx_big.block(ct_meas, Hx_mapping[var], H_x.rows(), var->size()) = normalized_Hx.block(0, ct_hx, H_x.rows(), var->size());
       ct_hx += var->size();
     }
 
-    // Our isotropic measurement noise
-    R_big.block(ct_meas, ct_meas, res.rows(), res.rows()) *= sigma_pix_sq;
-    R_big.block(ct_meas, ct_meas, res.rows(), res.rows()) += H_f * mappoint_cov * H_f.transpose();
-
     // Append our residual and move forward
-    res_big.block(ct_meas, 0, res.rows(), 1) = res;
+    res_big.block(ct_meas, 0, res.rows(), 1) = normalized_res;
     ct_meas += res.rows();
     it2++;
   }
@@ -1088,9 +1089,17 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
   assert(ct_jacob <= max_hx_size);
   res_big.conservativeResize(ct_meas, 1);
   Hx_big.conservativeResize(ct_meas, ct_jacob);
-  R_big.conservativeResize(ct_meas, ct_meas);
 
-  // 5. With all good SLAM features update the state
+  // 5. Perform measurement compression
+  UpdaterHelper::measurement_compress_inplace(Hx_big, res_big);
+  if (Hx_big.rows() < 1) {
+    return;
+  }
+
+  // Our noise is isotropic, so make it here after our compression
+  Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(res_big.rows(), res_big.rows());
+
+  // 6. With all good mappoint features update the state
   StateHelper::EKFUpdate(state, Hx_order_big, Hx_big, res_big, R_big);
   rT3 = std::chrono::high_resolution_clock::now();
 
