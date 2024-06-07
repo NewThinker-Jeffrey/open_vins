@@ -816,6 +816,9 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
   // create cloned features containing no 'future' observations.
   std::map<std::shared_ptr<Feature>, std::shared_ptr<Feature>> cloned_features;
 
+// std::cout << "DEBUG_mappoint_udpate: 0, feature_vec.size = " << feature_vec.size() << ", featid_to_mappoint.size = " << featid_to_mappoint.size() << std::endl;
+
+
   // 1. Clean all feature measurements and make sure they all have valid clone times
   auto it0 = feature_vec.begin();
   while (it0 != feature_vec.end()) {
@@ -855,6 +858,9 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
       it0++;
     }
   }
+
+// std::cout << "DEBUG_mappoint_udpate: 1, feature_vec.size = " << feature_vec.size() << ", featid_to_mappoint.size = " << featid_to_mappoint.size() << std::endl;
+
   rT1 = std::chrono::high_resolution_clock::now();
 
   // Calculate the max possible measurement size
@@ -880,12 +886,16 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
   size_t ct_jacob = 0;
   size_t ct_meas = 0;
 
+// std::cout << "DEBUG_mappoint_udpate: 2, max_meas_size = " << max_meas_size << ", max_hx_size = " << max_hx_size << std::endl;
+
+
   // 4. Compute linear system for each feature, nullspace project, and reject
   auto it2 = feature_vec.begin();
   while (it2 != feature_vec.end()) {
     auto& cloned_feature = cloned_features[*it2];
     auto feat_id = cloned_feature->featid;
     if (featid_to_mappoint.count(feat_id) == 0) {
+      it2 = feature_vec.erase(it2);
       continue;
     }
 
@@ -1045,7 +1055,7 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
     Eigen::MatrixXd normalized_Hx =  sqrt_info* H_x;
     Eigen::MatrixXd normalized_res =  sqrt_info* res;
 
-    std::cout << "DEBUG_mappoint_udpate: H_x.cols() = " << H_x.cols() << std::endl;
+    // std::cout << "DEBUG_mappoint_udpate: H_x.cols() = " << H_x.cols() << std::endl;
 
     // We are good!!! Append to our large H vector
     size_t ct_hx = 0;
@@ -1071,6 +1081,8 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
   }
   rT2 = std::chrono::high_resolution_clock::now();
 
+std::cout << "DEBUG_mappoint_udpate: 3, feature_vec.size = " << feature_vec.size() << ", featid_to_mappoint.size = " << featid_to_mappoint.size() << std::endl;
+
   // We have appended all features to our Hx_big, res_big
   // Delete it so we do not reuse information
   {
@@ -1090,8 +1102,13 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
   res_big.conservativeResize(ct_meas, 1);
   Hx_big.conservativeResize(ct_meas, ct_jacob);
 
+std::cout << "DEBUG_mappoint_udpate: 4, ct_meas = " << ct_meas << ", ct_jacob = " << ct_jacob << std::endl;
+
   // 5. Perform measurement compression
   UpdaterHelper::measurement_compress_inplace(Hx_big, res_big);
+
+std::cout << "DEBUG_mappoint_udpate: 5, Hx_big.rows() = " << Hx_big.rows() << std::endl;
+
   if (Hx_big.rows() < 1) {
     return;
   }
@@ -1101,6 +1118,9 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
 
   // 6. With all good mappoint features update the state
   StateHelper::EKFUpdate(state, Hx_order_big, Hx_big, res_big, R_big);
+
+// std::cout << "DEBUG_mappoint_udpate: 6" << std::endl;
+
   rT3 = std::chrono::high_resolution_clock::now();
 
   // Debug print timing information
