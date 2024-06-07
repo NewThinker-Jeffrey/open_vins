@@ -249,6 +249,8 @@ protected:
       const ov_core::CameraData &message,
       const Eigen::Matrix3d& R_I1toI0);
 
+  void depth_update(ImgProcessContextPtr c);
+
   /**
    * @brief Given a new set of camera images, this will track them.
    *

@@ -1901,6 +1901,145 @@ VioManager::choose_stereo_feature_for_propagation(
   return ret_vec;
 }
 
+
+void VioManager::depth_update(ImgProcessContextPtr c) {
+
+#ifdef USE_HEAR_SLAM
+    using hear_slam::TimeCounter;
+    TimeCounter tc;
+#endif
+
+  const size_t color_cam_id = 0;
+  const size_t depth_cam_id = 1;
+  // const cv::Mat& color_img = c->message->images.at(color_cam_id);
+  const cv::Mat& depth_img = c->message->images.at(depth_cam_id);
+  const double max_depth = 5.0;
+  const int image_downsample = 16;
+  auto intrin = params.camera_intrinsics.at(color_cam_id)->clone();
+
+  auto jpl_q = state->_imu->quat();
+  auto pos = state->_imu->pos();
+  Eigen::Quaternionf q(jpl_q[3], jpl_q[0], jpl_q[1], jpl_q[2]);
+  Eigen::Vector3f p(pos[0], pos[1], pos[2]);
+  Eigen::Isometry3f T_M_I = Eigen::Isometry3f::Identity();
+  T_M_I.translation() = p;
+  T_M_I.rotate(q);
+  Eigen::Isometry3f T_I_C;
+  T_I_C.matrix() = params.T_CtoIs.at(color_cam_id)->cast<float>();
+  Eigen::Isometry3f T_M_C = T_M_I * T_I_C;
+
+  auto undistort = [intrin](const Eigen::Vector2i& ixy, Eigen::Vector2f& nxy){
+    nxy = intrin->undistort_f(ixy.cast<float>());
+    return true;
+  };
+
+  int n_workers = 1;
+  std::vector<std::vector<std::shared_ptr<Feature>>> feats_vec;
+  std::vector<UpdaterSLAM::FeatToMappointMatches> matches_vec;
+  feats_vec.resize(n_workers);
+
+  int reserve_size = (depth_img.rows / image_downsample + 1) * (depth_img.cols / image_downsample + 1);
+  feats_vec[0].reserve(reserve_size);
+  for (size_t i=1; i<n_workers; i++) {
+    feats_vec[i].reserve(reserve_size / (n_workers - 1));
+  }
+
+  matches_vec.resize(n_workers);
+
+  auto convert_pixels_to_features = [&](int start_row, int end_row, int worker_idx) {
+    end_row = std::min(end_row, depth_img.rows);
+
+    std::vector<std::shared_ptr<Feature>>& feats = feats_vec[worker_idx];
+    UpdaterSLAM::FeatToMappointMatches& matches = matches_vec[worker_idx];
+
+    for (int y=start_row; y<end_row; y+=image_downsample) {
+      for (int x=0; x<depth_img.cols; x+=image_downsample) {
+        const uint16_t d = depth_img.at<uint16_t>(y,x);
+        if (d == 0) continue;
+        float depth = d / 1000.0f;
+        if (max_depth < depth) {
+          continue;
+        }
+
+        Eigen::Vector2f p_normal;
+        ASSERT(undistort(Eigen::Vector2i(x, y), p_normal));
+        Eigen::Vector3f p3d_c(p_normal.x(), p_normal.y(), 1.0f);
+        p3d_c = p3d_c * depth;
+        Eigen::Vector3f p3d_w = T_M_C * p3d_c;
+        // if (p3d_w.z() > max_height_ || p3d_w.z() < min_height_) {
+        //   continue;
+        // }
+        auto feat = std::make_shared<Feature>();
+        feat->featid = 100000000 + worker_idx * 1000000 + y * depth_img.cols + x;  // not important
+        feat->uvs[color_cam_id].push_back(Eigen::Vector2f(x, y));
+        feat->uvs_norm[color_cam_id].push_back(p_normal);
+        feat->timestamps[color_cam_id].push_back(c->message->timestamp);
+
+        UpdaterSLAM::Mappoint mp;
+        mp.p = p3d_w.cast<double>();
+        matches[feat->featid] = mp;
+      }
+    }
+  };
+
+  // update matches
+  auto update_matches = [&](int worker_idx) {
+    UpdaterSLAM::FeatToMappointMatches& matches = matches_vec[worker_idx];
+    using namespace dense_mapping;
+    std::shared_ptr<const SimpleDenseMap> dmap = rgbd_dense_map_builder->get_output_map();
+    auto blocks_map_cache = dmap->getEmptyBlockCache();
+
+    const int K = 16;
+    const int neibour_blocks_size = 3;
+    const size_t max_points_per_block = 16;
+    std::vector<size_t> remove_list;
+    remove_list.reserve(matches.size());
+    for (auto& match : matches) {
+      UpdaterSLAM::Mappoint& mp = match.second;
+      Eigen::Matrix<double, 3, Eigen::Dynamic> samples_mat = dmap->aKNN(
+          mp.p, K, neibour_blocks_size, max_points_per_block, &blocks_map_cache);
+
+      if (samples_mat.size() < K) {
+        remove_list.push_back(match.first);
+        continue;
+      }
+      Eigen::VectorXd mean_sample = samples_mat.colwise().mean();
+      mp.p = mean_sample;
+      int n_sample = samples_mat.cols();
+      mp.cov = samples_mat * samples_mat.transpose() - n_sample * mean_sample * mean_sample.transpose();
+      mp.cov *= 1.0 / (n_sample - 1);
+    }
+    for (size_t featid : remove_list) {
+      matches.erase(featid);
+    }
+  };
+
+
+  convert_pixels_to_features(0, depth_img.rows, 0);
+#ifdef USE_HEAR_SLAM
+    tc.tag("featureDone");
+#endif
+  update_matches(0);
+#ifdef USE_HEAR_SLAM
+    tc.tag("matchDone");
+#endif
+
+  // merge the results of all the workers
+  std::vector<std::shared_ptr<Feature>>& feats = feats_vec[0];
+  UpdaterSLAM::FeatToMappointMatches& matches = matches_vec[0];
+
+  for (size_t i=1; i<n_workers; i++) {
+    feats.insert(feats.end(), feats_vec[i].begin(), feats_vec[i].end());
+    matches.merge(matches_vec[i]);  // C++ 17: std::map::merge() 
+  }
+
+  updaterSLAM->mappoint_update(state, feats, matches);
+#ifdef USE_HEAR_SLAM
+    tc.tag("updateDone");
+    tc.report("UpdateDepthTiming: ", true);
+#endif
+}
+
 void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   ov_core::CameraData &message = *(c->message);
   auto tmp_rT2 = std::chrono::high_resolution_clock::now();
@@ -2373,6 +2512,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   delayed_features_used = feats_slam_DELAYED.size();
   c->rT6 = std::chrono::high_resolution_clock::now();
 
+  depth_update(c);
 
   if (params.propagate_with_stereo_feature && params.grivaty_update_after_propagate_with_stereo_feature) {
     propagator->gravity_update(state);
