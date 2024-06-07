@@ -244,7 +244,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
 
   // Make the updater!
   updaterMSCKF = std::make_shared<UpdaterMSCKF>(params.msckf_options, params.featinit_options, trackFEATS->get_feature_database());
-  updaterSLAM = std::make_shared<UpdaterSLAM>(params.slam_options, params.aruco_options, params.featinit_options, trackFEATS->get_feature_database());
+  updaterSLAM = std::make_shared<UpdaterSLAM>(params.slam_options, params.mappoint_options, params.aruco_options, params.featinit_options, trackFEATS->get_feature_database());
 
   // If we are using zero velocity updates, then create the updater
   if (params.try_zupt) {
@@ -1919,8 +1919,8 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
   const size_t depth_cam_id = 1;
   // const cv::Mat& color_img = c->message->images.at(color_cam_id);
   const cv::Mat& depth_img = c->message->images.at(depth_cam_id);
-  const double max_depth = 5.0;
-  const int image_downsample = 16;
+  const double max_depth = params.depth_update_max_depth;
+  const int image_downsample = params.depth_update_image_downsample;
   auto intrin = params.camera_intrinsics.at(color_cam_id)->clone();
 
   auto jpl_q = state->_imu->quat();
@@ -1996,9 +1996,9 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
     std::shared_ptr<const SimpleDenseMap> dmap = rgbd_dense_map_builder->get_output_map();
     auto blocks_map_cache = dmap->getEmptyBlockCache();
 
-    const int K = 16;
-    const int neibour_blocks_size = 3;
-    const size_t max_points_per_block = 16;
+    const int K = params.depth_update_knn_k;
+    const int neibour_blocks_size = params.depth_update_neibour_blocks_size;
+    const size_t max_points_per_block = params.depth_update_max_points_per_block;
     std::vector<size_t> remove_list;
     remove_list.reserve(matches.size());
     for (auto& match : matches) {
@@ -2027,15 +2027,20 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
       Eigen::Vector3d eigenvalues = saes.eigenvalues();
       Eigen::Matrix3d eigenvectors = saes.eigenvectors();
 
-      const double eigen_ratio_thr = 0.11;
+      const double eigen_ratio_thr = params.depth_update_eigen_ratio_thr;
+      const double flat_eigen_multiplier = params.depth_update_flat_eigen_multiplier;
+      
+      if (params.depth_update_print_eigenvalus) {
+        std::cout << "DEBUG_aKNN: sqrt eigenvalues: " << eigenvalues.transpose().array().sqrt()
+                  << ", smallest/next = " << (eigenvalues[1] > 1e-8 ? eigenvalues[0] / eigenvalues[1] : 0)
+                  << ", eigenvec for smallest: " << eigenvectors.col(0).transpose() <<  std::endl;
+      }
 
-      // std::cout << "DEBUG_aKNN: sqrt eigenvalues: " << eigenvalues.transpose().array().sqrt()
-      //           << ", smallest/next = " << (eigenvalues[1] > 1e-8 ? eigenvalues[0] / eigenvalues[1] : 0)
-      //           << ", eigenvec for smallest: " << eigenvectors.col(0).transpose() <<  std::endl;
       if (eigenvalues[1] > 1e-8 && eigenvalues[0] / eigenvalues[1] < eigen_ratio_thr) {
         Eigen::Vector3d modified_eigenvalues = eigenvalues;
-        modified_eigenvalues[1] = eigenvalues[2] * 10000;
-        modified_eigenvalues[2] = eigenvalues[2] * 10000;
+        double biggest_eigen = eigenvalues[2];
+        modified_eigenvalues[1] = biggest_eigen * flat_eigen_multiplier;
+        modified_eigenvalues[2] = biggest_eigen * flat_eigen_multiplier;
         // modified_eigenvalues[1] = eigenvalues[0] * 100;
         // modified_eigenvalues[2] = eigenvalues[0] * 100;
         mp.cov = eigenvectors * modified_eigenvalues.asDiagonal() * eigenvectors.transpose();
@@ -2555,7 +2560,9 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   delayed_features_used = feats_slam_DELAYED.size();
   c->rT6 = std::chrono::high_resolution_clock::now();
 
-  depth_update(c);
+  if (params.enable_depth_update) {
+    depth_update(c);
+  }
 
   if (params.propagate_with_stereo_feature && params.grivaty_update_after_propagate_with_stereo_feature) {
     propagator->gravity_update(state);

@@ -42,11 +42,12 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-UpdaterSLAM::UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_aruco, ov_core::FeatureInitializerOptions &feat_init_options, std::shared_ptr<ov_core::FeatureDatabase> db)
-    : _options_slam(options_slam), _options_aruco(options_aruco), _db(db) {
+UpdaterSLAM::UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_mappoint, UpdaterOptions &options_aruco, ov_core::FeatureInitializerOptions &feat_init_options, std::shared_ptr<ov_core::FeatureDatabase> db)
+    : _options_slam(options_slam), _options_mappoint(options_mappoint), _options_aruco(options_aruco), _db(db) {
 
   // Save our raw pixel noise squared
   _options_slam.sigma_pix_sq = std::pow(_options_slam.sigma_pix, 2);
+  _options_mappoint.sigma_pix_sq = std::pow(_options_mappoint.sigma_pix, 2);
   _options_aruco.sigma_pix_sq = std::pow(_options_aruco.sigma_pix, 2);
 
   // Save our feature initializer

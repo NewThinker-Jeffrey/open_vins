@@ -140,6 +140,18 @@ struct VioManagerOptions {
   bool feat_viz_cur_only_highlighted = false;
   bool feat_viz_prev_only_highlighted = false;
 
+  // for depth update
+  bool enable_depth_update = false;
+  double depth_update_max_depth = 5.0;
+  int depth_update_image_downsample = 16;
+  int depth_update_knn_k = 16;
+  int depth_update_neibour_blocks_size = 3;
+  int depth_update_max_points_per_block = 16;
+  double depth_update_eigen_ratio_thr = 0.11;
+  double depth_update_flat_eigen_multiplier = 10000.0;
+  bool depth_update_print_eigenvalus = false;
+
+
   // /// If we should record the timing performance to file
   // bool record_timing_information = false;
 
@@ -189,6 +201,16 @@ struct VioManagerOptions {
 
       parser->parse_config("disable_visual_update", disable_visual_update);      
 
+      parser->parse_config("enable_depth_update", enable_depth_update);      
+      parser->parse_config("depth_update_max_depth", depth_update_max_depth);      
+      parser->parse_config("depth_update_image_downsample", depth_update_image_downsample);      
+      parser->parse_config("depth_update_knn_k", depth_update_knn_k);      
+      parser->parse_config("depth_update_neibour_blocks_size", depth_update_neibour_blocks_size);      
+      parser->parse_config("depth_update_max_points_per_block", depth_update_max_points_per_block);      
+      parser->parse_config("depth_update_eigen_ratio_thr", depth_update_eigen_ratio_thr);      
+      parser->parse_config("depth_update_flat_eigen_multiplier", depth_update_flat_eigen_multiplier);     
+      parser->parse_config("depth_update_print_eigenvalus", depth_update_print_eigenvalus);     
+
       parser->parse_config("feat_viz_cur_only_highlighted", feat_viz_cur_only_highlighted);
       parser->parse_config("feat_viz_prev_only_highlighted", feat_viz_prev_only_highlighted);
     }
@@ -223,6 +245,16 @@ struct VioManagerOptions {
 
     PRINT_DEBUG("  - disable_visual_update?: %d\n", disable_visual_update);
 
+    PRINT_DEBUG("  - enable_depth_update?: %d\n", enable_depth_update);
+    PRINT_DEBUG("  - depth_update_max_depth?: %f\n", depth_update_max_depth);
+    PRINT_DEBUG("  - depth_update_image_downsample?: %d\n", depth_update_image_downsample);
+    PRINT_DEBUG("  - depth_update_knn_k?: %d\n", depth_update_knn_k);
+    PRINT_DEBUG("  - depth_update_neibour_blocks_size?: %d\n", depth_update_neibour_blocks_size);
+    PRINT_DEBUG("  - depth_update_max_points_per_block?: %d\n", depth_update_max_points_per_block);
+    PRINT_DEBUG("  - depth_update_eigen_ratio_thr?: %f\n", depth_update_eigen_ratio_thr);
+    PRINT_DEBUG("  - depth_update_flat_eigen_multiplier?: %f\n", depth_update_flat_eigen_multiplier);
+    PRINT_DEBUG("  - depth_update_print_eigenvalus?: %d\n", depth_update_print_eigenvalus);
+
     PRINT_DEBUG("  - feat_viz_cur_only_highlighted?: %d\n", feat_viz_cur_only_highlighted);
     PRINT_DEBUG("  - feat_viz_prev_only_highlighted?: %d\n", feat_viz_prev_only_highlighted);
   }
@@ -237,6 +269,9 @@ struct VioManagerOptions {
 
   /// Update options for SLAM features (pixel noise and chi2 multiplier)
   UpdaterOptions slam_options;
+
+  /// Update options for mappoint features (pixel noise and chi2 multiplier)
+  UpdaterOptions mappoint_options;
 
   /// Update options for ARUCO features (pixel noise and chi2 multiplier)
   UpdaterOptions aruco_options;
@@ -280,12 +315,17 @@ struct VioManagerOptions {
       parser->parse_config("up_slam_chi2_multipler", slam_options.chi2_multipler);
       parser->parse_config("up_slam_absolute_residual_thr", slam_options.absolute_residual_thr, false);
 
+      parser->parse_config("up_mappoint_sigma_px", mappoint_options.sigma_pix);
+      parser->parse_config("up_mappoint_chi2_multipler", mappoint_options.chi2_multipler);
+      parser->parse_config("up_mappoint_absolute_residual_thr", mappoint_options.absolute_residual_thr, false);            
+
       parser->parse_config("up_aruco_sigma_px", aruco_options.sigma_pix);
       parser->parse_config("up_aruco_chi2_multipler", aruco_options.chi2_multipler);
       parser->parse_config("up_aruco_absolute_residual_thr", aruco_options.absolute_residual_thr, false);
 
       msckf_options.sigma_pix_sq = std::pow(msckf_options.sigma_pix, 2);
       slam_options.sigma_pix_sq = std::pow(slam_options.sigma_pix, 2);
+      mappoint_options.sigma_pix_sq = std::pow(mappoint_options.sigma_pix, 2);
       aruco_options.sigma_pix_sq = std::pow(aruco_options.sigma_pix, 2);
       parser->parse_config("zupt_chi2_multipler", zupt_options.chi2_multipler);
     }
@@ -293,6 +333,8 @@ struct VioManagerOptions {
     msckf_options.print();
     PRINT_DEBUG("  Updater SLAM Feats:\n");
     slam_options.print();
+    PRINT_DEBUG("  Updater MAPPOINT Feats:\n");
+    mappoint_options.print();
     PRINT_DEBUG("  Updater ARUCO Tags:\n");
     aruco_options.print();
     PRINT_DEBUG("  Updater ZUPT:\n");
