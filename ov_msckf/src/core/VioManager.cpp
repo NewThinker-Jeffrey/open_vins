@@ -1682,9 +1682,15 @@ VioManager::choose_stereo_feature_for_propagation(
            p_feat_in_C1.x() / p_feat_in_C1.z() - uvn_cam1.x(),
            p_feat_in_C1.y() / p_feat_in_C1.z() - uvn_cam1.y();
     Eigen::Matrix3d JTJ = J.transpose() * J;
-    // Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(JTJ);
-    // Eigen::Matrix3d inverse_JTJ = eigensolver.operatorInverse();
-    Eigen::Matrix3d inverse_JTJ = JTJ.inverse();
+
+    // Eigen::Matrix3d inverse_JTJ = JTJ.inverse();
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> saes(JTJ);
+    const double eps = 1e-8;
+    Eigen::MatrixXd inverse_JTJ = saes.eigenvectors() * Eigen::VectorXd((saes.eigenvalues().array() > eps).select(saes.eigenvalues().array().inverse(), 0)).asDiagonal() * saes.eigenvectors().transpose();
+
+    // Eigen::Matrix3d inverse_JTJ2 = JTJ.inverse();
+    // std::cout << "DEBUG_inverse_JTJ-inverse_JTJ2: \n" << inverse_JTJ - inverse_JTJ2 << std::endl;
+
     cov = inverse_JTJ * (bearing_sigma * bearing_sigma);
     p_feat_in_C0 = p_feat_in_C0 + inverse_JTJ * J.transpose() * err;
   };
@@ -1974,6 +1980,7 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
         feat->uvs[color_cam_id].push_back(Eigen::Vector2f(x, y));
         feat->uvs_norm[color_cam_id].push_back(p_normal);
         feat->timestamps[color_cam_id].push_back(c->message->timestamp);
+        feats.push_back(feat);
 
         UpdaterSLAM::Mappoint mp;
         mp.p = p3d_w.cast<double>();
@@ -1999,19 +2006,51 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
       Eigen::Matrix<double, 3, Eigen::Dynamic> samples_mat = dmap->aKNN(
           mp.p, K, neibour_blocks_size, max_points_per_block, &blocks_map_cache);
 
-      if (samples_mat.size() < K) {
+      // std::cout << "DEBUG_aKNN: query= " << mp.p.transpose() << std::endl;
+      // std::cout << "DEBUG_aKNN: samples_mat=\n" << samples_mat << std::endl;
+      // std::cout << "DEBUG_aKNN: samples_mat - query =\n" << samples_mat.colwise() - mp.p << std::endl;
+
+      if (samples_mat.cols() < K) {
         remove_list.push_back(match.first);
         continue;
       }
-      Eigen::VectorXd mean_sample = samples_mat.colwise().mean();
+      Eigen::VectorXd mean_sample = samples_mat.rowwise().mean();
+      // std::cout << "DEBUG_aKNN: mean_sample = " << mean_sample.transpose() << std::endl;
+      // std::cout << "DEBUG_aKNN: mean_sample - query =" << (mean_sample - mp.p).transpose() << std::endl;
+
       mp.p = mean_sample;
       int n_sample = samples_mat.cols();
       mp.cov = samples_mat * samples_mat.transpose() - n_sample * mean_sample * mean_sample.transpose();
-      mp.cov *= 1.0 / (n_sample - 1);
+      // mp.cov *= 1.0 / (n_sample - 1);
+
+      Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(mp.cov);
+      Eigen::Vector3d eigenvalues = saes.eigenvalues();
+      Eigen::Matrix3d eigenvectors = saes.eigenvectors();
+
+      const double eigen_ratio_thr = 0.11;
+
+      // std::cout << "DEBUG_aKNN: sqrt eigenvalues: " << eigenvalues.transpose().array().sqrt()
+      //           << ", smallest/next = " << (eigenvalues[1] > 1e-8 ? eigenvalues[0] / eigenvalues[1] : 0)
+      //           << ", eigenvec for smallest: " << eigenvectors.col(0).transpose() <<  std::endl;
+      if (eigenvalues[1] > 1e-8 && eigenvalues[0] / eigenvalues[1] < eigen_ratio_thr) {
+        Eigen::Vector3d modified_eigenvalues = eigenvalues;
+        modified_eigenvalues[1] = eigenvalues[2] * 10000;
+        modified_eigenvalues[2] = eigenvalues[2] * 10000;
+        // modified_eigenvalues[1] = eigenvalues[0] * 100;
+        // modified_eigenvalues[2] = eigenvalues[0] * 100;
+        mp.cov = eigenvectors * modified_eigenvalues.asDiagonal() * eigenvectors.transpose();
+      } else {
+        remove_list.push_back(match.first);
+      }
     }
+
+    std::cout << "DEBUG_aKNN: matches.size before removal: " << matches.size() << std::endl;
+
     for (size_t featid : remove_list) {
       matches.erase(featid);
     }
+
+    std::cout << "DEBUG_aKNN: matches.size after removal: " << matches.size() << std::endl;
   };
 
 
@@ -2028,10 +2067,14 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
   std::vector<std::shared_ptr<Feature>>& feats = feats_vec[0];
   UpdaterSLAM::FeatToMappointMatches& matches = matches_vec[0];
 
+  // std::cout << "DEBUG_aKNN: matches.size before merge: " << matches.size() << ", feats.size = " << feats.size() << std::endl;
+
   for (size_t i=1; i<n_workers; i++) {
     feats.insert(feats.end(), feats_vec[i].begin(), feats_vec[i].end());
     matches.merge(matches_vec[i]);  // C++ 17: std::map::merge() 
   }
+
+  // std::cout << "DEBUG_aKNN: matches.size after merge: " << matches.size() << ", feats.size = " << feats.size() << std::endl;
 
   updaterSLAM->mappoint_update(state, feats, matches);
 #ifdef USE_HEAR_SLAM
