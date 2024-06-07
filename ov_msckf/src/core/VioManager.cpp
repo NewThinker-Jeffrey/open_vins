@@ -2522,6 +2522,8 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   size_t msckf_features_outliers = 0;
   if (!params.disable_visual_update) {
     updaterMSCKF->update(state, featsup_MSCKF);
+  } else {
+    featsup_MSCKF.clear();
   }
   msckf_features_outliers = msckf_features_used - featsup_MSCKF.size();
   msckf_features_used = featsup_MSCKF.size();
@@ -2543,6 +2545,8 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     // Do the update
     if (!params.disable_visual_update) {
       updaterSLAM->update(state, featsup_TEMP);
+    } else {
+      featsup_TEMP.clear();
     }
     feats_slam_UPDATE_TEMP.insert(feats_slam_UPDATE_TEMP.end(), featsup_TEMP.begin(), featsup_TEMP.end());
   }
@@ -2555,6 +2559,8 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   size_t delayed_features_outliers = 0;
   if (!params.disable_visual_update) {
     updaterSLAM->delayed_init(state, feats_slam_DELAYED);
+  } else {
+    feats_slam_DELAYED.clear();
   }
   delayed_features_outliers = delayed_features_used - feats_slam_DELAYED.size();
   delayed_features_used = feats_slam_DELAYED.size();
