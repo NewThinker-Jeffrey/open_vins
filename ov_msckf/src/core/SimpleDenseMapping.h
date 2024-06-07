@@ -212,6 +212,47 @@ struct alignas(8) CubeBlock final {
     }
   }
 
+  inline int sampleValidVoxels(int n, std::vector<VoxPosition>& ret, unsigned int* random_seed=nullptr) const {
+
+    // // The hashed voxels are already randomly placed in the voxel array.
+    // int start_idx = 0;
+    // int sample_step = 1;  // should be a prime number or 1. shorter step is more friendly to the cache.
+
+    // TODO: further randomize the sampling? is it necessary?
+    unsigned int local_seed;
+    unsigned int* seed = random_seed ? random_seed : &local_seed;
+    int start_idx = rand_r(seed) & kMaxVoxelsMask;
+    // Note "kMaxVoxels = 2^K" for some K, its only prime factor
+    // is 2, every number without prime factor 2 is coprime to kMaxVoxels
+    // and can be used as sample_step.
+    static constexpr int some_primes[] = // coprime to 2
+      {1,  // Though 1 is not a prime number
+       3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97};
+    static constexpr size_t primes_size = sizeof(some_primes) / sizeof(some_primes[0]);
+    int prime1 = some_primes[rand_r(seed) % primes_size];
+    int coprime = prime1;
+    // int prime2 = some_primes[rand_r(seed) % primes_size];
+    // coprime *= prime2;
+    int sample_step = coprime;
+
+    int cur_idx = start_idx;
+    size_t k = 0;
+    for (int i = 0; i < kMaxVoxels; ++i) {
+      auto v = voxels[cur_idx].atomicClone();  // atomicly copy
+      if (v.u_.status == 1) {
+        ret.push_back(getVoxPosition(v));
+        ++ k;
+        if (k == n) {
+          break;
+        }
+
+        cur_idx += sample_step;
+        cur_idx &= kMaxVoxelsMask;
+      }
+    }
+    return k;
+  }
+
   bool operator==(const CubeBlock& other) const {
     return bk == other.bk;
   }
@@ -372,6 +413,137 @@ struct SimpleDenseMapT final {
       }
     }
     return blocks;
+  }
+
+  template<typename Vec>
+  inline std::vector<BlockKey3>
+  getNeibourBlocks(const Vec& p, int neibour_size=2, bool sort_by_distance=true) const {
+    auto bk_vk = getKeysOfPoint(p);
+    auto& bk = bk_vk.first;
+    auto& vk = bk_vk.second;
+    int x0 = - (neibour_size >> 1);
+    int y0 = - (neibour_size >> 1);
+    int z0 = - (neibour_size >> 1);
+    if ((neibour_size & 1) == 0) {
+      static constexpr int half_len = (CubeBlock::kSideLength >> 1);
+      static constexpr int local_vk_mask = CubeBlock::kSideLengthMask;
+      if ((vk.x() & local_vk_mask) < half_len) {
+        x0 --;
+      }
+      if ((vk.y() & local_vk_mask) < half_len) {
+        y0 --;
+      }
+      if ((vk.z() & local_vk_mask) < half_len) {
+        z0 --;
+      }
+    }
+
+    std::vector<BlockKey3> blocks;
+    blocks.reserve(neibour_size * neibour_size * neibour_size);
+
+    for (int x = x0; x <= x0 + neibour_size; x++) {
+      for (int y = y0; y <= y0 + neibour_size; y++) {
+        for (int z = z0; z <= z0 + neibour_size; z++) {
+          BlockKey3 bki(bk.x() + x, bk.y() + y, bk.z() + z);
+          blocks.push_back(bki);
+        }
+      }
+    }
+
+    // sorted by their center distance to p
+    if (sort_by_distance) {
+      std::sort(blocks.begin(), blocks.end(), [&](const BlockKey3& a, const BlockKey3& b) {
+        VoxelKey ac((a.x() << CubeBlock::kSideLengthPow) + (CubeBlock::kSideLength >> 1),
+                    (a.y() << CubeBlock::kSideLengthPow) + (CubeBlock::kSideLength >> 1),
+                    (a.z() << CubeBlock::kSideLengthPow) + (CubeBlock::kSideLength >> 1));
+        VoxelKey bc((b.x() << CubeBlock::kSideLengthPow) + (CubeBlock::kSideLength >> 1),
+                    (b.y() << CubeBlock::kSideLengthPow) + (CubeBlock::kSideLength >> 1),
+                    (b.z() << CubeBlock::kSideLengthPow) + (CubeBlock::kSideLength >> 1));
+        auto ad = ac - vk;
+        auto bd = bc - vk;
+        return ad.dot(ad) < bd.dot(bd);
+      });
+    }
+
+    return blocks;
+  }
+
+  std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3>
+  getEmptyBlockCache() const {
+    return std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3>();
+  }
+
+  // Note the cache is not thread safe! each thread should have its own cache!
+  CubeBlock* getCubeWithCache(
+      const BlockKey3& bk,
+      std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3>* blocks_map_cache) const {
+    CubeBlock* blkp = nullptr;
+
+    auto cache_it_blk = blocks_map_cache->find(bk);
+    if (cache_it_blk == blocks_map_cache->end()) {
+      cache_it_blk = blocks_map_cache->insert(std::make_pair(bk, getCube(bk))).first;
+    }
+
+    CubeBlockRefPtr& cbrp = cache_it_blk->second;
+    if (!cbrp) {
+      return nullptr;
+    }
+
+#ifdef USE_ATOMIC_BLOCK_MAP
+    return &(cbrp->data);
+#else
+    return cbrp->get();
+#endif
+  }
+
+  // Note the cache is not thread safe! each thread should have its own cache!
+  template<typename Vec>
+  Eigen::Matrix<typename Vec::Scalar, 3, Eigen::Dynamic> aKNN(
+      const Vec& p, int K=16, size_t neibour_blocks_size=3, size_t max_points_per_block=16,
+      std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3>* blocks_map_cache=nullptr) const {
+    static unsigned int unique_random_seed = 0;
+    ++ unique_random_seed;
+
+    std::vector<BlockKey3> bks = getNeibourBlocks(p, neibour_blocks_size);
+    auto bk_vk = getKeysOfPoint(p);
+    auto& bk = bk_vk.first;
+    auto& vk = bk_vk.second;
+    std::vector<VoxPosition> ipoints;
+    unsigned int random_seed = unique_random_seed;
+
+    auto local_blocks_cache = getEmptyBlockCache();
+    if (!blocks_map_cache) {
+      blocks_map_cache = &local_blocks_cache;      
+    }
+
+    for (const BlockKey3& bk : bks) {
+      CubeBlock* block = getCubeWithCache(bk, blocks_map_cache);
+      if (block) {
+        block->sampleValidVoxels(max_points_per_block, ipoints, &random_seed);
+      }
+    }
+
+    K = std::min(size_t(K), ipoints.size());
+    if (K < ipoints.size()) {
+      std::nth_element(ipoints.begin(), ipoints.begin() + K, ipoints.end(),
+                        [&](const VoxPosition& a, const VoxPosition& b) {
+                          auto da = vk - a;
+                          auto db = vk - b;
+                          return (da.dot(da) < db.dot(db));
+                        });
+    }
+
+    Eigen::Matrix<typename Vec::Scalar, 3, Eigen::Dynamic> ret;
+    if (K > 0) {
+      ret.resize(3, K);
+      for (size_t i=0; i<K; i++) {
+        Eigen::Matrix<typename Vec::Scalar, 3, 1> p = ipoints[i].cast<typename Vec::Scalar>();
+        p *= resolution;
+        ret.col(i) = p;
+      }
+    }
+
+    return ret;
   }
 
   void generateOutput() {
@@ -992,6 +1164,24 @@ struct SimpleDenseMapT final {
 #endif
   mutable std::shared_mutex mutex_blocks_map_;
   static SpatialHash3 hash3;
+
+ private:
+  CubeBlockRefPtr getCube(const BlockKey3& bk) const {
+#ifdef USE_ATOMIC_BLOCK_MAP
+    CubeBlockRefPtr node_ptr = blocks_map.find(bk);
+    return node_ptr;
+#else
+    CubeBlockRefPtr blkptr;
+    std::unique_lock<std::shared_mutex> lk(mutex_blocks_map_);
+    auto it_blk = blocks_map.find(bk);
+    if (it_blk == blocks_map.end()) {
+      return nullptr;
+    }
+    blkptr = it_blk->second;
+    lk.unlock();
+    return blkptr;
+#endif
+  }
 
   // EIGEN_ALIGN16 uint8_t _[16];
 };
