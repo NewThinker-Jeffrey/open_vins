@@ -1923,8 +1923,8 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
   const int image_downsample = params.depth_update_image_downsample;
   auto intrin = params.camera_intrinsics.at(color_cam_id)->clone();
 
-  auto jpl_q = state->_imu->quat();
-  auto pos = state->_imu->pos();
+  auto jpl_q = state->_clones_IMU.at(state->_timestamp)->quat();
+  auto pos = state->_clones_IMU.at(state->_timestamp)->pos();
   Eigen::Quaternionf q(jpl_q[3], jpl_q[0], jpl_q[1], jpl_q[2]);
   Eigen::Vector3f p(pos[0], pos[1], pos[2]);
   Eigen::Isometry3f T_M_I = Eigen::Isometry3f::Identity();
