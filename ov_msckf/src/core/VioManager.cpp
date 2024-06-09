@@ -1934,6 +1934,22 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
   T_I_C.matrix() = params.T_CtoIs.at(color_cam_id)->cast<float>();
   Eigen::Isometry3f T_M_C = T_M_I * T_I_C;
 
+  Eigen::Matrix3d R_M_I_fej = state->_clones_IMU.at(state->_timestamp)->Rot_fej().transpose();
+  Eigen::Vector3d p_M_I_fej = state->_clones_IMU.at(state->_timestamp)->pos_fej();
+  Eigen::Matrix3d R_I_C_fej = state->_calib_IMUtoCAM.at(color_cam_id)->Rot_fej().transpose();
+  Eigen::Vector3d p_I_C_fej = state->_calib_IMUtoCAM.at(color_cam_id)->pos_fej();
+  Eigen::Matrix3d R_M_C_fej = R_M_I_fej * R_I_C_fej;
+  Eigen::Vector3d p_M_C_fej = p_M_I_fej + R_M_I_fej * p_I_C_fej;
+
+  Eigen::Matrix3d R_M_C = T_M_C.linear().cast<double>();
+  Eigen::Vector3d p_M_C = T_M_C.translation().cast<double>();
+
+
+  std::vector<std::shared_ptr<Type>> Hx_order;
+  Hx_order.push_back(state->_clones_IMU.at(state->_timestamp));
+  Hx_order.push_back(state->_calib_IMUtoCAM.at(color_cam_id));
+  const size_t Hx_cols = 12;
+
   auto undistort = [intrin](const Eigen::Vector2i& ixy, Eigen::Vector2f& nxy){
     nxy = intrin->undistort_f(ixy.cast<float>());
     return true;
@@ -1942,15 +1958,18 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
   int n_workers = 1;
   std::vector<std::vector<std::shared_ptr<Feature>>> feats_vec;
   std::vector<UpdaterSLAM::FeatToMappointMatches> matches_vec;
+  std::vector<Eigen::MatrixXd> Hmat_vec;
+  std::vector<Eigen::VectorXd> resmat_vec;
   feats_vec.resize(n_workers);
 
   int reserve_size = (depth_img.rows / image_downsample + 1) * (depth_img.cols / image_downsample + 1);
-  feats_vec[0].reserve(reserve_size);
   for (size_t i=1; i<n_workers; i++) {
     feats_vec[i].reserve(reserve_size / (n_workers - 1));
   }
 
   matches_vec.resize(n_workers);
+  Hmat_vec.resize(n_workers);
+  resmat_vec.resize(n_workers);
 
   auto convert_pixels_to_features = [&](int start_row, int end_row, int worker_idx) {
     end_row = std::min(end_row, depth_img.rows);
@@ -1982,8 +2001,9 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
         feat->timestamps[color_cam_id].push_back(c->message->timestamp);
         feats.push_back(feat);
 
-        UpdaterSLAM::Mappoint mp;
+        UpdaterSLAM::MappointMatch mp;
         mp.p = p3d_w.cast<double>();
+        mp.camid_to_fp[color_cam_id] = p3d_c.cast<double>();
         matches[feat->featid] = mp;
       }
     }
@@ -1992,6 +2012,8 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
   // update matches
   auto update_matches = [&](int worker_idx) {
     UpdaterSLAM::FeatToMappointMatches& matches = matches_vec[worker_idx];
+    Eigen::MatrixXd& Hmat = Hmat_vec[worker_idx];
+    Eigen::VectorXd& resmat = resmat_vec[worker_idx];
     using namespace dense_mapping;
     std::shared_ptr<const SimpleDenseMap> dmap = rgbd_dense_map_builder->get_output_map();
     auto blocks_map_cache = dmap->getEmptyBlockCache();
@@ -2001,8 +2023,12 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
     const size_t max_points_per_block = params.depth_update_max_points_per_block;
     std::vector<size_t> remove_list;
     remove_list.reserve(matches.size());
+    Hmat.resize(matches.size(), Hx_cols);
+    resmat.resize(matches.size());
+
+    size_t used_matches = 0;
     for (auto& match : matches) {
-      UpdaterSLAM::Mappoint& mp = match.second;
+      UpdaterSLAM::MappointMatch& mp = match.second;
       Eigen::Matrix<double, 3, Eigen::Dynamic> samples_mat = dmap->aKNN(
           mp.p, K, neibour_blocks_size, max_points_per_block, &blocks_map_cache);
 
@@ -2021,7 +2047,7 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
       mp.p = mean_sample;
       int n_sample = samples_mat.cols();
       mp.cov = samples_mat * samples_mat.transpose() - n_sample * mean_sample * mean_sample.transpose();
-      // mp.cov *= 1.0 / (n_sample - 1);
+      mp.cov *= 1.0 / (n_sample - 1);
 
       Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(mp.cov);
       Eigen::Vector3d eigenvalues = saes.eigenvalues();
@@ -2037,13 +2063,40 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
       }
 
       if (eigenvalues[1] > 1e-8 && eigenvalues[0] / eigenvalues[1] < eigen_ratio_thr) {
-        Eigen::Vector3d modified_eigenvalues = eigenvalues;
-        double biggest_eigen = eigenvalues[2];
-        modified_eigenvalues[1] = biggest_eigen * flat_eigen_multiplier;
-        modified_eigenvalues[2] = biggest_eigen * flat_eigen_multiplier;
-        // modified_eigenvalues[1] = eigenvalues[0] * 100;
-        // modified_eigenvalues[2] = eigenvalues[0] * 100;
-        mp.cov = eigenvectors * modified_eigenvalues.asDiagonal() * eigenvectors.transpose();
+        // Eigen::Vector3d modified_eigenvalues = eigenvalues;
+        // double biggest_eigen = eigenvalues[2];
+        // modified_eigenvalues[1] = biggest_eigen * flat_eigen_multiplier;
+        // modified_eigenvalues[2] = biggest_eigen * flat_eigen_multiplier;
+        // mp.cov = eigenvectors * modified_eigenvalues.asDiagonal() * eigenvectors.transpose();
+
+        Eigen::Vector3d np = eigenvectors.col(0);
+        Eigen::RowVector3d npT_RI = np.transpose() * R_M_I_fej;
+        Eigen::RowVector3d npT_RC = np.transpose() * R_M_C_fej;
+        Eigen::Vector3d& p_C_f = mp.camid_to_fp.at(color_cam_id);
+        Eigen::Vector3d B = p_C_f / p_C_f.z();
+
+        Eigen::RowVector3d pr_pthetaE = - (npT_RC * skew_x(p_C_f));
+        Eigen::RowVector3d pr_ppE = npT_RI;
+        Eigen::RowVector3d pr_pthetaI = pr_pthetaE * R_I_C_fej.transpose() - pr_ppE * skew_x(p_I_C_fej);
+        Eigen::RowVector3d pr_ppI = np.transpose();
+        if (Hx_cols == 12) {
+          Hmat.row(used_matches) << pr_pthetaI, pr_ppI, pr_pthetaE, pr_ppE;
+        } else {
+          ASSERT(Hx_cols == 6);
+          Hmat.row(used_matches) << pr_pthetaI, pr_ppI;
+        }
+
+        {
+          // compute residual.
+          resmat[used_matches] = np.transpose() * (mp.p - p_M_C - R_M_C * p_C_f);
+        }
+        double sigma_1 = (npT_RC * B * (p_C_f.z() * p_C_f.z() * params.mappoint_options.sigma_pix / params.state_options.virtual_baseline_for_rgbd))[0];
+        double sigma_square = eigenvalues[0] + sigma_1 * sigma_1;
+        double sigma_inv = 1.0 / sqrt(sigma_square);
+        Hmat.row(used_matches) = Hmat.row(used_matches) * sigma_inv;
+        resmat[used_matches] = resmat[used_matches] * sigma_inv;
+
+        ++ used_matches;
       } else {
         remove_list.push_back(match.first);
       }
@@ -2055,6 +2108,9 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
       matches.erase(featid);
     }
 
+    ASSERT(used_matches == matches.size());
+    Hmat.conservativeResize(used_matches, Hx_cols);
+    resmat.conservativeResize(used_matches);
     std::cout << "DEBUG_aKNN: matches.size after removal: " << matches.size() << std::endl;
   };
 
@@ -2079,9 +2135,33 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
     matches.merge(matches_vec[i]);  // C++ 17: std::map::merge() 
   }
 
+  size_t measurement_size = matches.size();
+  Eigen::MatrixXd Hmat;
+  Eigen::VectorXd resmat;
+  Hmat.resize(measurement_size, Hx_cols);
+  resmat.resize(measurement_size);
+  size_t total_used_matches = 0;
+  for (size_t i=0; i<n_workers; i++) {
+    Hmat.block(total_used_matches, 0, Hmat_vec[i].rows(), Hx_cols) = Hmat_vec[i];
+    resmat.block(total_used_matches, 0, resmat_vec[i].rows(), 1) = resmat_vec[i];
+    ASSERT(resmat_vec[i].rows() == Hmat_vec[i].rows());
+    total_used_matches += Hmat_vec[i].rows();    
+  }
+  ASSERT(total_used_matches == matches.size());
+
   // std::cout << "DEBUG_aKNN: matches.size after merge: " << matches.size() << ", feats.size = " << feats.size() << std::endl;
 
-  updaterSLAM->mappoint_update(state, feats, matches);
+  bool use_point_plane_match_err = true;
+  if (!use_point_plane_match_err) {
+    updaterSLAM->mappoint_update(state, feats, matches);
+  } else {
+    UpdaterHelper::measurement_compress_inplace(Hmat, resmat);
+    if (Hmat.rows() > 0) {
+      Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(resmat.rows(), resmat.rows());
+      StateHelper::EKFUpdate(state, Hx_order, Hmat, resmat, R_big);
+    }
+  }
+
 #ifdef USE_HEAR_SLAM
     tc.tag("updateDone");
     tc.report("UpdateDepthTiming: ", true);

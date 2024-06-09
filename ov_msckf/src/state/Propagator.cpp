@@ -841,7 +841,7 @@ void Propagator::gravity_update(std::shared_ptr<State> state) {
 
   std::shared_ptr<ov_type::PoseJPL> pose = state->_clones_IMU.at(target_time);
 
-  Eigen::Matrix3d Rinv = pose->Rot();
+  Eigen::Matrix3d Rinv = pose->Rot_fej();
 
   std::cout << "DEBUG_gravity_update: mean_acc = " << (Rinv.transpose() * mean_acc).transpose() << std::endl;
   // if ((mean_acc - Rinv*Eigen::Vector3d(0, 0, 9.81)).norm() > 2.0) {

@@ -71,11 +71,12 @@ public:
   void update(std::shared_ptr<State> state, std::vector<std::shared_ptr<ov_core::Feature>> &feature_vec);
 
 
-  struct Mappoint {
+  struct MappointMatch {
     Eigen::Vector3d p;
     Eigen::Matrix3d cov;
+    std::unordered_map<size_t, Eigen::Vector3d> camid_to_fp;
   };
-  using FeatToMappointMatches = std::map<size_t, Mappoint>;
+  using FeatToMappointMatches = std::map<size_t, MappointMatch>;
 
   void mappoint_update(std::shared_ptr<State> state, std::vector<std::shared_ptr<ov_core::Feature>> &feature_vec, const FeatToMappointMatches& featid_to_mappoint);
 
