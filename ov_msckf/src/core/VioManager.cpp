@@ -1908,12 +1908,18 @@ VioManager::choose_stereo_feature_for_propagation(
 }
 
 
-void VioManager::depth_update(ImgProcessContextPtr c) {
+void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
 
 #ifdef USE_HEAR_SLAM
     using hear_slam::TimeCounter;
     TimeCounter tc;
 #endif
+
+  const int resdim_perpt = 1;  // point to plane
+  // const int resdim_perpt = 3;  // point to point
+
+  // const bool check_mal_dis = false;
+  const bool check_mal_dis = true;
 
   const size_t color_cam_id = 0;
   const size_t depth_cam_id = 1;
@@ -1945,10 +1951,13 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
   Eigen::Vector3d p_M_C = T_M_C.translation().cast<double>();
 
 
+  const size_t Hx_cols = 12;
   std::vector<std::shared_ptr<Type>> Hx_order;
   Hx_order.push_back(state->_clones_IMU.at(state->_timestamp));
-  Hx_order.push_back(state->_calib_IMUtoCAM.at(color_cam_id));
-  const size_t Hx_cols = 12;
+  if (Hx_cols == 12) {
+    Hx_order.push_back(state->_calib_IMUtoCAM.at(color_cam_id));
+  }
+  Eigen::MatrixXd P_prior = StateHelper::get_marginal_covariance(state, Hx_order);
 
   auto undistort = [intrin](const Eigen::Vector2i& ixy, Eigen::Vector2f& nxy){
     nxy = intrin->undistort_f(ixy.cast<float>());
@@ -2023,8 +2032,8 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
     const size_t max_points_per_block = params.depth_update_max_points_per_block;
     std::vector<size_t> remove_list;
     remove_list.reserve(matches.size());
-    Hmat.resize(matches.size(), Hx_cols);
-    resmat.resize(matches.size());
+    Hmat.resize(matches.size() * resdim_perpt, Hx_cols);
+    resmat.resize(matches.size() * resdim_perpt);
 
     size_t used_matches = 0;
     for (auto& match : matches) {
@@ -2049,56 +2058,115 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
       mp.cov = samples_mat * samples_mat.transpose() - n_sample * mean_sample * mean_sample.transpose();
       mp.cov *= 1.0 / (n_sample - 1);
 
-      Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(mp.cov);
-      Eigen::Vector3d eigenvalues = saes.eigenvalues();
-      Eigen::Matrix3d eigenvectors = saes.eigenvectors();
+      if (resdim_perpt == 1) {
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(mp.cov);
+        Eigen::Vector3d eigenvalues = saes.eigenvalues();
+        Eigen::Matrix3d eigenvectors = saes.eigenvectors();
 
-      const double eigen_ratio_thr = params.depth_update_eigen_ratio_thr;
-      const double flat_eigen_multiplier = params.depth_update_flat_eigen_multiplier;
-      
-      if (params.depth_update_print_eigenvalus) {
-        std::cout << "DEBUG_aKNN: sqrt eigenvalues: " << eigenvalues.transpose().array().sqrt()
-                  << ", smallest/next = " << (eigenvalues[1] > 1e-8 ? eigenvalues[0] / eigenvalues[1] : 0)
-                  << ", eigenvec for smallest: " << eigenvectors.col(0).transpose() <<  std::endl;
-      }
+        const double eigen_ratio_thr = params.depth_update_eigen_ratio_thr;
+        const double flat_eigen_multiplier = params.depth_update_flat_eigen_multiplier;
+        
+        if (params.depth_update_print_eigenvalus) {
+          std::cout << "DEBUG_aKNN: sqrt eigenvalues: " << eigenvalues.transpose().array().sqrt()
+                    << ", smallest/next = " << (eigenvalues[1] > 1e-8 ? eigenvalues[0] / eigenvalues[1] : 0)
+                    << ", eigenvec for smallest: " << eigenvectors.col(0).transpose() <<  std::endl;
+        }
+        if (eigenvalues[1] > 1e-8 && eigenvalues[0] / eigenvalues[1] < eigen_ratio_thr) {
+          // Eigen::Vector3d modified_eigenvalues = eigenvalues;
+          // double biggest_eigen = eigenvalues[2];
+          // modified_eigenvalues[1] = biggest_eigen * flat_eigen_multiplier;
+          // modified_eigenvalues[2] = biggest_eigen * flat_eigen_multiplier;
+          // mp.cov = eigenvectors * modified_eigenvalues.asDiagonal() * eigenvectors.transpose();
 
-      if (eigenvalues[1] > 1e-8 && eigenvalues[0] / eigenvalues[1] < eigen_ratio_thr) {
-        // Eigen::Vector3d modified_eigenvalues = eigenvalues;
-        // double biggest_eigen = eigenvalues[2];
-        // modified_eigenvalues[1] = biggest_eigen * flat_eigen_multiplier;
-        // modified_eigenvalues[2] = biggest_eigen * flat_eigen_multiplier;
-        // mp.cov = eigenvectors * modified_eigenvalues.asDiagonal() * eigenvectors.transpose();
+          Eigen::Vector3d np = eigenvectors.col(0);
+          Eigen::RowVector3d npT_RI = np.transpose() * R_M_I_fej;
+          Eigen::RowVector3d npT_RC = np.transpose() * R_M_C_fej;
+          Eigen::Vector3d& p_C_f = mp.camid_to_fp.at(color_cam_id);
+          Eigen::Vector3d B = p_C_f / p_C_f.z();
 
-        Eigen::Vector3d np = eigenvectors.col(0);
-        Eigen::RowVector3d npT_RI = np.transpose() * R_M_I_fej;
-        Eigen::RowVector3d npT_RC = np.transpose() * R_M_C_fej;
+          Eigen::RowVector3d pr_pthetaE = - (npT_RC * skew_x(p_C_f));
+          Eigen::RowVector3d pr_ppE = npT_RI;
+          Eigen::RowVector3d pr_pthetaI = pr_pthetaE * R_I_C_fej.transpose() - pr_ppE * skew_x(p_I_C_fej);
+          Eigen::RowVector3d pr_ppI = np.transpose();
+
+          // pr_pthetaE = Eigen::RowVector3d(0,0,0);
+          // pr_ppE = Eigen::RowVector3d(0,0,0);
+          // pr_pthetaI = Eigen::RowVector3d(0,0,0);
+
+          if (Hx_cols == 12) {
+            Hmat.row(used_matches) << pr_pthetaI, pr_ppI, pr_pthetaE, pr_ppE;
+          } else {
+            ASSERT(Hx_cols == 6);
+            Hmat.row(used_matches) << pr_pthetaI, pr_ppI;
+          }
+
+          {
+            // compute residual.
+            resmat[used_matches] = np.transpose() * (mp.p - p_M_C - R_M_C * p_C_f);
+          }
+          double sigma_1 = (npT_RC * B * (p_C_f.z() * p_C_f.z() * params.mappoint_options.sigma_pix / params.state_options.virtual_baseline_for_rgbd))[0];
+          double sigma_square = eigenvalues[0] + sigma_1 * sigma_1;
+
+          double mal_dis_squre = 0.0;
+          if (check_mal_dis) {
+            // mal dis square
+            mal_dis_squre = resmat[used_matches] * resmat[used_matches] / ((Hmat.row(used_matches) * P_prior * Hmat.row(used_matches).transpose())[0] + sigma_square);
+          }
+
+          if (check_mal_dis && mal_dis_squre > 2.0 * 2.0) {
+            remove_list.push_back(match.first);
+          } else {
+            double sigma_inv = 1.0 / sqrt(sigma_square);
+            Hmat.row(used_matches) = Hmat.row(used_matches) * sigma_inv;
+            resmat[used_matches] = resmat[used_matches] * sigma_inv;
+            ++ used_matches;
+          }
+        } else {
+          remove_list.push_back(match.first);
+        }
+      } else if (resdim_perpt == 3) {
+        // Eigen::RowVector3d npT_RI = np.transpose() * R_M_I_fej;
+        // Eigen::RowVector3d npT_RC = np.transpose() * R_M_C_fej;
         Eigen::Vector3d& p_C_f = mp.camid_to_fp.at(color_cam_id);
         Eigen::Vector3d B = p_C_f / p_C_f.z();
 
-        Eigen::RowVector3d pr_pthetaE = - (npT_RC * skew_x(p_C_f));
-        Eigen::RowVector3d pr_ppE = npT_RI;
-        Eigen::RowVector3d pr_pthetaI = pr_pthetaE * R_I_C_fej.transpose() - pr_ppE * skew_x(p_I_C_fej);
-        Eigen::RowVector3d pr_ppI = np.transpose();
+        Eigen::Matrix3d pr_pthetaE = - skew_x(p_C_f);
+        Eigen::Matrix3d pr_ppE = R_M_I_fej;
+        Eigen::Matrix3d pr_pthetaI = pr_pthetaE * R_I_C_fej.transpose() - pr_ppE * skew_x(p_I_C_fej);
+        Eigen::Matrix3d pr_ppI = Eigen::Matrix3d::Identity();
+
+        // pr_pthetaE = Eigen::Matrix3d::Zero();
+        // pr_ppE = Eigen::Matrix3d::Zero();
+        // pr_pthetaI = Eigen::Matrix3d::Zero();
         if (Hx_cols == 12) {
-          Hmat.row(used_matches) << pr_pthetaI, pr_ppI, pr_pthetaE, pr_ppE;
+          Hmat.block(used_matches * 3, 0, 3, 12) << pr_pthetaI, pr_ppI, pr_pthetaE, pr_ppE;
         } else {
           ASSERT(Hx_cols == 6);
-          Hmat.row(used_matches) << pr_pthetaI, pr_ppI;
+          Hmat.block(used_matches * 3, 0, 3, 6) << pr_pthetaI, pr_ppI;
         }
 
         {
           // compute residual.
-          resmat[used_matches] = np.transpose() * (mp.p - p_M_C - R_M_C * p_C_f);
+          resmat.block(used_matches * 3, 0, 3, 1) = mp.p - p_M_C - R_M_C * p_C_f;
         }
-        double sigma_1 = (npT_RC * B * (p_C_f.z() * p_C_f.z() * params.mappoint_options.sigma_pix / params.state_options.virtual_baseline_for_rgbd))[0];
-        double sigma_square = eigenvalues[0] + sigma_1 * sigma_1;
-        double sigma_inv = 1.0 / sqrt(sigma_square);
-        Hmat.row(used_matches) = Hmat.row(used_matches) * sigma_inv;
-        resmat[used_matches] = resmat[used_matches] * sigma_inv;
 
-        ++ used_matches;
-      } else {
-        remove_list.push_back(match.first);
+        double sigma_1 = p_C_f.z() * p_C_f.z() * params.mappoint_options.sigma_pix / params.state_options.virtual_baseline_for_rgbd;
+        Eigen::Matrix3d R = mp.cov + R_M_C_fej * ((B * sigma_1) * (sigma_1 * B.transpose())) * R_M_C_fej.transpose();
+
+        double mal_dis_squre = 0.0;
+        if (check_mal_dis) {
+          Eigen::Matrix3d S = Hmat.block(used_matches * 3, 0, 3, Hx_cols) * P_prior * Hmat.block(used_matches * 3, 0, 3, Hx_cols).transpose() + R;
+          Eigen::Vector3d transformed_res = S.llt().solve(resmat.block(used_matches * 3, 0, 3, 1));
+          mal_dis_squre = transformed_res.dot(transformed_res);
+        }
+        if (check_mal_dis && mal_dis_squre > 2.0 * 2.0) {
+          remove_list.push_back(match.first);
+        } else {
+          Eigen::Matrix3d sqrt_info = R.llt().matrixL().solve(Eigen::Matrix3d::Identity());
+          Hmat.block(used_matches * 3, 0, 3, Hx_cols) = sqrt_info * Hmat.block(used_matches * 3, 0, 3, Hx_cols);
+          resmat.block(used_matches * 3, 0, 3, 1) = sqrt_info * resmat.block(used_matches * 3, 0, 3, 1);
+          ++ used_matches;
+        }
       }
     }
 
@@ -2109,8 +2177,8 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
     }
 
     ASSERT(used_matches == matches.size());
-    Hmat.conservativeResize(used_matches, Hx_cols);
-    resmat.conservativeResize(used_matches);
+    Hmat.conservativeResize(used_matches * resdim_perpt, Hx_cols);
+    resmat.conservativeResize(used_matches * resdim_perpt);
     std::cout << "DEBUG_aKNN: matches.size after removal: " << matches.size() << std::endl;
   };
 
@@ -2138,21 +2206,21 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
   size_t measurement_size = matches.size();
   Eigen::MatrixXd Hmat;
   Eigen::VectorXd resmat;
-  Hmat.resize(measurement_size, Hx_cols);
-  resmat.resize(measurement_size);
-  size_t total_used_matches = 0;
+  Hmat.resize(measurement_size * resdim_perpt, Hx_cols);
+  resmat.resize(measurement_size * resdim_perpt);
+  size_t total_Hmat_rows = 0;
   for (size_t i=0; i<n_workers; i++) {
-    Hmat.block(total_used_matches, 0, Hmat_vec[i].rows(), Hx_cols) = Hmat_vec[i];
-    resmat.block(total_used_matches, 0, resmat_vec[i].rows(), 1) = resmat_vec[i];
+    Hmat.block(total_Hmat_rows, 0, Hmat_vec[i].rows(), Hx_cols) = Hmat_vec[i];
+    resmat.block(total_Hmat_rows, 0, resmat_vec[i].rows(), 1) = resmat_vec[i];
     ASSERT(resmat_vec[i].rows() == Hmat_vec[i].rows());
-    total_used_matches += Hmat_vec[i].rows();    
+    total_Hmat_rows += Hmat_vec[i].rows();    
   }
-  ASSERT(total_used_matches == matches.size());
+  ASSERT(total_Hmat_rows == matches.size() * resdim_perpt);
 
   // std::cout << "DEBUG_aKNN: matches.size after merge: " << matches.size() << ", feats.size = " << feats.size() << std::endl;
 
-  bool use_point_plane_match_err = true;
-  if (!use_point_plane_match_err) {
+  bool use_visual_err = false;
+  if (use_visual_err) {
     updaterSLAM->mappoint_update(state, feats, matches);
   } else {
     UpdaterHelper::measurement_compress_inplace(Hmat, resmat);
@@ -2647,7 +2715,10 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   c->rT6 = std::chrono::high_resolution_clock::now();
 
   if (params.enable_depth_update) {
-    depth_update(c);
+    depth_update(c, 0);
+    // depth_update(c, 4);
+    // depth_update(c, 8);
+    // depth_update(c, 12);
   }
 
   if (params.propagate_with_stereo_feature && params.grivaty_update_after_propagate_with_stereo_feature) {
