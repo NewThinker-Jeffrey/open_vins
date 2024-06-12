@@ -756,12 +756,17 @@ void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
 
   ASSERT(semantic_segmentor_wrapper);
 
+  const int downsample = params.semantic_masking_image_downsample;
+  const int kernel_size = params.semantic_masking_dilate_kernel_size;
+
+
   ov_core::CameraData &message = *(c->message);
 
   // semantic masking for the 1st image
   cv::Mat img = message.images.at(0);
   cv::Mat img_temp;
-  cv::pyrDown(img, img_temp, cv::Size(img.cols / 2, img.rows / 2));
+  // cv::pyrDown(img, img_temp, cv::Size(img.cols / downsample, img.rows / downsample));
+  cv::resize(img, img_temp, cv::Size(img.cols / downsample, img.rows / downsample), 0, 0, cv::INTER_AREA);
 
 #ifdef USE_HEAR_SLAM
     tc.tag("PreProcessDone");
@@ -776,7 +781,7 @@ void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
 #endif
 
   // cv::Mat mask_temp(img.rows / 2, img.cols / 2, CV_8UC1);
-  cv::Mat mask_cls(img.rows / 2, img.cols / 2, CV_32SC1, seg->mask);
+  cv::Mat mask_cls(img.rows / downsample, img.cols / downsample, CV_32SC1, seg->mask);
 
   // const int person_cls_id = 15;
   // cv::Mat mask_temp = (mask_cls == person_cls_id);
@@ -797,12 +802,13 @@ void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
   cv::LUT(mask_cls_u8, semantic_segmentor_wrapper->getLookupTable(), mask_temp);
 
   // do dilating
-  cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+  cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(kernel_size, kernel_size));
   cv::Mat dilated_mask_temp;
   cv::dilate(mask_temp, dilated_mask_temp, kernel);
 
   cv::Mat semantic_mask;
-  cv::pyrUp(dilated_mask_temp, semantic_mask, cv::Size(img.cols, img.rows));
+  // cv::pyrUp(dilated_mask_temp, semantic_mask, cv::Size(img.cols, img.rows));
+  cv::resize(dilated_mask_temp, semantic_mask, cv::Size(img.cols, img.rows), 0, 0, cv::INTER_AREA);
 
   // Compose the semantic_mask and the original mask (i.e. message.masks.at(0))
   message.masks.at(0) |= semantic_mask;

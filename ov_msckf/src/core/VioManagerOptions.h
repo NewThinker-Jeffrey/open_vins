@@ -375,6 +375,7 @@ struct VioManagerOptions {
   std::string semantic_masking_model_path = "/slam/seg_model";
   std::string semantic_masking_profiler_path = "/tmp/mmseg_profile.bin";
   std::set<int> semantic_masking_labels_to_mask;
+  int semantic_masking_image_downsample = 2;
   int semantic_masking_dilate_kernel_size = 5;
 
   bool rgbd_mapping = true;
