@@ -55,6 +55,7 @@
 #ifdef USE_HEAR_SLAM
 #include "hear_slam/basic/logging.h"
 #include "hear_slam/basic/time.h"
+#include "hear_slam/basic/thread_pool.h"
 #endif
 
 
@@ -136,6 +137,12 @@ VioManager::VioManager(VioManagerOptions &params_) :
   params.print_and_load_noise();
   params.print_and_load_state();
   params.print_and_load_trackers();
+
+#ifdef USE_HEAR_SLAM
+  if (params.enable_depth_update) {
+    hear_slam::ThreadPool::createNamed("ov_depth_updt", std::thread::hardware_concurrency());
+  }
+#endif
 
 #if ENABLE_MMSEG
   if (params.use_semantic_masking) {
@@ -1964,7 +1971,11 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
     return true;
   };
 
+#ifdef USE_HEAR_SLAM
+  int n_workers = std::thread::hardware_concurrency();
+#else
   int n_workers = 1;
+#endif
   std::vector<std::vector<std::shared_ptr<Feature>>> feats_vec;
   std::vector<UpdaterSLAM::FeatToMappointMatches> matches_vec;
   std::vector<Eigen::MatrixXd> Hmat_vec;
@@ -2183,11 +2194,38 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
   };
 
 
+#ifdef USE_HEAR_SLAM
+  int row_block_size = ((depth_img.rows / image_downsample) / n_workers + 1) * image_downsample;
+  auto depth_updt_pool = hear_slam::ThreadPool::getNamed("ov_depth_updt");
+  for (size_t i=0; i<n_workers; i++) {
+    depth_updt_pool->schedule([i, row_block_size, &convert_pixels_to_features](){
+      convert_pixels_to_features(i*row_block_size, i*row_block_size + row_block_size, i);
+    });
+  }
+  depth_updt_pool->waitUntilAllTasksDone();
+#else
   convert_pixels_to_features(0, depth_img.rows, 0);
+#endif
+
 #ifdef USE_HEAR_SLAM
     tc.tag("featureDone");
 #endif
+
+
+
+#ifdef USE_HEAR_SLAM
+  for (size_t i=0; i<n_workers; i++) {
+    depth_updt_pool->schedule([i, &update_matches](){
+      update_matches(i);
+    });
+  }
+  depth_updt_pool->waitUntilAllTasksDone();
+#else
   update_matches(0);
+#endif
+
+
+
 #ifdef USE_HEAR_SLAM
     tc.tag("matchDone");
 #endif
