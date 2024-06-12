@@ -2181,7 +2181,7 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
       }
     }
 
-    std::cout << "DEBUG_aKNN: matches.size before removal: " << matches.size() << std::endl;
+    // std::cout << "DEBUG_aKNN: matches.size before removal: " << matches.size() << std::endl;
 
     for (size_t featid : remove_list) {
       matches.erase(featid);
@@ -2190,7 +2190,7 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
     ASSERT(used_matches == matches.size());
     Hmat.conservativeResize(used_matches * resdim_perpt, Hx_cols);
     resmat.conservativeResize(used_matches * resdim_perpt);
-    std::cout << "DEBUG_aKNN: matches.size after removal: " << matches.size() << std::endl;
+    // std::cout << "DEBUG_aKNN: matches.size after removal: " << matches.size() << std::endl;
   };
 
 
@@ -2255,7 +2255,7 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
   }
   ASSERT(total_Hmat_rows == matches.size() * resdim_perpt);
 
-  // std::cout << "DEBUG_aKNN: matches.size after merge: " << matches.size() << ", feats.size = " << feats.size() << std::endl;
+  std::cout << "DEBUG_aKNN: matches.size after merge: " << matches.size() << ", feats.size = " << feats.size() << std::endl;
 
   bool use_visual_err = false;
   if (use_visual_err) {
