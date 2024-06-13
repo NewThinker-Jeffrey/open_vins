@@ -2042,6 +2042,10 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
     Eigen::VectorXd& resmat = resmat_vec[worker_idx];
     using namespace dense_mapping;
     std::shared_ptr<const SimpleDenseMap> dmap = rgbd_dense_map_builder->get_output_map();
+    if (!dmap) {
+      matches.clear();
+      return;
+    }
     auto blocks_map_cache = dmap->getEmptyBlockCache();
 
     const int K = params.depth_update_knn_k;
