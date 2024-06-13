@@ -921,6 +921,57 @@ void VioManager::do_update(ImgProcessContextPtr c) {
   do_feature_propagate_update(c);
 }
 
+
+namespace {
+
+uint8_t* log_depth_table = nullptr;
+
+cv::Mat visualizeDepthImage(const cv::Mat& depth_img) {
+  ASSERT(depth_img.type() == CV_16U);
+
+  if (!log_depth_table) {
+    // build log_depth_table
+    log_depth_table = new uint8_t[65536];
+    const double inv_log2__x__16 = 16.0 / std::log(2.0);
+    auto log_value = [](int depth_i) {
+      double depth = 0.001 * depth_i;  // in meters
+      static const double base_depth = 0.3;
+      double delta_depth = (depth - base_depth);
+      delta_depth = std::max(delta_depth, 0.0);
+      // return log(static_cast<double>(1000.0 * delta_depth + 1.0));
+      return log(double(delta_depth/5.0 + 1.0));
+      // return log(double(depth+1.0));
+    };
+    double min_value = log_value(0);
+    // double max_value = log_value(65535);
+    double max_value = log_value(5000);
+    double ratio = 255.0 / (max_value - min_value);
+    for (int i = 0; i < 65536; i++) {
+      int v = (log_value(i) - min_value) * ratio;
+      v = std::min(v, 255);
+      v = std::max(v, 0);
+      log_depth_table[i] = 255 - v;
+    }
+
+    // 0 for unavailable.
+    log_depth_table[0] = 0;
+  }
+
+  cv::Mat log_depth_img(depth_img.size(), CV_8UC3);
+  auto* ptr_log = log_depth_img.ptr<uint8_t>();
+  const auto* ptr = depth_img.ptr<uint16_t>();
+  for (size_t i = 0; i < depth_img.rows * depth_img.cols; i++) {
+    ptr_log[i*3] = log_depth_table[ptr[i]];
+    ptr_log[i*3 + 1] = 0;
+    ptr_log[i*3 + 2] = (ptr_log[i*3] != 0) * (255 - ptr_log[i*3]);
+  }
+
+  return log_depth_img;
+}
+
+}
+
+
 void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
   // this->rgbd_dense_map_builder might be reset in other threads,
   // so we need to loat it atomicly.
@@ -935,6 +986,13 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
     const size_t depth_cam_id = 1;
     const cv::Mat& color = c->message->images.at(color_cam_id);
     const cv::Mat& depth = c->message->images.at(depth_cam_id);
+    const cv::Mat& mask = c->message->masks.at(color_cam_id);
+
+    cv::Mat masked_depth;
+    depth.copyTo(masked_depth, mask == 0);
+
+    // cv::imshow("masked_depth", visualizeDepthImage(masked_depth));
+    // cv::waitKey(1);
 
     if (cv::countNonZero(depth) > 0) {
       static int depth_count = 0;
@@ -955,7 +1013,7 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
       Eigen::Isometry3f T_M_C = T_M_I * T_I_C;
 
 
-      rgbd_dense_map_builder->feed_rgbd_frame(color, depth,
+      rgbd_dense_map_builder->feed_rgbd_frame(color, masked_depth,
                                 color_cam_id,
                                 T_M_C, c->message->timestamp,
                                 params.rgbd_mapping_pixel_downsample,
