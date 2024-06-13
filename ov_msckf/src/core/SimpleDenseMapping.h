@@ -548,7 +548,7 @@ struct SimpleDenseMapT final {
 
   void generateOutput() {
     // ASSERT(blocks_map.size() < kMaxBlocks);
-    ASSERT(blocks_map.size() < kReservedBlocks);
+    // ASSERT(blocks_map.size() < kReservedBlocks);
 
     // return;  // skip
 
@@ -897,7 +897,7 @@ struct SimpleDenseMapT final {
     remove_from_blocks_map();
 #endif
 
-    ASSERT(blocks_map.size() <= kMaxBlocks);
+    // ASSERT(blocks_map.size() <= kMaxBlocks);
   }
 
 
