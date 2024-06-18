@@ -47,17 +47,17 @@ if __name__ == '__main__':
   d = SymbolMatrix('d', (3,1), real=True)
   lambda_ = sp.Symbol('lambda', real=True)
 
-  # # ↓ Why it yeilds zero coeffs if we use this?
-  # g = sp.Symbol('g', real=True, positive=True, nonzero=True)
-  # # expression = sp.det((D - lambda_ * sp.eye(3,3))**2 - ((1/g)**2)*(d*d.T))
-  # g_inv = (1/g)
+  g = sp.Symbol('g', real=True, positive=True, nonzero=True)
+  expression = sp.det((D - lambda_ * sp.eye(3,3))**2 - ((1/g)**2)*(d*d.T))
+
+  # It will yeild all zero coeffs without expand(). See: https://github.com/sympy/sympy/issues/26716
+  #                          ↓ 
+  collected = sp.collect(sp.expand(expression), lambda_)
+
+  # g_inv = sp.Symbol('g_inv', real=True)
   # expression = sp.det((D - lambda_ * sp.eye(3,3))**2 - (g_inv**2)*(d*d.T))
+  # collected = sp.collect(expression, lambda_)
 
-  g_inv = sp.Symbol('g_inv', real=True)
-  expression = sp.det((D - lambda_ * sp.eye(3,3))**2 - (g_inv**2)*(d*d.T))
-
-  # print(expression)
-  collected = sp.collect(expression, lambda_)
   # print(collected)
   # print(type(collected))
 
