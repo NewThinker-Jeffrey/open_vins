@@ -490,6 +490,7 @@ struct SimpleDenseMapT final {
         block = cbrp->get();
 #endif
         std::vector<VoxPosition> ipoints;
+        ipoints.reserve(max_points_per_block_);
         static unsigned int unique_random_seed = 0;
         ++ unique_random_seed;
         unsigned int random_seed = unique_random_seed;
@@ -542,7 +543,8 @@ struct SimpleDenseMapT final {
   template<typename Vec>
   Eigen::Matrix<typename Vec::Scalar, 3, Eigen::Dynamic> aKNN(
       SamplingSnapShot* snapshot,
-      const Vec& p, int K=16, size_t neibour_blocks_size=3) const {
+      const Vec& p, int K=16, size_t neibour_blocks_size=3,
+      size_t max_points_per_block=16) const {
     static unsigned int unique_random_seed = 0;
     ++ unique_random_seed;
 
@@ -552,6 +554,8 @@ struct SimpleDenseMapT final {
     auto& vk = bk_vk.second;
 
     std::vector<VoxPosition> ipoints;
+    ipoints.reserve(bks.size() * max_points_per_block);
+
     unsigned int random_seed = unique_random_seed;
 
     for (const BlockKey3& bk : bks) {

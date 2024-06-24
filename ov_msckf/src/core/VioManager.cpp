@@ -2114,7 +2114,7 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
     for (auto& match : matches) {
       UpdaterSLAM::MappointMatch& mp = match.second;
       mp.samples_mat = dmap->aKNN(
-          &snapshot, mp.p, K, neibour_blocks_size);
+          &snapshot, mp.p, K, neibour_blocks_size, max_points_per_block);
       auto& samples_mat = mp.samples_mat;
 
       // std::cout << "DEBUG_aKNN: query= " << mp.p.transpose() << std::endl;
