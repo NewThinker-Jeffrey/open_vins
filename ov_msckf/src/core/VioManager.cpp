@@ -2093,32 +2093,29 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
     }
   };
 
-  // update matches
-  auto update_matches = [&](int worker_idx) {
+  // aknn_search
+  auto aknn_search = [&](int worker_idx) {
     UpdaterSLAM::FeatToMappointMatches& matches = matches_vec[worker_idx];
-    Eigen::MatrixXd& Hmat = Hmat_vec[worker_idx];
-    Eigen::VectorXd& resmat = resmat_vec[worker_idx];
     using namespace dense_mapping;
     std::shared_ptr<const SimpleDenseMap> dmap = rgbd_dense_map_builder->get_output_map();
     if (!dmap) {
       matches.clear();
       return;
     }
-    auto blocks_map_cache = dmap->getEmptyBlockCache();
+
+    const size_t max_points_per_block = params.depth_update_max_points_per_block;
+    SimpleDenseMap::SamplingSnapShot snapshot(dmap.get(), max_points_per_block);
 
     const int K = params.depth_update_knn_k;
     const int neibour_blocks_size = params.depth_update_neibour_blocks_size;
-    const size_t max_points_per_block = params.depth_update_max_points_per_block;
     std::vector<size_t> remove_list;
     remove_list.reserve(matches.size());
-    Hmat.resize(matches.size() * resdim_perpt, Hx_cols);
-    resmat.resize(matches.size() * resdim_perpt);
 
-    size_t used_matches = 0;
     for (auto& match : matches) {
       UpdaterSLAM::MappointMatch& mp = match.second;
-      Eigen::Matrix<double, 3, Eigen::Dynamic> samples_mat = dmap->aKNN(
-          mp.p, K, neibour_blocks_size, max_points_per_block, &blocks_map_cache);
+      mp.samples_mat = dmap->aKNN(
+          &snapshot, mp.p, K, neibour_blocks_size);
+      auto& samples_mat = mp.samples_mat;
 
       // std::cout << "DEBUG_aKNN: query= " << mp.p.transpose() << std::endl;
       // std::cout << "DEBUG_aKNN: samples_mat=\n" << samples_mat << std::endl;
@@ -2128,6 +2125,25 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
         remove_list.push_back(match.first);
         continue;
       }
+    }
+
+    // std::cout << "DEBUG_aKNN: matches.size before removal: " << matches.size() << std::endl;
+    for (size_t featid : remove_list) {
+      matches.erase(featid);
+    }
+    // std::cout << "DEBUG_aKNN: matches.size after removal: " << matches.size() << std::endl;
+  };
+
+  auto compute_mean_cov = [&](int worker_idx) {
+    UpdaterSLAM::FeatToMappointMatches& matches = matches_vec[worker_idx];
+    for (auto& match : matches) {
+      UpdaterSLAM::MappointMatch& mp = match.second;
+      auto& samples_mat = mp.samples_mat;
+
+      // std::cout << "DEBUG_aKNN: query= " << mp.p.transpose() << std::endl;
+      // std::cout << "DEBUG_aKNN: samples_mat=\n" << samples_mat << std::endl;
+      // std::cout << "DEBUG_aKNN: samples_mat - query =\n" << samples_mat.colwise() - mp.p << std::endl;
+
       Eigen::VectorXd mean_sample = samples_mat.rowwise().mean();
       // std::cout << "DEBUG_aKNN: mean_sample = " << mean_sample.transpose() << std::endl;
       // std::cout << "DEBUG_aKNN: mean_sample - query =" << (mean_sample - mp.p).transpose() << std::endl;
@@ -2136,7 +2152,21 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
       int n_sample = samples_mat.cols();
       mp.cov = samples_mat * samples_mat.transpose() - n_sample * mean_sample * mean_sample.transpose();
       mp.cov *= 1.0 / (n_sample - 1);
+    }
+  };
 
+  auto compute_H_and_res = [&](int worker_idx) {
+    UpdaterSLAM::FeatToMappointMatches& matches = matches_vec[worker_idx];
+    Eigen::MatrixXd& Hmat = Hmat_vec[worker_idx];
+    Eigen::VectorXd& resmat = resmat_vec[worker_idx];
+    std::vector<size_t> remove_list;
+    remove_list.reserve(matches.size());
+    Hmat.resize(matches.size() * resdim_perpt, Hx_cols);
+    resmat.resize(matches.size() * resdim_perpt);
+
+    size_t used_matches = 0;
+    for (auto& match : matches) {
+      UpdaterSLAM::MappointMatch& mp = match.second;
       if (resdim_perpt == 1) {
         Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(mp.cov);
         Eigen::Vector3d eigenvalues = saes.eigenvalues();
@@ -2249,7 +2279,7 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
       }
     }
 
-    // std::cout << "DEBUG_aKNN: matches.size before removal: " << matches.size() << std::endl;
+    // std::cout << "DEBUG_H&res: matches.size before removal: " << matches.size() << std::endl;
 
     for (size_t featid : remove_list) {
       matches.erase(featid);
@@ -2258,7 +2288,7 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
     ASSERT(used_matches == matches.size());
     Hmat.conservativeResize(used_matches * resdim_perpt, Hx_cols);
     resmat.conservativeResize(used_matches * resdim_perpt);
-    // std::cout << "DEBUG_aKNN: matches.size after removal: " << matches.size() << std::endl;
+    // std::cout << "DEBUG_H&res: matches.size after removal: " << matches.size() << std::endl;
   };
 
 
@@ -2280,23 +2310,56 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
 #endif
 
 
-
 #ifdef USE_HEAR_SLAM
   for (size_t i=0; i<n_workers; i++) {
-    depth_updt_pool->schedule([i, &update_matches](){
-      update_matches(i);
+    depth_updt_pool->schedule([i, &aknn_search](){
+      aknn_search(i);
     });
   }
   depth_updt_pool->waitUntilAllTasksDone();
 #else
-  update_matches(0);
+  aknn_search(0);
 #endif
-
 
 
 #ifdef USE_HEAR_SLAM
-    tc.tag("matchDone");
+    tc.tag("aKNNSearchDone");
 #endif
+
+
+#ifdef USE_HEAR_SLAM
+  for (size_t i=0; i<n_workers; i++) {
+    depth_updt_pool->schedule([i, &compute_mean_cov](){
+      compute_mean_cov(i);
+    });
+  }
+  depth_updt_pool->waitUntilAllTasksDone();
+#else
+  compute_mean_cov(0);
+#endif
+
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("computeMean&CovDone");
+#endif
+
+
+#ifdef USE_HEAR_SLAM
+  for (size_t i=0; i<n_workers; i++) {
+    depth_updt_pool->schedule([i, &compute_H_and_res](){
+      compute_H_and_res(i);
+    });
+  }
+  depth_updt_pool->waitUntilAllTasksDone();
+#else
+  compute_H_and_res(0);
+#endif
+
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("computeH&ResDone");
+#endif
+
 
   // merge the results of all the workers
   std::vector<std::shared_ptr<Feature>>& feats = feats_vec[0];

@@ -468,6 +468,48 @@ struct SimpleDenseMapT final {
     return blocks;
   }
 
+  struct SamplingSnapShot {
+    SamplingSnapShot(const SimpleDenseMapT* map, int max_points_per_block=16) :
+      map_(map),
+      max_points_per_block_(max_points_per_block) {}
+
+    const std::vector<VoxPosition>&
+    getSamples(const BlockKey3& bk) {
+      static std::vector<VoxPosition> empty;
+      auto it = sampled_blocks_.find(bk);
+      if (it == sampled_blocks_.end()) {
+        CubeBlockRefPtr cbrp = map_->getCube(bk);
+        if (!cbrp) {
+          return empty;
+        }
+
+        CubeBlock* block;
+#ifdef USE_ATOMIC_BLOCK_MAP
+        block = &(cbrp->data);
+#else
+        block = cbrp->get();
+#endif
+        std::vector<VoxPosition> ipoints;
+        static unsigned int unique_random_seed = 0;
+        ++ unique_random_seed;
+        unsigned int random_seed = unique_random_seed;
+        block->sampleValidVoxels(max_points_per_block_, ipoints, &random_seed);
+
+        it = sampled_blocks_.insert(std::make_pair(bk, std::move(ipoints))).first;
+      }
+      return it->second;
+    }
+
+   private:
+    const int max_points_per_block_;
+    const SimpleDenseMapT* map_;
+    std::unordered_map<BlockKey3, std::vector<VoxPosition>, SpatialHash3> sampled_blocks_;
+    // std::unordered_map<BlockKey3, std::vector<Eigen::Vector3d>, SpatialHash3> sampled_blocks_;
+  };
+
+  friend class SamplingSnapShot;
+
+
   std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3>
   getEmptyBlockCache() const {
     return std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3>();
@@ -499,8 +541,8 @@ struct SimpleDenseMapT final {
   // Note the cache is not thread safe! each thread should have its own cache!
   template<typename Vec>
   Eigen::Matrix<typename Vec::Scalar, 3, Eigen::Dynamic> aKNN(
-      const Vec& p, int K=16, size_t neibour_blocks_size=3, size_t max_points_per_block=16,
-      std::unordered_map<BlockKey3, CubeBlockRefPtr, SpatialHash3>* blocks_map_cache=nullptr) const {
+      SamplingSnapShot* snapshot,
+      const Vec& p, int K=16, size_t neibour_blocks_size=3) const {
     static unsigned int unique_random_seed = 0;
     ++ unique_random_seed;
 
@@ -508,29 +550,36 @@ struct SimpleDenseMapT final {
     auto bk_vk = getKeysOfPoint(p);
     auto& bk = bk_vk.first;
     auto& vk = bk_vk.second;
+
     std::vector<VoxPosition> ipoints;
     unsigned int random_seed = unique_random_seed;
 
-    auto local_blocks_cache = getEmptyBlockCache();
-    if (!blocks_map_cache) {
-      blocks_map_cache = &local_blocks_cache;      
-    }
-
     for (const BlockKey3& bk : bks) {
-      CubeBlock* block = getCubeWithCache(bk, blocks_map_cache);
-      if (block) {
-        block->sampleValidVoxels(max_points_per_block, ipoints, &random_seed);
-      }
+      std::vector<VoxPosition> ipts = snapshot->getSamples(bk);
+      ipoints.insert(ipoints.end(), ipts.begin(), ipts.end());
     }
 
     K = std::min(size_t(K), ipoints.size());
+
+    auto L_2_dis_comp = [&](const VoxPosition& a, const VoxPosition& b) {
+      auto da = vk - a;
+      auto db = vk - b;
+      return (da.dot(da) < db.dot(db));
+    };
+    auto L_inf_dis_comp = [&](const VoxPosition& a, const VoxPosition& b) {
+      auto da = vk - a;
+      auto db = vk - b;
+      auto dis_a = std::max(std::max(abs(da.x()), abs(da.y())), abs(da.z()));
+      auto dis_b = std::max(std::max(abs(db.x()), abs(db.y())), abs(db.z()));
+      return (dis_a < dis_b);
+    };
+
+    auto& dis_comp = L_2_dis_comp;
+    // auto& dis_comp = L_inf_dis_comp;
+
     if (K < ipoints.size()) {
       std::nth_element(ipoints.begin(), ipoints.begin() + K, ipoints.end(),
-                        [&](const VoxPosition& a, const VoxPosition& b) {
-                          auto da = vk - a;
-                          auto db = vk - b;
-                          return (da.dot(da) < db.dot(db));
-                        });
+                        dis_comp);
     }
 
     Eigen::Matrix<typename Vec::Scalar, 3, Eigen::Dynamic> ret;

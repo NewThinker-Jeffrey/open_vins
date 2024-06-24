@@ -75,6 +75,8 @@ public:
     Eigen::Vector3d p;
     Eigen::Matrix3d cov;
     std::unordered_map<size_t, Eigen::Vector3d> camid_to_fp;
+
+    Eigen::Matrix<double, 3, Eigen::Dynamic> samples_mat;  // to debug depth update
   };
   using FeatToMappointMatches = std::map<size_t, MappointMatch>;
 
