@@ -471,7 +471,9 @@ struct SimpleDenseMapT final {
   struct SamplingSnapShot {
     SamplingSnapShot(const SimpleDenseMapT* map, int max_points_per_block=16) :
       map_(map),
-      max_points_per_block_(max_points_per_block) {}
+      max_points_per_block_(max_points_per_block) {
+      sampled_blocks_.rehash(10000);
+    }
 
     const std::vector<VoxPosition>&
     getSamples(const BlockKey3& bk) {
@@ -548,7 +550,8 @@ struct SimpleDenseMapT final {
     static unsigned int unique_random_seed = 0;
     ++ unique_random_seed;
 
-    std::vector<BlockKey3> bks = getNeibourBlocks(p, neibour_blocks_size);
+    // std::vector<BlockKey3> bks = getNeibourBlocks(p, neibour_blocks_size);
+    std::vector<BlockKey3> bks = getNeibourBlocks(p, neibour_blocks_size, false);
     auto bk_vk = getKeysOfPoint(p);
     auto& bk = bk_vk.first;
     auto& vk = bk_vk.second;

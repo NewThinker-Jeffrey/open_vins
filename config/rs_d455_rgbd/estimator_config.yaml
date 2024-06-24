@@ -29,7 +29,7 @@ enable_depth_update: false
 depth_update_max_depth:  5.0
 depth_update_image_downsample:  16
 depth_update_knn_k:  16
-depth_update_neibour_blocks_size:  3
+depth_update_neibour_blocks_size:  2
 depth_update_max_points_per_block:  16
 depth_update_eigen_ratio_thr:  0.11
 depth_update_flat_eigen_multiplier:  10000.0
