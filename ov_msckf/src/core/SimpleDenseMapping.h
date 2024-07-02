@@ -1714,8 +1714,8 @@ protected:
       }
 
       Voxel* voxels = block.voxels;
-      static const float depth_noise_level = 0.02;
-      // static const float depth_noise_level = 0.10;
+      // static const float depth_noise_level = 0.02;
+      static const float depth_noise_level = 0.10;
 
       // float block_width = CubeBlock::kSideLength * resolution_;
       // float clear_block_thr = depth_noise_level + 2 * block_width;
