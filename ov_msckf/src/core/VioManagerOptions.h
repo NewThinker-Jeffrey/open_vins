@@ -151,6 +151,16 @@ struct VioManagerOptions {
   double depth_update_flat_eigen_multiplier = 10000.0;
   bool depth_update_print_eigenvalus = false;
 
+  // stereo ransac (to remove outlier stereo matches in the latest two frames)
+  bool enable_stereo_ransac = false;
+  bool stereo_ransac_estimate_full6d = false;
+  double stereo_ransac_error_thr = 0.05 * 0.05;  // meters^2
+  double stereo_ransac_min_inlier_ratio = 0.3;
+  double stereo_ransac_confidence = 0.999;
+  int stereo_ransac_local_opt_max_iter = 2;
+  bool stereo_ransac_debug = false;
+
+
 
   // /// If we should record the timing performance to file
   // bool record_timing_information = false;
@@ -211,6 +221,14 @@ struct VioManagerOptions {
       parser->parse_config("depth_update_flat_eigen_multiplier", depth_update_flat_eigen_multiplier);     
       parser->parse_config("depth_update_print_eigenvalus", depth_update_print_eigenvalus);     
 
+      parser->parse_config("enable_stereo_ransac", enable_stereo_ransac);
+      parser->parse_config("stereo_ransac_estimate_full6d", stereo_ransac_estimate_full6d);
+      parser->parse_config("stereo_ransac_error_thr", stereo_ransac_error_thr);
+      parser->parse_config("stereo_ransac_min_inlier_ratio", stereo_ransac_min_inlier_ratio);
+      parser->parse_config("stereo_ransac_confidence", stereo_ransac_confidence);
+      parser->parse_config("stereo_ransac_local_opt_max_iter", stereo_ransac_local_opt_max_iter);
+      parser->parse_config("stereo_ransac_debug", stereo_ransac_debug);
+
       parser->parse_config("feat_viz_cur_only_highlighted", feat_viz_cur_only_highlighted);
       parser->parse_config("feat_viz_prev_only_highlighted", feat_viz_prev_only_highlighted);
     }
@@ -254,6 +272,14 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - depth_update_eigen_ratio_thr?: %f\n", depth_update_eigen_ratio_thr);
     PRINT_DEBUG("  - depth_update_flat_eigen_multiplier?: %f\n", depth_update_flat_eigen_multiplier);
     PRINT_DEBUG("  - depth_update_print_eigenvalus?: %d\n", depth_update_print_eigenvalus);
+
+    PRINT_DEBUG("  - enable_stereo_ransac?: %d\n", enable_stereo_ransac);
+    PRINT_DEBUG("  - stereo_ransac_estimate_full6d?: %d\n", stereo_ransac_estimate_full6d);    
+    PRINT_DEBUG("  - stereo_ransac_error_thr?: %f\n", stereo_ransac_error_thr);
+    PRINT_DEBUG("  - stereo_ransac_min_inlier_ratio?: %f\n", stereo_ransac_min_inlier_ratio);
+    PRINT_DEBUG("  - stereo_ransac_confidence?: %f\n", stereo_ransac_confidence);
+    PRINT_DEBUG("  - stereo_ransac_local_opt_max_iter?: %d\n", stereo_ransac_local_opt_max_iter);
+    PRINT_DEBUG("  - stereo_ransac_debug?: %d\n", stereo_ransac_debug);
 
     PRINT_DEBUG("  - feat_viz_cur_only_highlighted?: %d\n", feat_viz_cur_only_highlighted);
     PRINT_DEBUG("  - feat_viz_prev_only_highlighted?: %d\n", feat_viz_prev_only_highlighted);

@@ -35,6 +35,21 @@ depth_update_eigen_ratio_thr:  0.11
 depth_update_flat_eigen_multiplier:  10000.0
 depth_update_print_eigenvalus: false
 
+enable_stereo_ransac: false
+stereo_ransac_estimate_full6d: false  # much faster
+# stereo_ransac_estimate_full6d: true  # slower
+
+# stereo_ransac_error_thr: 0.0025
+# stereo_ransac_error_thr: 0.0004
+stereo_ransac_error_thr: 0.0001
+
+stereo_ransac_min_inlier_ratio: 0.3
+# stereo_ransac_min_inlier_ratio: 0.5
+# stereo_ransac_min_inlier_ratio: 0.7
+stereo_ransac_confidence: 0.999
+stereo_ransac_local_opt_max_iter: 4
+stereo_ransac_debug: true
+
 feat_viz_cur_only_highlighted: true
 feat_viz_prev_only_highlighted: true
 

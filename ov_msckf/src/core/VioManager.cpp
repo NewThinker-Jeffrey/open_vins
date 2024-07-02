@@ -56,6 +56,11 @@
 #include "hear_slam/basic/logging.h"
 #include "hear_slam/basic/time.h"
 #include "hear_slam/basic/thread_pool.h"
+
+#include "hear_slam/common/geometry/euclidean_transform.h"
+#include "hear_slam/common/geometry/translation_transform.h"
+#include "hear_slam/common/sac/sac.h"
+
 #endif
 
 
@@ -1660,6 +1665,8 @@ VioManager::choose_stereo_feature_for_propagation(
   Eigen::Matrix3d R_C1toC0 = T_C1toC0.block<3,3>(0,0);
   Eigen::Vector3d p_C1inC0 = T_C1toC0.block<3,1>(0,3);
 
+  size_t n_select = std::min(size_t(params.propagation_feature_n_select), stereo_pairs.size());
+
   for (auto& pair : stereo_pairs) {
     Eigen::Vector3d homo0_cam0(pair.uv_norm_cam0[0].x(), pair.uv_norm_cam0[0].y(), 1.0);
     Eigen::Vector3d homo0_cam1(pair.uv_norm_cam1[0].x(), pair.uv_norm_cam1[0].y(), 1.0);
@@ -1671,7 +1678,6 @@ VioManager::choose_stereo_feature_for_propagation(
   }
 
   // select "n_select" pairs with the max disparities.
-  size_t n_select = std::min(size_t(params.propagation_feature_n_select), stereo_pairs.size());
   auto comp_disparity = [](const StereoPair& a, const StereoPair& b) {
         return a.disparity_square_cam0 > b.disparity_square_cam0;
       };
@@ -1766,8 +1772,20 @@ VioManager::choose_stereo_feature_for_propagation(
     p_feat_in_C0 = p_feat_in_C0 + inverse_JTJ * J.transpose() * err;
   };
 
-  // Estimate p1in0 with each selected pair
-  for (size_t i=0; i<n_select; i++) {
+#ifdef USE_HEAR_SLAM
+  using IcpSample = hear_slam::EuclideanTransformEstimator<3>::Sample;
+  std::vector<IcpSample> icp_samples;
+  std::vector<size_t> icp_inliers;
+  hear_slam::RansacOptions stereo_ransac_options;
+  stereo_ransac_options.error_thr = params.stereo_ransac_error_thr;
+  stereo_ransac_options.min_inlier_ratio = params.stereo_ransac_min_inlier_ratio;
+  stereo_ransac_options.confidence = params.stereo_ransac_confidence;
+  stereo_ransac_options.max_iter = std::numeric_limits<int>::max();
+  stereo_ransac_options.local_opt_max_iter = params.stereo_ransac_local_opt_max_iter;
+  icp_samples.reserve(stereo_pairs.size());
+#endif
+
+  for (size_t i=0; i<stereo_pairs.size(); i++) {
     auto& pair = stereo_pairs[i];
 
     // estimate feat_pos in frame0 and in frame1
@@ -1775,6 +1793,137 @@ VioManager::choose_stereo_feature_for_propagation(
                        pair.feat_pos_frame0, pair.feat_pos_frame0_cov);
     refine_triangulate(pair.uv_norm_cam0[1], pair.uv_norm_cam1[1],
                        pair.feat_pos_frame1, pair.feat_pos_frame1_cov);
+
+#ifdef USE_HEAR_SLAM
+    if (params.enable_stereo_ransac) {
+      if (params.stereo_ransac_estimate_full6d) {
+        icp_samples.emplace_back(pair.feat_pos_frame1, pair.feat_pos_frame0);
+      } else {
+        icp_samples.emplace_back(R_I1toI0 * pair.feat_pos_frame1, pair.feat_pos_frame0);
+      }
+    }
+#endif
+  }
+
+#ifdef USE_HEAR_SLAM
+  using hear_slam::TimeCounter;
+  TimeCounter tc;
+  ASSERT(stereo_pairs.size() == icp_samples.size());
+  if (params.enable_stereo_ransac && icp_samples.size() > 3) {
+    std::vector<size_t> stereo_outliers, stereo_inliers;
+    std::vector<double> ransac_errors;
+    std::vector<size_t> all_indices;
+    all_indices.resize(stereo_pairs.size());
+    std::iota(all_indices.begin(), all_indices.end(), 0);
+
+    if (params.stereo_ransac_estimate_full6d) {
+      hear_slam::Ransac<hear_slam::EuclideanTransformEstimator<3>> stereo_ransac(stereo_ransac_options);
+      auto report = stereo_ransac.solve(icp_samples);
+      ransac_errors = stereo_ransac.model().errors(all_indices, icp_samples, report.param);
+      stereo_inliers = report.inliers;
+      stereo_outliers = report.getOutliers(stereo_pairs.size());
+      tc.tag("ransacDone");
+
+      if (params.stereo_ransac_debug) {
+        // print debug stuffs
+        tc.report("StereoRansacTiming_Full6D: ", true);
+        std::cout << "stereo_ransac: iter = " << report.iter << std::endl;
+        Eigen::Matrix3d ransac_R = report.param.block<3,3>(0,0);
+        Eigen::Vector3d ransac_t = report.param.block<3,1>(0,3);
+        std::cout << "stereo_ransac: R =  " << ransac_R.row(0) << ", " << ransac_R.row(1) << ", " << ransac_R.row(2) << std::endl;
+        std::cout << "imu-predicted  R =  " << R_I1toI0.row(0) << ", " << R_I1toI0.row(1) << ", " << R_I1toI0.row(2) << std::endl;
+        Eigen::Matrix3d diff_R = ransac_R * R_I1toI0.transpose() - Eigen::Matrix3d::Identity();
+        std::cout << "diff_R: R =  " << diff_R.row(0) << ", " << diff_R.row(1) << ", " << diff_R.row(2) << std::endl;
+        std::cout << "diff_R.norm() =  " << diff_R.norm() << std::endl;
+
+        std::cout << "stereo_ransac: t =  " << ransac_t.transpose() << std::endl;
+        std::cout << "stereo_ransac: inlier_ratio =  " << report.inlier_ratio << std::endl;
+        std::cout << "stereo_ransac: inliers[" << stereo_inliers.size() <<  "/" << stereo_pairs.size() << "] =  {";
+        for (const size_t idx : stereo_inliers) {
+          std::cout << idx << " (" << ransac_errors[idx] << "), ";
+        }
+        std::cout << "}" << std::endl;
+        std::cout << "stereo_ransac: outliers[" << stereo_outliers.size() <<  "/" << stereo_pairs.size() << "] =  {";
+        for (const size_t idx : stereo_outliers) {
+          std::cout << idx << ", ";
+        }
+        std::cout << "}" << std::endl;
+      }
+    } else {
+      hear_slam::Ransac<hear_slam::TranslationTransformEstimator<3>> stereo_ransac(stereo_ransac_options);
+      auto report = stereo_ransac.solve(icp_samples);
+      ransac_errors = stereo_ransac.model().errors(all_indices, icp_samples, report.param);
+      stereo_inliers = report.inliers;
+      stereo_outliers = report.getOutliers(stereo_pairs.size());
+      tc.tag("ransacDone");
+
+      if (params.stereo_ransac_debug) {
+        // print debug stuffs
+        tc.report("StereoRansacTiming_PositionOnly: ", true);
+        std::cout << "stereo_ransac: iter = " << report.iter << std::endl;
+        Eigen::Vector3d ransac_t = report.param;
+        std::cout << "stereo_ransac: t =  " << ransac_t.transpose() << std::endl;
+        std::cout << "stereo_ransac: inlier_ratio =  " << report.inlier_ratio << std::endl;
+        std::cout << "stereo_ransac: inliers[" << stereo_inliers.size() <<  "/" << stereo_pairs.size() << "] =  {";
+        for (const size_t idx : stereo_inliers) {
+          std::cout << idx << " (" << ransac_errors[idx] << "), ";
+        }
+        std::cout << "}" << std::endl;
+        std::cout << "stereo_ransac: outliers[" << stereo_outliers.size() <<  "/" << stereo_pairs.size() << "] =  {";
+        for (const size_t idx : stereo_outliers) {
+          std::cout << idx << ", ";
+        }
+        std::cout << "}" << std::endl;
+      }
+    }
+
+    // remove outlier features
+    size_t max_remove = stereo_outliers.size();
+    if (stereo_inliers.size() < stereo_pairs.size() * params.stereo_ransac_min_inlier_ratio) {
+      // TODO(jeffrey): Consider what should we do here:
+      //    Remove the 'worst' features, or remove no feature ?
+      //    Note the model itself might be bad, so evaluating samples with the model might be non-sense.
+      const bool remove_worst = false;
+
+      if (remove_worst) {
+        max_remove = stereo_pairs.size() - stereo_pairs.size() * params.stereo_ransac_min_inlier_ratio;
+        std::nth_element(stereo_outliers.begin(), stereo_outliers.begin() + max_remove, stereo_outliers.end(),
+                        [&](size_t i1, size_t i2) {
+                            return ransac_errors[i1] > ransac_errors[i2];
+                        });
+        PRINT_WARNING(YELLOW "stereo_ransac: Too many outliers (%d/%d)!! We only remove the worst %d features!\n" RESET,
+                      stereo_outliers.size(), stereo_pairs.size(), max_remove);
+      } else {
+        max_remove = 0;
+        PRINT_WARNING(YELLOW "stereo_ransac: Too many outliers (%d/%d)!! We might have get a bad model so we don't remove any outlier!\n" RESET,
+                      stereo_outliers.size(), stereo_pairs.size());
+      }
+    }
+
+    {
+      std::unique_lock<std::mutex> lck(trackFEATS->get_feature_database()->get_mutex());
+      size_t n_removed = 0;
+      for (size_t i=0; i < max_remove; i++) {
+        size_t idx = stereo_outliers[i];
+        const auto& pair = stereo_pairs[idx];
+        auto feat = trackFEATS->get_feature_database()->get_feature_nolock(pair.featid);
+        ASSERT(feat);
+        if (feat) {
+          feat->to_delete = true;
+          ++ n_removed;
+        }
+      }
+
+      if (stereo_outliers.size() > 0) {
+        std::cout << "stereo_ransac: removed " << n_removed <<  " outliers!!" << std::endl;
+      }
+    }
+  }
+#endif
+
+  // Estimate p1in0 with each selected pair
+  for (size_t i=0; i<n_select; i++) {
+    auto& pair = stereo_pairs[i];
 
     // estimate pos of frame1 in frame0 (with known rotation).
     pair.p1in0 = pair.feat_pos_frame0 - R_I1toI0 * pair.feat_pos_frame1;

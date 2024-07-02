@@ -27,8 +27,7 @@
 
 using namespace ov_core;
 
-std::shared_ptr<Feature> FeatureDatabase::get_feature(size_t id, bool remove) {
-  std::lock_guard<std::mutex> lck(mtx);
+std::shared_ptr<Feature> FeatureDatabase::get_feature_nolock(size_t id, bool remove) {
   if (features_idlookup.find(id) != features_idlookup.end()) {
     std::shared_ptr<Feature> temp = features_idlookup.at(id);
     if (remove)
@@ -37,6 +36,11 @@ std::shared_ptr<Feature> FeatureDatabase::get_feature(size_t id, bool remove) {
   } else {
     return nullptr;
   }
+}
+
+std::shared_ptr<Feature> FeatureDatabase::get_feature(size_t id, bool remove) {
+  std::lock_guard<std::mutex> lck(mtx);
+  return get_feature_nolock(id, remove);
 }
 
 bool FeatureDatabase::get_feature_clone(size_t id, Feature &feat, bool from_cache) {

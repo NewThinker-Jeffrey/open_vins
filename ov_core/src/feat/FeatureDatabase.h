@@ -66,6 +66,7 @@ public:
    * @return Either a feature object, or null if it is not in the database.
    */
   std::shared_ptr<Feature> get_feature(size_t id, bool remove = false);
+  std::shared_ptr<Feature> get_feature_nolock(size_t id, bool remove = false);
 
   /**
    * @brief Get a specified feature clone (pointer is thread safe)
