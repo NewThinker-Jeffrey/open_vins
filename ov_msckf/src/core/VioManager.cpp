@@ -1773,8 +1773,8 @@ VioManager::choose_stereo_feature_for_propagation(
   };
 
 #ifdef USE_HEAR_SLAM
-  using IcpSample = hear_slam::EuclideanTransformEstimator<3>::Sample;
-  std::vector<IcpSample> icp_samples;
+  using IcpPointPair = hear_slam::EuclideanTransformEstimator<3>::DataPoint;
+  std::vector<IcpPointPair> icp_point_pairs;
   std::vector<size_t> icp_inliers;
   hear_slam::RansacOptions stereo_ransac_options;
   stereo_ransac_options.error_thr = params.stereo_ransac_error_thr;
@@ -1782,7 +1782,7 @@ VioManager::choose_stereo_feature_for_propagation(
   stereo_ransac_options.confidence = params.stereo_ransac_confidence;
   stereo_ransac_options.max_iter = std::numeric_limits<int>::max();
   stereo_ransac_options.local_opt_max_iter = params.stereo_ransac_local_opt_max_iter;
-  icp_samples.reserve(stereo_pairs.size());
+  icp_point_pairs.reserve(stereo_pairs.size());
 #endif
 
   for (size_t i=0; i<stereo_pairs.size(); i++) {
@@ -1797,9 +1797,9 @@ VioManager::choose_stereo_feature_for_propagation(
 #ifdef USE_HEAR_SLAM
     if (params.enable_stereo_ransac) {
       if (params.stereo_ransac_estimate_full6d) {
-        icp_samples.emplace_back(pair.feat_pos_frame1, pair.feat_pos_frame0);
+        icp_point_pairs.emplace_back(pair.feat_pos_frame1, pair.feat_pos_frame0);
       } else {
-        icp_samples.emplace_back(R_I1toI0 * pair.feat_pos_frame1, pair.feat_pos_frame0);
+        icp_point_pairs.emplace_back(R_I1toI0 * pair.feat_pos_frame1, pair.feat_pos_frame0);
       }
     }
 #endif
@@ -1808,8 +1808,8 @@ VioManager::choose_stereo_feature_for_propagation(
 #ifdef USE_HEAR_SLAM
   using hear_slam::TimeCounter;
   TimeCounter tc;
-  ASSERT(stereo_pairs.size() == icp_samples.size());
-  if (params.enable_stereo_ransac && icp_samples.size() > 3) {
+  ASSERT(stereo_pairs.size() == icp_point_pairs.size());
+  if (params.enable_stereo_ransac && icp_point_pairs.size() > 3) {
     std::vector<size_t> stereo_outliers, stereo_inliers;
     std::vector<double> ransac_errors;
     std::vector<size_t> all_indices;
@@ -1818,10 +1818,10 @@ VioManager::choose_stereo_feature_for_propagation(
 
     if (params.stereo_ransac_estimate_full6d) {
       hear_slam::Ransac<hear_slam::EuclideanTransformEstimator<3>> stereo_ransac(stereo_ransac_options);
-      auto report = stereo_ransac.solve(icp_samples);
-      ransac_errors = stereo_ransac.model().errors(all_indices, icp_samples, report.param);
+      auto report = stereo_ransac.solve(icp_point_pairs);
+      ransac_errors = stereo_ransac.model().errors(all_indices, icp_point_pairs, report.param);
       stereo_inliers = report.inliers;
-      stereo_outliers = report.getOutliers(stereo_pairs.size());
+      stereo_outliers = report.getOutliers();
       tc.tag("ransacDone");
 
       if (params.stereo_ransac_debug) {
@@ -1851,10 +1851,10 @@ VioManager::choose_stereo_feature_for_propagation(
       }
     } else {
       hear_slam::Ransac<hear_slam::TranslationTransformEstimator<3>> stereo_ransac(stereo_ransac_options);
-      auto report = stereo_ransac.solve(icp_samples);
-      ransac_errors = stereo_ransac.model().errors(all_indices, icp_samples, report.param);
+      auto report = stereo_ransac.solve(icp_point_pairs);
+      ransac_errors = stereo_ransac.model().errors(all_indices, icp_point_pairs, report.param);
       stereo_inliers = report.inliers;
-      stereo_outliers = report.getOutliers(stereo_pairs.size());
+      stereo_outliers = report.getOutliers();
       tc.tag("ransacDone");
 
       if (params.stereo_ransac_debug) {
