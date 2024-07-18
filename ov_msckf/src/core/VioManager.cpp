@@ -57,8 +57,7 @@
 #include "hear_slam/basic/time.h"
 #include "hear_slam/basic/thread_pool.h"
 
-#include "hear_slam/common/geometry/euclidean_transform.h"
-#include "hear_slam/common/geometry/translation_transform.h"
+#include "hear_slam/common/geometry/point_transform.h"
 #include "hear_slam/common/sac/sac.h"
 
 #endif

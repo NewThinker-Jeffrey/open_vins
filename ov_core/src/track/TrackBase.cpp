@@ -30,6 +30,14 @@
 #include <opencv2/core/eigen.hpp>
 #include <algorithm>
 
+#ifdef USE_HEAR_SLAM
+#include "hear_slam/basic/logging.h"
+#include "hear_slam/basic/time.h"
+#include "hear_slam/common/geometry/two_view_geometry.h"
+#include "hear_slam/common/geometry/utils.h"
+#endif
+
+
 using namespace ov_core;
 
 TrackBase::TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
@@ -814,6 +822,34 @@ void TrackBase::fundamental_ransac(
     const double fundamental_inlier_thr,
     std::vector<uchar> & inliers_mask) {
 
+#ifdef USE_HEAR_SLAM
+  hear_slam::TimeCounter tc;
+  #define USE_HEAR_SLAM_TWO_VIEW_GEOMETRY
+#endif
+
+#ifdef USE_HEAR_SLAM_TWO_VIEW_GEOMETRY
+
+  hear_slam::RansacOptions ransac_options(
+        (fundamental_inlier_thr * fundamental_inlier_thr),
+                                   // error_thr (for normalized images)
+        0.7,                       // min_inlier_ratio
+        0.999,                     // confidence
+        1,                         // local_opt_max_iter
+        500                        // max_iter
+        );
+  hear_slam::Fundamental8PointEstimator::DegeneracyAwareOptions
+  degensac_options(true, ransac_options);
+
+  std::vector<hear_slam::Fundamental8PointEstimator::DataPoint> point_pairs;
+  hear_slam::convertCvPointPairsToEigen(pts0_n, pts1_n, &point_pairs);
+
+  auto report =
+  hear_slam::Fundamental8PointEstimator::degensac(
+      point_pairs, degensac_options);
+
+  report.getInliersMask(&inliers_mask);
+
+#else
   // If we don't have enough points for ransac just return empty
   // We set the mask to be all zeros since all points failed RANSAC
   if (pts0_n.size() < 15) {  // or < 10 ?
@@ -823,7 +859,19 @@ void TrackBase::fundamental_ransac(
     return;
   }
 
+
   cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, fundamental_inlier_thr, 0.999, inliers_mask);
+
+  // // findFundamentalMat() faces degeneracy problems when more than 5 points lay on a plane.
+  // // so we use findEssentialMat() instead.
+  // cv::findEssentialMat  (pts0_n, pts1_n, cv::Mat::eye(3,3,CV_64F), cv::RANSAC, 0.999, fundamental_inlier_thr, inliers_mask);
+
+#endif
+
+#ifdef USE_HEAR_SLAM
+  tc.report("findFundamentalMatDone: ", true);
+#endif
+
 
   int cnt_inliers = 0;
   for (auto v : inliers_mask) {
@@ -831,6 +879,12 @@ void TrackBase::fundamental_ransac(
       cnt_inliers ++;
     }
   }
+
+
+#ifdef USE_HEAR_SLAM
+  tc.report("fundamental_ransac_timing: ", true);
+#endif
+
   PRINT_DEBUG("fundamental_ransac: inliers/total =  %d/%d\n", cnt_inliers, pts0_n.size());
 }
 
