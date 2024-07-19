@@ -719,7 +719,7 @@ void VioManager::update_thread_func() {
     do_update(c);
 
 #ifdef USE_HEAR_SLAM
-    tc.tag("do_update_Done");
+    tc.tag("main_update_Done");
 #endif
 
     assert(!is_initialized_vio || !state->_clones_IMU.empty());
@@ -2560,6 +2560,11 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   ov_core::CameraData &message = *(c->message);
   auto tmp_rT2 = std::chrono::high_resolution_clock::now();
 
+
+#ifdef USE_HEAR_SLAM
+    hear_slam::TimeCounter tc;
+#endif
+
   //===================================================================================
   // State propagation, and clone augmentation
   //===================================================================================
@@ -2589,6 +2594,11 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     update_gyro_integrated_rotations(message.timestamp, new_gyro_rotation);
   }
   c->rT3 = std::chrono::high_resolution_clock::now();
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("PropagationDone");
+#endif
+
 
   // If we have not reached max clones, we should just return...
   // This isn't super ideal, but it keeps the logic after this easier...
@@ -2986,6 +2996,10 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     }
   }
 
+#ifdef USE_HEAR_SLAM
+    tc.tag("FeatureCheckDone");
+#endif
+
   size_t msckf_features_used = featsup_MSCKF.size();
   size_t msckf_features_outliers = 0;
   if (!params.disable_visual_update) {
@@ -2996,6 +3010,10 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   msckf_features_outliers = msckf_features_used - featsup_MSCKF.size();
   msckf_features_used = featsup_MSCKF.size();
   c->rT4 = std::chrono::high_resolution_clock::now();
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("MSCKFDone");
+#endif
 
   // Perform SLAM delay init and update
   // NOTE: that we provide the option here to do a *sequential* update
@@ -3023,6 +3041,11 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   slam_features_used = feats_slam_UPDATE.size();
   c->rT5 = std::chrono::high_resolution_clock::now();
 
+#ifdef USE_HEAR_SLAM
+    tc.tag("SlamUpDone");
+#endif
+
+
   size_t delayed_features_used = feats_slam_DELAYED.size();
   size_t delayed_features_outliers = 0;
   if (!params.disable_visual_update) {
@@ -3034,6 +3057,11 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   delayed_features_used = feats_slam_DELAYED.size();
   c->rT6 = std::chrono::high_resolution_clock::now();
 
+#ifdef USE_HEAR_SLAM
+    tc.tag("DelayInitDone");
+#endif
+
+
   if (params.enable_depth_update) {
     depth_update(c, 0);
     // depth_update(c, 4);
@@ -3041,9 +3069,18 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     // depth_update(c, 12);
   }
 
+#ifdef USE_HEAR_SLAM
+    tc.tag("DepthUpDone");
+#endif
+
   if (params.propagate_with_stereo_feature && params.grivaty_update_after_propagate_with_stereo_feature) {
     propagator->gravity_update(state);
   }
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("GravityDone");
+#endif
+
 
   //===================================================================================
   // Update our visualization feature set, and clean up the old features
@@ -3063,6 +3100,12 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     good_features_MSCKF.clear();
     good_feature_ids_MSCKF.clear();
   }
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("ReTriangDone");
+#endif
+
+
 
   // Save all the MSCKF features used in the update
   {
@@ -3201,6 +3244,12 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
                  calib->quat()(3), calib->pos()(0), calib->pos()(1), calib->pos()(2));
     }
   }
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("AllDone");
+    tc.report("MainUpdateTiming: ", true);
+#endif
+
 }
 
 void VioManager::clear_old_gyro_integrated_rotations(double time) {
