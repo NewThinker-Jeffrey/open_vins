@@ -834,7 +834,7 @@ void TrackBase::fundamental_ransac(
                                    // error_thr (for normalized images)
         0.7,                       // min_inlier_ratio
         0.999,                     // confidence
-        1,                         // local_opt_max_iter
+        0,  // 1,                  // local_opt_max_iter
         500                        // max_iter
         );
   hear_slam::Fundamental8PointEstimator::DegeneracyAwareOptions
@@ -847,7 +847,14 @@ void TrackBase::fundamental_ransac(
   hear_slam::Fundamental8PointEstimator::degensac(
       point_pairs, degensac_options);
 
+  // auto report =
+  // hear_slam::Fundamental8PointEstimator::ransac(
+  //     point_pairs, ransac_options);
+
   report.getInliersMask(&inliers_mask);
+  PRINT_INFO("TwoViewGeometryRansacResult: type=%s, inliers/total =  %d/%d, outliers = %d\n",
+             hear_slam::toStr(report.param.type).c_str(),
+             report.inliers.size(), report.n_total, report.n_total-report.inliers.size());
 
 #else
   // If we don't have enough points for ransac just return empty
@@ -860,15 +867,16 @@ void TrackBase::fundamental_ransac(
   }
 
 
-  cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, fundamental_inlier_thr, 0.999, inliers_mask);
+  // cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, fundamental_inlier_thr, 0.999, inliers_mask);
 
-  // // findFundamentalMat() faces degeneracy problems when more than 5 points lay on a plane.
-  // // so we use findEssentialMat() instead.
-  // cv::findEssentialMat  (pts0_n, pts1_n, cv::Mat::eye(3,3,CV_64F), cv::RANSAC, 0.999, fundamental_inlier_thr, inliers_mask);
+  // findFundamentalMat() faces degeneracy problems when more than 5 points lay on a plane.
+  // so we use findEssentialMat() instead.
+  cv::findEssentialMat  (pts0_n, pts1_n, cv::Mat::eye(3,3,CV_64F), cv::RANSAC, 0.999, fundamental_inlier_thr, inliers_mask);
 
 #endif
 
 #ifdef USE_HEAR_SLAM
+  tc.tag("done");
   tc.report("findFundamentalMatDone: ", true);
 #endif
 
@@ -879,11 +887,6 @@ void TrackBase::fundamental_ransac(
       cnt_inliers ++;
     }
   }
-
-
-#ifdef USE_HEAR_SLAM
-  tc.report("fundamental_ransac_timing: ", true);
-#endif
 
   PRINT_DEBUG("fundamental_ransac: inliers/total =  %d/%d\n", cnt_inliers, pts0_n.size());
 }
