@@ -142,7 +142,7 @@ struct VioManagerOptions {
 
   // for depth update
   bool enable_depth_update = false;
-  bool depth_update_freq_downsample = 3;
+  int depth_update_freq_downsample = 3;
   double depth_update_max_depth = 5.0;
   int depth_update_image_downsample = 16;
   int depth_update_knn_k = 16;
