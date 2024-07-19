@@ -456,6 +456,8 @@ protected:
   std::shared_ptr<SemanticSegmentorWrapper> semantic_segmentor_wrapper;
 
   std::set<size_t> prev_propagation_feat_ids;
+
+  uint64_t depth_update_count = 0;
 };
 
 } // namespace ov_msckf

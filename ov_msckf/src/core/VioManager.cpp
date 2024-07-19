@@ -3063,10 +3063,13 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
 
 
   if (params.enable_depth_update) {
-    depth_update(c, 0);
-    // depth_update(c, 4);
-    // depth_update(c, 8);
-    // depth_update(c, 12);
+    ++ depth_update_count;
+    if (depth_update_count % params.depth_update_freq_downsample == 0) {
+      depth_update(c, 0);
+      // depth_update(c, 4);
+      // depth_update(c, 8);
+      // depth_update(c, 12);
+    }    
   }
 
 #ifdef USE_HEAR_SLAM

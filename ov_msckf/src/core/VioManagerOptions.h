@@ -142,6 +142,7 @@ struct VioManagerOptions {
 
   // for depth update
   bool enable_depth_update = false;
+  bool depth_update_freq_downsample = 3;
   double depth_update_max_depth = 5.0;
   int depth_update_image_downsample = 16;
   int depth_update_knn_k = 16;
@@ -212,6 +213,7 @@ struct VioManagerOptions {
       parser->parse_config("disable_visual_update", disable_visual_update);      
 
       parser->parse_config("enable_depth_update", enable_depth_update);      
+      parser->parse_config("depth_update_freq_downsample", depth_update_freq_downsample);      
       parser->parse_config("depth_update_max_depth", depth_update_max_depth);      
       parser->parse_config("depth_update_image_downsample", depth_update_image_downsample);      
       parser->parse_config("depth_update_knn_k", depth_update_knn_k);      
@@ -264,6 +266,7 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - disable_visual_update?: %d\n", disable_visual_update);
 
     PRINT_DEBUG("  - enable_depth_update?: %d\n", enable_depth_update);
+    PRINT_DEBUG("  - depth_update_freq_downsample?: %d\n", depth_update_freq_downsample);    
     PRINT_DEBUG("  - depth_update_max_depth?: %f\n", depth_update_max_depth);
     PRINT_DEBUG("  - depth_update_image_downsample?: %d\n", depth_update_image_downsample);
     PRINT_DEBUG("  - depth_update_knn_k?: %d\n", depth_update_knn_k);
