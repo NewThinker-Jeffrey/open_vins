@@ -66,6 +66,11 @@ UpdaterMSCKF::UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerO
 }
 
 void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
+
+#ifdef USE_HEAR_SLAM
+  hear_slam::TimeCounter tc;
+#endif
+
   // Return if no features
   if (feature_vec.empty())
     return;
@@ -158,6 +163,9 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
     clones_cam.insert({virtual_rightcamera_id, clones_camr});
   }
 
+#ifdef USE_HEAR_SLAM
+  tc.tag("prepareDone");
+#endif
 
   // 3. Try to triangulate all MSCKF or new SLAM features that have measurements
   auto triang_one = [&](decltype(feature_vec.begin()) it1) {
@@ -246,6 +254,10 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
 
   rT2 = std::chrono::high_resolution_clock::now();
+#ifdef USE_HEAR_SLAM
+  tc.tag("triangDone");
+#endif
+
 
   // Calculate the max possible measurement size
   size_t max_meas_size = 0;
@@ -451,6 +463,9 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
 
   rT3 = std::chrono::high_resolution_clock::now();
+#ifdef USE_HEAR_SLAM
+  tc.tag("JacobianDone");
+#endif
 
   // We have appended all features to our Hx_big, res_big
   // Delete it so we do not reuse information
@@ -477,12 +492,22 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   }
   rT4 = std::chrono::high_resolution_clock::now();
 
+#ifdef USE_HEAR_SLAM
+  tc.tag("CompressDone");
+#endif
+
   // Our noise is isotropic, so make it here after our compression
   Eigen::MatrixXd R_big = _options.sigma_pix_sq * Eigen::MatrixXd::Identity(res_big.rows(), res_big.rows());
 
   // 6. With all good features update the state
   StateHelper::EKFUpdate(state, Hx_order_big, Hx_big, res_big, R_big);
   rT5 = std::chrono::high_resolution_clock::now();
+
+#ifdef USE_HEAR_SLAM
+  tc.tag("EKFDone");
+  tc.report("MSCKFUpTiming: ", true);
+#endif
+
 
   // Debug print timing information
   PRINT_ALL("[MSCKF-UP]: %.4f seconds to clean\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT1 - rT0).count());

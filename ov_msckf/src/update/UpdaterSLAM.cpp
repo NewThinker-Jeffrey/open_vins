@@ -78,6 +78,10 @@ UpdaterSLAM::UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_m
 
 void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
 
+#ifdef USE_HEAR_SLAM
+  hear_slam::TimeCounter tc;
+#endif
+
   // Return if no features
   if (feature_vec.empty())
     return;
@@ -170,6 +174,9 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     clones_cam.insert({virtual_rightcamera_id, clones_camr});
   }
 
+#ifdef USE_HEAR_SLAM
+  tc.tag("prepareDone");
+#endif
 
   // 3. Try to triangulate all MSCKF or new SLAM features that have measurements
   auto triang_one = [&](decltype(feature_vec.begin()) it1) {
@@ -256,6 +263,10 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
   }
 
   rT2 = std::chrono::high_resolution_clock::now();
+
+#ifdef USE_HEAR_SLAM
+  tc.tag("triangDone");
+#endif
 
   // 4. Compute linear system for each feature, nullspace project, and reject
   auto compute_one = [&](decltype(feature_vec.begin()) it2) {
@@ -447,6 +458,10 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     }
   }
 
+#ifdef USE_HEAR_SLAM
+  tc.tag("allDone");
+  tc.report("delayInitUpTiming: ", true);
+#endif
 
   rT3 = std::chrono::high_resolution_clock::now();
 
@@ -460,6 +475,11 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
 }
 
 void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
+
+
+#ifdef USE_HEAR_SLAM
+  hear_slam::TimeCounter tc;
+#endif
 
   // Return if no features
   if (feature_vec.empty())
@@ -542,6 +562,11 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
   std::vector<std::shared_ptr<Type>> Hx_order_big;
   size_t ct_jacob = 0;
   size_t ct_meas = 0;
+
+#ifdef USE_HEAR_SLAM
+  tc.tag("prepareDone");
+#endif
+
 
   // 4. Compute linear system for each feature, nullspace project, and reject
   auto compute_one = [&](decltype(feature_vec.begin()) it2) {
@@ -725,6 +750,8 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
     auto pool = hear_slam::ThreadPool::getNamed("ov_visual_updt");
     int n_workers = pool->numThreads();
     int segment_size = feature_vec.size() / n_workers + 1;
+    PRINT_INFO("ov_visual_updt: n_workers=%d, segment_size=%d, feature_vec.size()=%d\n",
+               n_workers, segment_size, feature_vec.size());
     using IterType = decltype(feature_vec.begin());
     auto process_segment = [&](IterType begin, IterType end) {
       auto it = begin;
@@ -769,6 +796,10 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
 
   rT2 = std::chrono::high_resolution_clock::now();
 
+#ifdef USE_HEAR_SLAM
+  tc.tag("JacobianDone");
+#endif
+
   // We have appended all features to our Hx_big, res_big
   // Delete it so we do not reuse information
   {
@@ -792,6 +823,11 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
   // 5. With all good SLAM features update the state
   StateHelper::EKFUpdate(state, Hx_order_big, Hx_big, res_big, R_big);
   rT3 = std::chrono::high_resolution_clock::now();
+
+#ifdef USE_HEAR_SLAM
+  tc.tag("EKFDone");
+  tc.report("SlamUpTiming: ", true);
+#endif
 
   // Debug print timing information
   PRINT_ALL("[SLAM-UP]: %.4f seconds to clean\n", std::chrono::duration_cast<std::chrono::duration<double>>(rT1 - rT0).count());
