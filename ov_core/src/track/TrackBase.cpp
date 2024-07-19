@@ -824,7 +824,7 @@ void TrackBase::fundamental_ransac(
 
 #ifdef USE_HEAR_SLAM
   hear_slam::TimeCounter tc;
-  #define USE_HEAR_SLAM_TWO_VIEW_GEOMETRY
+  // #define USE_HEAR_SLAM_TWO_VIEW_GEOMETRY
 #endif
 
 #ifdef USE_HEAR_SLAM_TWO_VIEW_GEOMETRY

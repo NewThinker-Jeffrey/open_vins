@@ -29,6 +29,13 @@
 
 #include "UpdaterOptions.h"
 
+#ifdef USE_HEAR_SLAM
+// #include "hear_slam/basic/work_queue.h"
+namespace hear_slam {
+class TaskQueue;
+}  // namespace hear_slam
+#endif
+
 namespace ov_core {
 class Feature;
 class FeatureInitializer;
@@ -127,6 +134,11 @@ protected:
 
   /// Feature tracker database with all features in it
   std::shared_ptr<ov_core::FeatureDatabase> _db;
+
+#ifdef USE_HEAR_SLAM
+  std::shared_ptr<hear_slam::TaskQueue> landmark_initialzing_queue;
+#endif
+
 };
 
 } // namespace ov_msckf

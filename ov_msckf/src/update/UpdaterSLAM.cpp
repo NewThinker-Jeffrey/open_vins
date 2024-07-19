@@ -38,6 +38,15 @@
 #include <chrono>
 // #include <boost/math/distributions/chi_squared.hpp>
 
+#ifdef USE_HEAR_SLAM
+#include "hear_slam/basic/logging.h"
+#include "hear_slam/basic/time.h"
+#include "hear_slam/basic/thread_pool.h"
+#include "hear_slam/basic/work_queue.h"
+// #define PARALLEL_SLAM_UPDATE
+#endif
+
+
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
@@ -49,6 +58,12 @@ UpdaterSLAM::UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_m
   _options_slam.sigma_pix_sq = std::pow(_options_slam.sigma_pix, 2);
   _options_mappoint.sigma_pix_sq = std::pow(_options_mappoint.sigma_pix, 2);
   _options_aruco.sigma_pix_sq = std::pow(_options_aruco.sigma_pix, 2);
+
+#ifdef PARALLEL_SLAM_UPDATE
+  if (!landmark_initialzing_queue) {
+    landmark_initialzing_queue.reset(new hear_slam::TaskQueue("ov_landmk_init"));
+  }
+#endif
 
   // Save our feature initializer
   initializer_feat = std::shared_ptr<ov_core::FeatureInitializer>(new ov_core::FeatureInitializer(feat_init_options));
@@ -157,8 +172,7 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
 
 
   // 3. Try to triangulate all MSCKF or new SLAM features that have measurements
-  auto it1 = feature_vec.begin();
-  while (it1 != feature_vec.end()) {
+  auto triang_one = [&](decltype(feature_vec.begin()) it1) {
     // Triangulate the feature and remove if it fails
     bool success_tri = true;
     auto& cloned_feature = cloned_features[(*it1)];
@@ -189,17 +203,62 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
         std::unique_lock<std::mutex> lck(_db->get_mutex());
         (*it1)->to_delete = true;
       }
-      it1 = feature_vec.erase(it1);
-      continue;
+      // it1 = feature_vec.erase(it1);    // we'll erase it later.
+      // continue;
     }
-    it1++;
+  };
+
+#ifdef PARALLEL_SLAM_UPDATE
+  {
+    auto pool = hear_slam::ThreadPool::getNamed("ov_visual_updt");
+    int n_workers = pool->numThreads();
+    int segment_size = feature_vec.size() / n_workers + 1;
+    using IterType = decltype(feature_vec.begin());
+    auto process_segment = [&](IterType begin, IterType end) {
+      auto it = begin;
+      while (it != end) {
+        triang_one(it);
+        it++;
+      }
+    };
+    for (size_t i=0; i<n_workers; i++) {
+      if (i * segment_size < feature_vec.size()) {
+        IterType begin = feature_vec.begin() + i * segment_size;
+        IterType end;
+        if ((i + 1) * segment_size < feature_vec.size()) {
+          end = feature_vec.begin() + (i + 1) * segment_size;
+        } else {
+          end = feature_vec.end();
+        }
+        pool->schedule([&process_segment, begin, end](){process_segment(begin, end);});
+      }
+    }
+    pool->waitUntilAllTasksDone();
   }
+#else
+  {
+    auto it1 = feature_vec.begin();
+    while (it1 != feature_vec.end()) {
+      triang_one(it1);
+      it1++;
+    }    
+  }
+#endif
+  {
+    auto it1 = feature_vec.begin();
+    while (it1 != feature_vec.end()) {
+      if ((*it1)->to_delete) {
+        it1 = feature_vec.erase(it1);
+      } else {
+        it1++;
+      }
+    }
+  }
+
   rT2 = std::chrono::high_resolution_clock::now();
 
   // 4. Compute linear system for each feature, nullspace project, and reject
-  auto it2 = feature_vec.begin();
-  while (it2 != feature_vec.end()) {
-
+  auto compute_one = [&](decltype(feature_vec.begin()) it2) {
     // Convert our feature into our current format
     UpdaterHelper::UpdaterHelperFeature feat;
     auto& cloned_feature = cloned_features[*it2];
@@ -260,9 +319,10 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
           std::unique_lock<std::mutex> lck(_db->get_mutex());      
           (*it2)->to_delete = true;
         }
-        it2 = feature_vec.erase(it2);
+        // it2 = feature_vec.erase(it2);  // we'll erase it later
         std::cout << "absolute_residual_check_failed!! res = " << res.transpose() << std::endl;
-        continue;
+        // continue;
+        return;
       }
     }
   
@@ -313,22 +373,81 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
     // Try to initialize, delete new pointer if we failed
     double chi2_multipler =
         ((int)feat.featid < state->_options.max_aruco_features) ? _options_aruco.chi2_multipler : _options_slam.chi2_multipler;
-    if (StateHelper::initialize(state, landmark, Hx_order, H_x, H_f, R, res, chi2_multipler)) {
-      state->_features_SLAM.insert({cloned_feature->featid, landmark});
-      {
-        std::unique_lock<std::mutex> lck(_db->get_mutex());      
-        // (*it2)->to_delete = true;
-        (*it2)->clean_older_measurements(max_clonetime);
+    auto run_initialize = [=]() mutable {
+      if (StateHelper::initialize(state, landmark, Hx_order, H_x, H_f, R, res, chi2_multipler)) {
+        state->_features_SLAM.insert({cloned_feature->featid, landmark});
+        {
+          std::unique_lock<std::mutex> lck(_db->get_mutex());      
+          // (*it2)->to_delete = true;
+          (*it2)->clean_older_measurements(max_clonetime);
+        }
+        // it2++;
+      } else {
+        {
+          std::unique_lock<std::mutex> lck(_db->get_mutex());      
+          (*it2)->to_delete = true;
+        }
+        // it2 = feature_vec.erase(it2);  // we'll erase it later.
       }
+    };
+#ifdef PARALLEL_SLAM_UPDATE
+    landmark_initialzing_queue->enqueue(run_initialize);
+#else
+    run_initialize();
+#endif
+  };
+
+
+#ifdef PARALLEL_SLAM_UPDATE
+  {
+    auto pool = hear_slam::ThreadPool::getNamed("ov_visual_updt");
+    int n_workers = pool->numThreads();
+    int segment_size = feature_vec.size() / n_workers + 1;
+    using IterType = decltype(feature_vec.begin());
+    auto process_segment = [&](IterType begin, IterType end) {
+      auto it = begin;
+      while (it != end) {
+        compute_one(it);
+        it++;
+      }
+    };
+    for (size_t i=0; i<n_workers; i++) {
+      if (i * segment_size < feature_vec.size()) {
+        IterType begin = feature_vec.begin() + i * segment_size;
+        IterType end;
+        if ((i + 1) * segment_size < feature_vec.size()) {
+          end = feature_vec.begin() + (i + 1) * segment_size;
+        } else {
+          end = feature_vec.end();
+        }
+        pool->schedule([&process_segment, begin, end](){process_segment(begin, end);});
+      }
+    }
+    pool->waitUntilAllTasksDone();
+  }
+
+  landmark_initialzing_queue->waitUntilAllJobsDone();
+#else
+  {
+    auto it2 = feature_vec.begin();
+    while (it2 != feature_vec.end()) {
+      compute_one(it2);
       it2++;
-    } else {
-      {
-        std::unique_lock<std::mutex> lck(_db->get_mutex());      
-        (*it2)->to_delete = true;
-      }
-      it2 = feature_vec.erase(it2);
     }
   }
+#endif
+  {
+    auto it2 = feature_vec.begin();
+    while (it2 != feature_vec.end()) {
+      if ((*it2)->to_delete) {
+        it2 = feature_vec.erase(it2);
+      } else {
+        it2++;
+      }
+    }
+  }
+
+
   rT3 = std::chrono::high_resolution_clock::now();
 
   // Debug print timing information
@@ -415,6 +534,7 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
   size_t max_hx_size = state->max_covariance_size();
 
   // Large Jacobian, residual, and measurement noise of *all* features for this update
+  std::mutex mutex_big;
   Eigen::VectorXd res_big = Eigen::VectorXd::Zero(max_meas_size);
   Eigen::MatrixXd Hx_big = Eigen::MatrixXd::Zero(max_meas_size, max_hx_size);
   Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(max_meas_size, max_meas_size);
@@ -424,8 +544,7 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
   size_t ct_meas = 0;
 
   // 4. Compute linear system for each feature, nullspace project, and reject
-  auto it2 = feature_vec.begin();
-  while (it2 != feature_vec.end()) {
+  auto compute_one = [&](decltype(feature_vec.begin()) it2) {
     auto& cloned_feature = cloned_features[*it2];
 
     // Ensure we have the landmark and it is the same
@@ -498,9 +617,10 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
           std::unique_lock<std::mutex> lck(_db->get_mutex());
           (*it2)->to_delete = true;
         }
-        it2 = feature_vec.erase(it2);
+        // it2 = feature_vec.erase(it2);  // we'll erase it later.
         std::cout << "absolute_residual_check_failed!! res = " << res.transpose() << std::endl;
-        continue;
+        // continue;
+        return;
       }
     }
 
@@ -562,8 +682,9 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
         std::unique_lock<std::mutex> lck(_db->get_mutex());
         (*it2)->to_delete = true;
       }
-      it2 = feature_vec.erase(it2);
-      continue;
+      // it2 = feature_vec.erase(it2);  // we'll erase it later.
+      // continue;
+      return;
     }
 
     // Debug print when we are going to update the aruco tags
@@ -573,6 +694,10 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
 
     // We are good!!! Append to our large H vector
     size_t ct_hx = 0;
+
+#ifdef PARALLEL_SLAM_UPDATE  // #ifdef USE_HEAR_SLAM
+    std::unique_lock<std::mutex> lck(mutex_big);
+#endif
     for (const auto &var : Hxf_order) {
 
       // Ensure that this variable is in our Jacobian
@@ -592,9 +717,56 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
 
     // Append our residual and move forward
     res_big.block(ct_meas, 0, res.rows(), 1) = res;
-    ct_meas += res.rows();
-    it2++;
+    ct_meas += res.rows();    
+  };
+
+#ifdef PARALLEL_SLAM_UPDATE  // #ifdef USE_HEAR_SLAM
+  {
+    auto pool = hear_slam::ThreadPool::getNamed("ov_visual_updt");
+    int n_workers = pool->numThreads();
+    int segment_size = feature_vec.size() / n_workers + 1;
+    using IterType = decltype(feature_vec.begin());
+    auto process_segment = [&](IterType begin, IterType end) {
+      auto it = begin;
+      while (it != end) {
+        compute_one(it);
+        it++;
+      }
+    };
+    for (size_t i=0; i<n_workers; i++) {
+      if (i * segment_size < feature_vec.size()) {
+        IterType begin = feature_vec.begin() + i * segment_size;
+        IterType end;
+        if ((i + 1) * segment_size < feature_vec.size()) {
+          end = feature_vec.begin() + (i + 1) * segment_size;
+        } else {
+          end = feature_vec.end();
+        }
+        pool->schedule([&process_segment, begin, end](){process_segment(begin, end);});
+      }
+    }
+    pool->waitUntilAllTasksDone();
   }
+#else
+  {
+    auto it2 = feature_vec.begin();
+    while (it2 != feature_vec.end()) {
+      compute_one(it2);
+      it2++;
+    }
+  }
+#endif
+  {
+    auto it2 = feature_vec.begin();
+    while (it2 != feature_vec.end()) {
+      if ((*it2)->to_delete) {
+        it2 = feature_vec.erase(it2);
+      } else {
+        it2++;
+      }
+    }
+  }
+
   rT2 = std::chrono::high_resolution_clock::now();
 
   // We have appended all features to our Hx_big, res_big
@@ -879,6 +1051,7 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
   size_t max_hx_size = state->max_covariance_size();
 
   // Large Jacobian, residual, and measurement noise of *all* features for this update
+  std::mutex mutex_big;
   Eigen::VectorXd res_big = Eigen::VectorXd::Zero(max_meas_size);
   Eigen::MatrixXd Hx_big = Eigen::MatrixXd::Zero(max_meas_size, max_hx_size);
   // Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(max_meas_size, max_meas_size);
@@ -891,13 +1064,17 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
 
 
   // 4. Compute linear system for each feature, nullspace project, and reject
-  auto it2 = feature_vec.begin();
-  while (it2 != feature_vec.end()) {
+  auto compute_one = [&](decltype(feature_vec.begin()) it2) {
     auto& cloned_feature = cloned_features[*it2];
     auto feat_id = cloned_feature->featid;
     if (featid_to_mappoint.count(feat_id) == 0) {
-      it2 = feature_vec.erase(it2);
-      continue;
+      {
+        std::unique_lock<std::mutex> lck(_db->get_mutex());
+        (*it2)->to_delete = true;
+      }
+      // it2 = feature_vec.erase(it2);  // we'll erase it later.
+      // continue;
+      return;
     }
 
     // // Ensure we have the landmark and it is the same
@@ -978,9 +1155,10 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
           std::unique_lock<std::mutex> lck(_db->get_mutex());
           (*it2)->to_delete = true;
         }
-        it2 = feature_vec.erase(it2);
+        // it2 = feature_vec.erase(it2);  // we'll erase it later.
         std::cout << "absolute_residual_check_failed!! res = " << res.transpose() << std::endl;
-        continue;
+        // continue;
+        return;
       }
     }
 
@@ -1048,8 +1226,9 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
         std::unique_lock<std::mutex> lck(_db->get_mutex());
         (*it2)->to_delete = true;
       }
-      it2 = feature_vec.erase(it2);
-      continue;
+      // it2 = feature_vec.erase(it2);  // we'll erase it later.
+      // continue;
+      return;
     }
 
     Eigen::MatrixXd sqrt_info = R.llt().matrixL().solve(Eigen::MatrixXd::Identity(R.rows(), R.cols()));
@@ -1060,6 +1239,9 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
 
     // We are good!!! Append to our large H vector
     size_t ct_hx = 0;
+#ifdef PARALLEL_SLAM_UPDATE  // #ifdef USE_HEAR_SLAM
+    std::unique_lock<std::mutex> lck(mutex_big);
+#endif
     // for (const auto &var : Hxf_order) {
     for (const auto &var : Hx_order) {
       // Ensure that this variable is in our Jacobian
@@ -1078,8 +1260,56 @@ void UpdaterSLAM::mappoint_update(std::shared_ptr<State> state, std::vector<std:
     // Append our residual and move forward
     res_big.block(ct_meas, 0, res.rows(), 1) = normalized_res;
     ct_meas += res.rows();
-    it2++;
+    // it2++;
+  };
+
+#ifdef PARALLEL_SLAM_UPDATE  // #ifdef USE_HEAR_SLAM
+  {
+    auto pool = hear_slam::ThreadPool::getNamed("ov_visual_updt");
+    int n_workers = pool->numThreads();
+    int segment_size = feature_vec.size() / n_workers + 1;
+    using IterType = decltype(feature_vec.begin());
+    auto process_segment = [&](IterType begin, IterType end) {
+      auto it = begin;
+      while (it != end) {
+        compute_one(it);
+        it++;
+      }
+    };
+    for (size_t i=0; i<n_workers; i++) {
+      if (i * segment_size < feature_vec.size()) {
+        IterType begin = feature_vec.begin() + i * segment_size;
+        IterType end;
+        if ((i + 1) * segment_size < feature_vec.size()) {
+          end = feature_vec.begin() + (i + 1) * segment_size;
+        } else {
+          end = feature_vec.end();
+        }
+        pool->schedule([&process_segment, begin, end](){process_segment(begin, end);});
+      }
+    }
+    pool->waitUntilAllTasksDone();
   }
+#else
+  {
+    auto it2 = feature_vec.begin();
+    while (it2 != feature_vec.end()) {
+      compute_one(it2);
+      it2++;
+    }
+  }
+#endif
+  {
+    auto it2 = feature_vec.begin();
+    while (it2 != feature_vec.end()) {
+      if ((*it2)->to_delete) {
+        it2 = feature_vec.erase(it2);
+      } else {
+        it2++;
+      }
+    }
+  }
+
   rT2 = std::chrono::high_resolution_clock::now();
 
 std::cout << "DEBUG_mappoint_udpate: 3, feature_vec.size = " << feature_vec.size() << ", featid_to_mappoint.size = " << featid_to_mappoint.size() << std::endl;

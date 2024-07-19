@@ -146,6 +146,9 @@ VioManager::VioManager(VioManagerOptions &params_) :
   if (params.enable_depth_update) {
     hear_slam::ThreadPool::createNamed("ov_depth_updt", std::thread::hardware_concurrency());
   }
+  if (!params.disable_visual_update) {
+    hear_slam::ThreadPool::createNamed("ov_visual_updt", std::thread::hardware_concurrency());
+  }
 #endif
 
 #if ENABLE_MMSEG

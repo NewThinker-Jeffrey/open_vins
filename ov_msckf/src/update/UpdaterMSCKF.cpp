@@ -37,6 +37,13 @@
 #include <chrono>
 // #include <boost/math/distributions/chi_squared.hpp>
 
+#ifdef USE_HEAR_SLAM
+#include "hear_slam/basic/logging.h"
+#include "hear_slam/basic/time.h"
+#include "hear_slam/basic/thread_pool.h"
+// #define PARALLEL_MSCKF_UPDATE
+#endif
+
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
@@ -153,8 +160,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
 
   // 3. Try to triangulate all MSCKF or new SLAM features that have measurements
-  auto it1 = feature_vec.begin();
-  while (it1 != feature_vec.end()) {
+  auto triang_one = [&](decltype(feature_vec.begin()) it1) {
     // Triangulate the feature and remove if it fails
     bool success_tri = true;
     auto& cloned_feature = cloned_features[(*it1)];
@@ -185,11 +191,60 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
         std::unique_lock<std::mutex> lck(_db->get_mutex());
         (*it1)->to_delete = true;
       }
-      it1 = feature_vec.erase(it1);
-      continue;
+      // it1 = feature_vec.erase(it1);  // we'll erase it later.
+      // continue;
     }
-    it1++;
+    // it1++;
+  };
+
+#ifdef PARALLEL_MSCKF_UPDATE
+  {
+    auto pool = hear_slam::ThreadPool::getNamed("ov_visual_updt");
+    int n_workers = pool->numThreads();
+    int segment_size = feature_vec.size() / n_workers + 1;
+    using IterType = decltype(feature_vec.begin());
+    auto process_segment = [&](IterType begin, IterType end) {
+      auto it = begin;
+      while (it != end) {
+        triang_one(it);
+        it++;
+      }
+    };
+    for (size_t i=0; i<n_workers; i++) {
+      if (i * segment_size < feature_vec.size()) {
+        IterType begin = feature_vec.begin() + i * segment_size;
+        IterType end;
+        if ((i + 1) * segment_size < feature_vec.size()) {
+          end = feature_vec.begin() + (i + 1) * segment_size;
+        } else {
+          end = feature_vec.end();
+        }
+        pool->schedule([&process_segment, begin, end](){process_segment(begin, end);});
+      }
+    }
+    pool->waitUntilAllTasksDone();
   }
+#else
+  {
+    auto it1 = feature_vec.begin();
+    while (it1 != feature_vec.end()) {
+      triang_one(it1);
+      it1++;
+    }    
+  }
+#endif
+  {
+    auto it1 = feature_vec.begin();
+    while (it1 != feature_vec.end()) {
+      if ((*it1)->to_delete) {
+        it1 = feature_vec.erase(it1);
+      } else {
+        it1++;
+      }
+    }
+  }
+
+
   rT2 = std::chrono::high_resolution_clock::now();
 
   // Calculate the max possible measurement size
@@ -211,6 +266,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   }
 
   // Large Jacobian and residual of *all* features for this update
+  std::mutex mutex_big;
   Eigen::VectorXd res_big = Eigen::VectorXd::Zero(max_meas_size);
   Eigen::MatrixXd Hx_big = Eigen::MatrixXd::Zero(max_meas_size, max_hx_size);
   std::unordered_map<std::shared_ptr<Type>, size_t> Hx_mapping;
@@ -219,8 +275,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   size_t ct_meas = 0;
 
   // 4. Compute linear system for each feature, nullspace project, and reject
-  auto it2 = feature_vec.begin();
-  while (it2 != feature_vec.end()) {
+  auto compute_one = [&](decltype(feature_vec.begin()) it2) {
     // Convert our feature into our current format
     UpdaterHelper::UpdaterHelperFeature feat;
     auto& cloned_feature = cloned_features[*it2];
@@ -277,12 +332,12 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
           std::unique_lock<std::mutex> lck(_db->get_mutex());
           (*it2)->to_delete = true;
         }
-        it2 = feature_vec.erase(it2);
+        // it2 = feature_vec.erase(it2);  // we'll erase it later.
         std::cout << "absolute_residual_check_failed!! res = " << res.transpose() << std::endl;
-        continue;
+        // continue;
+        return;
       }
     }
-
 
     // Nullspace project
     UpdaterHelper::nullspace_project_inplace(H_f, H_x, res);
@@ -310,17 +365,23 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
         std::unique_lock<std::mutex> lck(_db->get_mutex());
         (*it2)->to_delete = true;
       }
-      it2 = feature_vec.erase(it2);
+      // it2 = feature_vec.erase(it2);  // we'll erase it later.
+
       // PRINT_DEBUG("featid = %d\n", feat.featid);
       // PRINT_DEBUG("chi2 = %f > %f\n", chi2, _options.chi2_multipler*chi2_check);
       // std::stringstream ss;
       // ss << "res = " << std::endl << res.transpose() << std::endl;
       // PRINT_DEBUG(ss.str().c_str());
-      continue;
+
+      // continue;
+      return;
     }
 
     // We are good!!! Append to our large H vector
     size_t ct_hx = 0;
+#ifdef PARALLEL_MSCKF_UPDATE  // #ifdef USE_HEAR_SLAM
+    std::unique_lock<std::mutex> lck(mutex_big);
+#endif
     for (const auto &var : Hx_order) {
 
       // Ensure that this variable is in our Jacobian
@@ -338,8 +399,57 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
     // Append our residual and move forward
     res_big.block(ct_meas, 0, res.rows(), 1) = res;
     ct_meas += res.rows();
-    it2++;
+    // it2++;
+  };
+
+#ifdef PARALLEL_MSCKF_UPDATE  // #ifdef USE_HEAR_SLAM
+  {
+    auto pool = hear_slam::ThreadPool::getNamed("ov_visual_updt");
+    int n_workers = pool->numThreads();
+    int segment_size = feature_vec.size() / n_workers + 1;
+    using IterType = decltype(feature_vec.begin());
+    auto process_segment = [&](IterType begin, IterType end) {
+      auto it = begin;
+      while (it != end) {
+        triang_one(it);
+        it++;
+      }
+    };
+    for (size_t i=0; i<n_workers; i++) {
+      if (i * segment_size < feature_vec.size()) {
+        IterType begin = feature_vec.begin() + i * segment_size;
+        IterType end;
+        if ((i + 1) * segment_size < feature_vec.size()) {
+          end = feature_vec.begin() + (i + 1) * segment_size;
+        } else {
+          end = feature_vec.end();
+        }
+        pool->schedule([&process_segment, begin, end](){process_segment(begin, end);});
+      }
+    }
+    pool->waitUntilAllTasksDone();
   }
+#else
+  {
+    auto it2 = feature_vec.begin();
+    while (it2 != feature_vec.end()) {
+      compute_one(it2);
+      it2++;
+    }
+  }
+#endif
+  {
+    auto it2 = feature_vec.begin();
+    while (it2 != feature_vec.end()) {
+      if ((*it2)->to_delete) {
+        it2 = feature_vec.erase(it2);
+      } else {
+        it2++;
+      }
+    }
+  }
+
+
   rT3 = std::chrono::high_resolution_clock::now();
 
   // We have appended all features to our Hx_big, res_big
