@@ -43,7 +43,7 @@
 #include "hear_slam/basic/time.h"
 #include "hear_slam/basic/thread_pool.h"
 #include "hear_slam/basic/work_queue.h"
-// #define PARALLEL_SLAM_UPDATE
+#define PARALLEL_SLAM_UPDATE
 #endif
 
 
