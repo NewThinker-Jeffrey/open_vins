@@ -824,31 +824,32 @@ void TrackBase::fundamental_ransac(
 
 #ifdef USE_HEAR_SLAM
   hear_slam::TimeCounter tc;
-  // #define USE_HEAR_SLAM_TWO_VIEW_GEOMETRY
+  #define USE_HEAR_SLAM_TWO_VIEW_GEOMETRY
 #endif
 
 #ifdef USE_HEAR_SLAM_TWO_VIEW_GEOMETRY
 
-  hear_slam::RansacOptions ransac_options(
-        (fundamental_inlier_thr * fundamental_inlier_thr),
-                                   // error_thr (for normalized images)
-        0.7,                       // min_inlier_ratio
-        0.999,                     // confidence
-        0,  // 1,                  // local_opt_max_iter
-        500                        // max_iter
-        );
-  hear_slam::Fundamental8PointEstimator::DegeneracyAwareOptions
+  hear_slam::RansacOptions ransac_options = hear_slam::TwoViewGeometryEstimator::defaultRansacOptions();
+  ransac_options.error_thr = fundamental_inlier_thr * fundamental_inlier_thr;
+  ransac_options.max_iter = 500;
+  // ransac_options.local_opt_max_iter = 0;
+  // ransac_options.final_opt_max_iter = 1;
+
+  // using SelectedEstimator = hear_slam::Fundamental8PointEstimator;
+  using SelectedEstimator = hear_slam::Essential5PointEstimator;
+
+  SelectedEstimator::DegeneracyAwareOptions
   degensac_options(true, ransac_options);
 
-  std::vector<hear_slam::Fundamental8PointEstimator::DataPoint> point_pairs;
+  std::vector<SelectedEstimator::DataPoint> point_pairs;
   hear_slam::convertCvPointPairsToEigen(pts0_n, pts1_n, &point_pairs);
 
   auto report =
-  hear_slam::Fundamental8PointEstimator::degensac(
+  SelectedEstimator::degensac(
       point_pairs, degensac_options);
 
   // auto report =
-  // hear_slam::Fundamental8PointEstimator::ransac(
+  // SelectedEstimator::ransac(
   //     point_pairs, ransac_options);
 
   report.getInliersMask(&inliers_mask);

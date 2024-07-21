@@ -1781,9 +1781,10 @@ VioManager::choose_stereo_feature_for_propagation(
   std::vector<size_t> icp_inliers;
   hear_slam::RansacOptions stereo_ransac_options;
   stereo_ransac_options.error_thr = params.stereo_ransac_error_thr;
-  stereo_ransac_options.min_inlier_ratio = params.stereo_ransac_min_inlier_ratio;
+  stereo_ransac_options.initial_min_inlier_ratio = params.stereo_ransac_min_inlier_ratio;
   stereo_ransac_options.confidence = params.stereo_ransac_confidence;
-  stereo_ransac_options.max_iter = std::numeric_limits<int>::max();
+  // stereo_ransac_options.max_iter = std::numeric_limits<int>::max();
+  stereo_ransac_options.max_iter = 500;
   stereo_ransac_options.local_opt_max_iter = params.stereo_ransac_local_opt_max_iter;
   icp_point_pairs.reserve(stereo_pairs.size());
 #endif
