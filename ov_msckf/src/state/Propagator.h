@@ -126,7 +126,7 @@ public:
                                                const GetStereoFeatureForPropagationFunc& get_stereo_feat_func,
                                                Eigen::Matrix3d* output_rotation);
 
-  void gravity_update(std::shared_ptr<State> state);
+  void gravity_update(std::shared_ptr<State> state, double gravity_direction_sigma = 0.1);
 
   /**
    * @brief Gets what the state and its covariance will be at a given timestamp

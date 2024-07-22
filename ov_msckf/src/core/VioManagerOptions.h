@@ -114,6 +114,7 @@ struct VioManagerOptions {
   bool propagate_with_stereo_feature = false;
 
   bool grivaty_update_after_propagate_with_stereo_feature = false;
+  double grivaty_update_direction_sigma = 0.1;
 
   int propagation_feature_n_select = 20;
 
@@ -198,7 +199,8 @@ struct VioManagerOptions {
 
 
       parser->parse_config("propagate_with_stereo_feature", propagate_with_stereo_feature);      
-      parser->parse_config("grivaty_update_after_propagate_with_stereo_feature", grivaty_update_after_propagate_with_stereo_feature);      
+      parser->parse_config("grivaty_update_after_propagate_with_stereo_feature", grivaty_update_after_propagate_with_stereo_feature);     
+      parser->parse_config("grivaty_update_direction_sigma", grivaty_update_direction_sigma);     
 
       parser->parse_config("propagation_feature_n_select", propagation_feature_n_select);
       parser->parse_config("propagation_feature_n_max_adopt", propagation_feature_n_max_adopt);
@@ -253,6 +255,7 @@ struct VioManagerOptions {
 
     PRINT_DEBUG("  - propagate_with_stereo_feature?: %d\n", propagate_with_stereo_feature);
     PRINT_DEBUG("  - grivaty_update_after_propagate_with_stereo_feature?: %d\n", grivaty_update_after_propagate_with_stereo_feature);
+    PRINT_DEBUG("  - grivaty_update_direction_sigma?: %f\n", grivaty_update_direction_sigma);
     PRINT_DEBUG("  - propagation_feature_n_select?: %d\n", propagation_feature_n_select);
     PRINT_DEBUG("  - propagation_feature_n_max_adopt?: %d\n", propagation_feature_n_max_adopt);
     PRINT_DEBUG("  - propagation_feature_skip_latest_used?: %d\n", propagation_feature_skip_latest_used);    

@@ -790,7 +790,7 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   StateHelper::augment_clone(state, last_w);
 }
 
-void Propagator::gravity_update(std::shared_ptr<State> state) {
+void Propagator::gravity_update(std::shared_ptr<State> state, double gravity_direction_sigma) {
   // a naive implementation (regardless of bias).
 
   std::vector<double> cloned_times;
@@ -870,7 +870,7 @@ void Propagator::gravity_update(std::shared_ptr<State> state) {
 
   Eigen::Matrix<double, 2, 3> H = A * skew_x(ZinI);
 
-  const double direction_sigma = 0.1;  // rad
+  const double direction_sigma = gravity_direction_sigma;  // rad
   const double direction_sigma2 = direction_sigma * direction_sigma;
   Eigen::Matrix<double, 2, 2> R = direction_sigma2 * Eigen::Matrix<double, 2, 2>::Identity();
 
