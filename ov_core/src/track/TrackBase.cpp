@@ -853,9 +853,11 @@ void TrackBase::fundamental_ransac(
   //     point_pairs, ransac_options);
 
   report.getInliersMask(&inliers_mask);
-  PRINT_INFO("TwoViewGeometryRansacResult: type=%s, inliers/total =  %d/%d, outliers = %d\n",
+  PRINT_INFO("TwoViewGeometryRansacResult: type=%s, iter=%d, inliers/total =  %d/%d, outliers = %d, timing=%s\n",
              hear_slam::toStr(report.param.type).c_str(),
-             report.inliers.size(), report.n_total, report.n_total-report.inliers.size());
+             report.iter,
+             report.inliers.size(), report.n_total, report.n_total-report.inliers.size(),
+             hear_slam::toStr(tc.elapsed()).c_str());
 
 #else
   // If we don't have enough points for ransac just return empty
@@ -878,7 +880,7 @@ void TrackBase::fundamental_ransac(
 
 #ifdef USE_HEAR_SLAM
   tc.tag("done");
-  tc.report("findFundamentalMatDone: ", true);
+  tc.report("findFundamentalMat: ", true);
 #endif
 
 
