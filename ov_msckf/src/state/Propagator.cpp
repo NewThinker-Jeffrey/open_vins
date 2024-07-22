@@ -790,7 +790,7 @@ void Propagator::propagate_and_clone_with_stereo_feature(
   StateHelper::augment_clone(state, last_w);
 }
 
-void Propagator::gravity_update(std::shared_ptr<State> state, double gravity_direction_sigma) {
+void Propagator::gravity_update(std::shared_ptr<State> state, double gravity_direction_sigma, double mal_dis_thr) {
   // a naive implementation (regardless of bias).
 
   std::vector<double> cloned_times;
@@ -881,11 +881,16 @@ void Propagator::gravity_update(std::shared_ptr<State> state, double gravity_dir
   double mal_square = res.transpose() * (H * q_cov * H.transpose() + R).inverse() * res;
   std::cout << "DEBUG_gravity_update: mal = " << sqrt(mal_square) << std::endl;
 
-  if (mal_square > 2.0 * 2.0) {
+  if (mal_square > mal_dis_thr * mal_dis_thr) {
     return;
   }
 
-  std::cout << "DEBUG_gravity_update: ACCEPTED++++++++++++++++++++++++++++++++++++++++++" << std::endl;
+  std::cout << "DEBUG_gravity_update: ACCEPTED+++++++++++++++++++++"
+            << ", direction_sigma = " << direction_sigma
+            << ", mal = " << sqrt(mal_square) << "\t"
+            << ", residual = " << (pose->Rot().transpose() * (mean_acc - ZinI)).transpose() << "\t"
+            << ", time = "<< int64_t(target_time * 1e3) << "ms"
+            << std::endl;
 
   std::vector<std::shared_ptr<Type>> H_order;
   H_order.push_back(pose->q());
