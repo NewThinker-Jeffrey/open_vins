@@ -3138,8 +3138,8 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
 #endif
   }
 
-  if (params.propagate_with_stereo_feature && params.grivaty_update_after_propagate_with_stereo_feature) {
-    propagator->gravity_update(state, params.grivaty_update_direction_sigma, params.grivaty_update_mal_dis_thr);
+  if (params.propagate_with_stereo_feature && params.gravity_update_after_propagate_with_stereo_feature) {
+    propagator->gravity_update(state, params.gravity_update_direction_sigma, params.gravity_update_mal_dis_thr);
   }
 
 #ifdef USE_HEAR_SLAM
