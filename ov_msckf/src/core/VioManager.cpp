@@ -2577,6 +2577,9 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
 
 #ifdef USE_HEAR_SLAM
   using hear_slam::TimeCounter;
+  if (!c->depth_updt.tc) {
+    return;
+  }
   TimeCounter& tc = *(c->depth_updt.tc);
 #endif
 
@@ -2586,7 +2589,9 @@ void VioManager::depth_update(ImgProcessContextPtr c) {
 
   bool use_visual_err = false;
   if (use_visual_err) {
-    updaterSLAM->mappoint_update(state, c->depth_updt.feats, *(c->depth_updt.matches));
+    if (c->depth_updt.matches) {
+      updaterSLAM->mappoint_update(state, c->depth_updt.feats, *(c->depth_updt.matches));
+    }
   } else {
     if (c->depth_updt.Hmat.rows() > 0) {
       std::vector<std::shared_ptr<Type>> Hx_order;
