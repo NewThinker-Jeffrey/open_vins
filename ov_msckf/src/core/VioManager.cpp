@@ -2545,6 +2545,9 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row, std::shared
   bool use_visual_err = false;
   if (use_visual_err) {
     std::unique_lock<std::mutex> lock(state_mtx);
+#ifdef USE_HEAR_SLAM
+    tc.tag("waiLockDone");
+#endif
     updaterSLAM->mappoint_update(state, feats, matches);
   } else {
     UpdaterHelper::measurement_compress_inplace(Hmat, resmat);
@@ -2552,7 +2555,9 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row, std::shared
       Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(resmat.rows(), resmat.rows());
 
       std::unique_lock<std::mutex> lock(state_mtx);
-
+#ifdef USE_HEAR_SLAM
+    tc.tag("waiLockDone");
+#endif
       std::vector<std::shared_ptr<Type>> Hx_order;
       Hx_order.push_back(state->_clones_IMU.at(state->_timestamp));
       if (Hx_cols == 12) {
@@ -3094,7 +3099,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   }
 
 #ifdef USE_HEAR_SLAM
-    tc.tag("DepthUpDone");
+    tc.tag("WaitDepthDone");
 #endif
 
   if (params.propagate_with_stereo_feature && params.grivaty_update_after_propagate_with_stereo_feature) {
