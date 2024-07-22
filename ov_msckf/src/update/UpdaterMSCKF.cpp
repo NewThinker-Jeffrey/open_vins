@@ -41,7 +41,7 @@
 #include "hear_slam/basic/logging.h"
 #include "hear_slam/basic/time.h"
 #include "hear_slam/basic/thread_pool.h"
-#define PARALLEL_MSCKF_UPDATE
+// #define PARALLEL_MSCKF_UPDATE
 #endif
 
 using namespace ov_core;

@@ -145,6 +145,7 @@ VioManager::VioManager(VioManagerOptions &params_) :
 #ifdef USE_HEAR_SLAM
   if (params.enable_depth_update) {
     hear_slam::ThreadPool::createNamed("ov_depth_updt", std::thread::hardware_concurrency());
+    hear_slam::ThreadPool::createNamed("ov_update_depth", 1);
   }
   if (!params.disable_visual_update) {
     hear_slam::ThreadPool::createNamed("ov_visual_updt", std::thread::hardware_concurrency());
@@ -2132,7 +2133,7 @@ VioManager::choose_stereo_feature_for_propagation(
 }
 
 
-void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
+void VioManager::depth_update(ImgProcessContextPtr c, int first_row, std::shared_ptr<State> state_clone) {
 
 #ifdef USE_HEAR_SLAM
     using hear_slam::TimeCounter;
@@ -2153,8 +2154,8 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
   const int image_downsample = params.depth_update_image_downsample;
   auto intrin = params.camera_intrinsics.at(color_cam_id)->clone();
 
-  auto jpl_q = state->_clones_IMU.at(state->_timestamp)->quat();
-  auto pos = state->_clones_IMU.at(state->_timestamp)->pos();
+  auto jpl_q = state_clone->_clones_IMU.at(state_clone->_timestamp)->quat();
+  auto pos = state_clone->_clones_IMU.at(state_clone->_timestamp)->pos();
   Eigen::Quaternionf q(jpl_q[3], jpl_q[0], jpl_q[1], jpl_q[2]);
   Eigen::Vector3f p(pos[0], pos[1], pos[2]);
   Eigen::Isometry3f T_M_I = Eigen::Isometry3f::Identity();
@@ -2164,10 +2165,10 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
   T_I_C.matrix() = params.T_CtoIs.at(color_cam_id)->cast<float>();
   Eigen::Isometry3f T_M_C = T_M_I * T_I_C;
 
-  Eigen::Matrix3d R_M_I_fej = state->_clones_IMU.at(state->_timestamp)->Rot_fej().transpose();
-  Eigen::Vector3d p_M_I_fej = state->_clones_IMU.at(state->_timestamp)->pos_fej();
-  Eigen::Matrix3d R_I_C_fej = state->_calib_IMUtoCAM.at(color_cam_id)->Rot_fej().transpose();
-  Eigen::Vector3d p_I_C_fej = state->_calib_IMUtoCAM.at(color_cam_id)->pos_fej();
+  Eigen::Matrix3d R_M_I_fej = state_clone->_clones_IMU.at(state_clone->_timestamp)->Rot_fej().transpose();
+  Eigen::Vector3d p_M_I_fej = state_clone->_clones_IMU.at(state_clone->_timestamp)->pos_fej();
+  Eigen::Matrix3d R_I_C_fej = state_clone->_calib_IMUtoCAM.at(color_cam_id)->Rot_fej().transpose();
+  Eigen::Vector3d p_I_C_fej = state_clone->_calib_IMUtoCAM.at(color_cam_id)->pos_fej();
   Eigen::Matrix3d R_M_C_fej = R_M_I_fej * R_I_C_fej;
   Eigen::Vector3d p_M_C_fej = p_M_I_fej + R_M_I_fej * p_I_C_fej;
 
@@ -2176,12 +2177,12 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
 
 
   const size_t Hx_cols = 12;
-  std::vector<std::shared_ptr<Type>> Hx_order;
-  Hx_order.push_back(state->_clones_IMU.at(state->_timestamp));
+  std::vector<std::shared_ptr<Type>> tmp_Hx_order;
+  tmp_Hx_order.push_back(state_clone->_clones_IMU.at(state_clone->_timestamp));
   if (Hx_cols == 12) {
-    Hx_order.push_back(state->_calib_IMUtoCAM.at(color_cam_id));
+    tmp_Hx_order.push_back(state_clone->_calib_IMUtoCAM.at(color_cam_id));
   }
-  Eigen::MatrixXd P_prior = StateHelper::get_marginal_covariance(state, Hx_order);
+  Eigen::MatrixXd P_prior = StateHelper::get_marginal_covariance(state_clone, tmp_Hx_order);
 
   auto undistort = [intrin](const Eigen::Vector2i& ixy, Eigen::Vector2f& nxy){
     nxy = intrin->undistort_f(ixy.cast<float>());
@@ -2543,11 +2544,20 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row) {
 
   bool use_visual_err = false;
   if (use_visual_err) {
+    std::unique_lock<std::mutex> lock(state_mtx);
     updaterSLAM->mappoint_update(state, feats, matches);
   } else {
     UpdaterHelper::measurement_compress_inplace(Hmat, resmat);
     if (Hmat.rows() > 0) {
       Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(resmat.rows(), resmat.rows());
+
+      std::unique_lock<std::mutex> lock(state_mtx);
+
+      std::vector<std::shared_ptr<Type>> Hx_order;
+      Hx_order.push_back(state->_clones_IMU.at(state->_timestamp));
+      if (Hx_cols == 12) {
+        Hx_order.push_back(state->_calib_IMUtoCAM.at(color_cam_id));
+      }      
       StateHelper::EKFUpdate(state, Hx_order, Hmat, resmat, R_big);
     }
   }
@@ -2621,6 +2631,20 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     return;
   }
   has_moved_since_zupt = true;
+
+  std::unique_lock<std::mutex> state_lock(state_mtx);
+  auto state_clone_for_depth_update = state->clone();
+  if (params.enable_depth_update) {
+    hear_slam::ThreadPool::getNamed("ov_update_depth")->schedule([=](){
+      ++ depth_update_count;
+      if (depth_update_count % params.depth_update_freq_downsample == 0) {
+        // depth_update() might block for a while if the visual updates are not
+        // finished after the jacobians for depth observation are computed, but
+        // that is fine because we are running in a separate thread.
+        depth_update(c, 0, state_clone_for_depth_update);
+      }
+    });
+  }
 
   //===================================================================================
   // MSCKF features and KLT tracks that are SLAM features
@@ -3063,15 +3087,10 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     tc.tag("DelayInitDone");
 #endif
 
+  state_lock.unlock();  // To make depth_update() continue.
 
   if (params.enable_depth_update) {
-    ++ depth_update_count;
-    if (depth_update_count % params.depth_update_freq_downsample == 0) {
-      depth_update(c, 0);
-      // depth_update(c, 4);
-      // depth_update(c, 8);
-      // depth_update(c, 12);
-    }    
+    hear_slam::ThreadPool::getNamed("ov_update_depth")->waitUntilAllTasksDone();
   }
 
 #ifdef USE_HEAR_SLAM
