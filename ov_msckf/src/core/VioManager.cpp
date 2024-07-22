@@ -144,7 +144,8 @@ VioManager::VioManager(VioManagerOptions &params_) :
 
 #ifdef USE_HEAR_SLAM
   if (params.enable_depth_update) {
-    hear_slam::ThreadPool::createNamed("ov_depth_updt", std::thread::hardware_concurrency());
+    hear_slam::ThreadPool::createNamed("ov_depth_updt", std::thread::hardware_concurrency() - 1);
+        // -1 because we already have one thread for the visual update.
     hear_slam::ThreadPool::createNamed("ov_update_depth", 1);
   }
   if (!params.disable_visual_update) {
@@ -2190,7 +2191,9 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row, std::shared
   };
 
 #ifdef USE_HEAR_SLAM
-  int n_workers = std::thread::hardware_concurrency();
+  // int n_workers = std::thread::hardware_concurrency() - 1;
+  int n_workers = hear_slam::ThreadPool::getNamed("ov_depth_updt")->numThreads();
+  ASSERT(n_workers == std::thread::hardware_concurrency() - 1);
 #else
   int n_workers = 1;
 #endif
