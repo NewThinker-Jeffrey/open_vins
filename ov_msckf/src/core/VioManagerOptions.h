@@ -44,6 +44,9 @@
 #include "utils/print.h"
 #include "utils/quat_ops.h"
 
+// #define PRINT_PARAM PRINT_DEBUG
+#define PRINT_PARAM PRINT_INFO
+
 namespace ov_msckf {
 
 /**
@@ -177,7 +180,7 @@ struct VioManagerOptions {
    * @param parser If not null, this parser will be used to load our parameters
    */
   void print_and_load_estimator(const std::shared_ptr<ov_core::YamlParser> &parser = nullptr) {
-    PRINT_DEBUG("ESTIMATOR PARAMETERS:\n");
+    PRINT_PARAM("ESTIMATOR PARAMETERS:\n");
     state_options.print(parser);
     init_options.print_and_load(parser);
     if (parser != nullptr) {
@@ -236,59 +239,59 @@ struct VioManagerOptions {
       parser->parse_config("feat_viz_cur_only_highlighted", feat_viz_cur_only_highlighted);
       parser->parse_config("feat_viz_prev_only_highlighted", feat_viz_prev_only_highlighted);
     }
-    PRINT_DEBUG("  - dt_slam_delay: %.1f\n", dt_slam_delay);
-    PRINT_DEBUG("  - zero_velocity_update: %d\n", try_zupt);
-    PRINT_DEBUG("  - vio_manager_high_frequency_log: %d\n", vio_manager_high_frequency_log);
-    PRINT_DEBUG("  - choose_new_landmark_by_disparity: %d\n", choose_new_landmark_by_disparity);
-    PRINT_DEBUG("  - enable_early_landmark: %d\n", enable_early_landmark);
-    PRINT_DEBUG("  - zupt_max_velocity: %.2f\n", zupt_max_velocity);
-    PRINT_DEBUG("  - imu_acc_filter_param: %.2f\n", imu_acc_filter_param);
-    PRINT_DEBUG("  - early_landmark_disparity_thr: %.2f\n", early_landmark_disparity_thr);    
-    PRINT_DEBUG("  - zupt_noise_multiplier: %.2f\n", zupt_noise_multiplier);
-    PRINT_DEBUG("  - zupt_max_disparity: %.4f\n", zupt_max_disparity);
-    PRINT_DEBUG("  - zupt_only_at_beginning?: %d\n", zupt_only_at_beginning);
-    PRINT_DEBUG("  - async_img_process: %d\n", async_img_process);
-    // PRINT_DEBUG("  - record timing?: %d\n", (int)record_timing_information);
-    // PRINT_DEBUG("  - record timing filepath: %s\n", record_timing_filepath.c_str());
-    // PRINT_DEBUG("  - output_dir: %d\n", output_dir);
+    PRINT_PARAM("  - dt_slam_delay: %.1f\n", dt_slam_delay);
+    PRINT_PARAM("  - zero_velocity_update: %d\n", try_zupt);
+    PRINT_PARAM("  - vio_manager_high_frequency_log: %d\n", vio_manager_high_frequency_log);
+    PRINT_PARAM("  - choose_new_landmark_by_disparity: %d\n", choose_new_landmark_by_disparity);
+    PRINT_PARAM("  - enable_early_landmark: %d\n", enable_early_landmark);
+    PRINT_PARAM("  - zupt_max_velocity: %.2f\n", zupt_max_velocity);
+    PRINT_PARAM("  - imu_acc_filter_param: %.2f\n", imu_acc_filter_param);
+    PRINT_PARAM("  - early_landmark_disparity_thr: %.2f\n", early_landmark_disparity_thr);    
+    PRINT_PARAM("  - zupt_noise_multiplier: %.2f\n", zupt_noise_multiplier);
+    PRINT_PARAM("  - zupt_max_disparity: %.4f\n", zupt_max_disparity);
+    PRINT_PARAM("  - zupt_only_at_beginning?: %d\n", zupt_only_at_beginning);
+    PRINT_PARAM("  - async_img_process: %d\n", async_img_process);
+    // PRINT_PARAM("  - record timing?: %d\n", (int)record_timing_information);
+    // PRINT_PARAM("  - record timing filepath: %s\n", record_timing_filepath.c_str());
+    // PRINT_PARAM("  - output_dir: %d\n", output_dir);
 
 
-    PRINT_DEBUG("  - propagate_with_stereo_feature?: %d\n", propagate_with_stereo_feature);
-    PRINT_DEBUG("  - grivaty_update_after_propagate_with_stereo_feature?: %d\n", grivaty_update_after_propagate_with_stereo_feature);
-    PRINT_DEBUG("  - grivaty_update_direction_sigma?: %f\n", grivaty_update_direction_sigma);
-    PRINT_DEBUG("  - propagation_feature_n_select?: %d\n", propagation_feature_n_select);
-    PRINT_DEBUG("  - propagation_feature_n_max_adopt?: %d\n", propagation_feature_n_max_adopt);
-    PRINT_DEBUG("  - propagation_feature_skip_latest_used?: %d\n", propagation_feature_skip_latest_used);    
-    PRINT_DEBUG("  - propagation_feature_n_con_thr?: %d\n", propagation_feature_n_con_thr);
-    PRINT_DEBUG("  - propagation_feature_n_con_thr2?: %d\n", propagation_feature_n_con_thr2);
-    PRINT_DEBUG("  - propagation_feature_con_trans_diff_thr?: %f\n", propagation_feature_con_trans_diff_thr);
-    PRINT_DEBUG("  - propagation_feature_bearing_sigma?: %d\n", propagation_feature_bearing_sigma);
-    PRINT_DEBUG("  - propagation_feature_force_psuedo_stationary?: %d\n", propagation_feature_force_psuedo_stationary);
-    PRINT_DEBUG("  - propagation_feature_psuedo_stationary_sigma?: %f\n", propagation_feature_psuedo_stationary_sigma);
+    PRINT_PARAM("  - propagate_with_stereo_feature?: %d\n", propagate_with_stereo_feature);
+    PRINT_PARAM("  - grivaty_update_after_propagate_with_stereo_feature?: %d\n", grivaty_update_after_propagate_with_stereo_feature);
+    PRINT_PARAM("  - grivaty_update_direction_sigma?: %f\n", grivaty_update_direction_sigma);
+    PRINT_PARAM("  - propagation_feature_n_select?: %d\n", propagation_feature_n_select);
+    PRINT_PARAM("  - propagation_feature_n_max_adopt?: %d\n", propagation_feature_n_max_adopt);
+    PRINT_PARAM("  - propagation_feature_skip_latest_used?: %d\n", propagation_feature_skip_latest_used);    
+    PRINT_PARAM("  - propagation_feature_n_con_thr?: %d\n", propagation_feature_n_con_thr);
+    PRINT_PARAM("  - propagation_feature_n_con_thr2?: %d\n", propagation_feature_n_con_thr2);
+    PRINT_PARAM("  - propagation_feature_con_trans_diff_thr?: %f\n", propagation_feature_con_trans_diff_thr);
+    PRINT_PARAM("  - propagation_feature_bearing_sigma?: %d\n", propagation_feature_bearing_sigma);
+    PRINT_PARAM("  - propagation_feature_force_psuedo_stationary?: %d\n", propagation_feature_force_psuedo_stationary);
+    PRINT_PARAM("  - propagation_feature_psuedo_stationary_sigma?: %f\n", propagation_feature_psuedo_stationary_sigma);
 
-    PRINT_DEBUG("  - disable_visual_update?: %d\n", disable_visual_update);
+    PRINT_PARAM("  - disable_visual_update?: %d\n", disable_visual_update);
 
-    PRINT_DEBUG("  - enable_depth_update?: %d\n", enable_depth_update);
-    PRINT_DEBUG("  - depth_update_freq_downsample?: %d\n", depth_update_freq_downsample);    
-    PRINT_DEBUG("  - depth_update_max_depth?: %f\n", depth_update_max_depth);
-    PRINT_DEBUG("  - depth_update_image_downsample?: %d\n", depth_update_image_downsample);
-    PRINT_DEBUG("  - depth_update_knn_k?: %d\n", depth_update_knn_k);
-    PRINT_DEBUG("  - depth_update_neibour_blocks_size?: %d\n", depth_update_neibour_blocks_size);
-    PRINT_DEBUG("  - depth_update_max_points_per_block?: %d\n", depth_update_max_points_per_block);
-    PRINT_DEBUG("  - depth_update_eigen_ratio_thr?: %f\n", depth_update_eigen_ratio_thr);
-    PRINT_DEBUG("  - depth_update_flat_eigen_multiplier?: %f\n", depth_update_flat_eigen_multiplier);
-    PRINT_DEBUG("  - depth_update_print_eigenvalus?: %d\n", depth_update_print_eigenvalus);
+    PRINT_PARAM("  - enable_depth_update?: %d\n", enable_depth_update);
+    PRINT_PARAM("  - depth_update_freq_downsample?: %d\n", depth_update_freq_downsample);    
+    PRINT_PARAM("  - depth_update_max_depth?: %f\n", depth_update_max_depth);
+    PRINT_PARAM("  - depth_update_image_downsample?: %d\n", depth_update_image_downsample);
+    PRINT_PARAM("  - depth_update_knn_k?: %d\n", depth_update_knn_k);
+    PRINT_PARAM("  - depth_update_neibour_blocks_size?: %d\n", depth_update_neibour_blocks_size);
+    PRINT_PARAM("  - depth_update_max_points_per_block?: %d\n", depth_update_max_points_per_block);
+    PRINT_PARAM("  - depth_update_eigen_ratio_thr?: %f\n", depth_update_eigen_ratio_thr);
+    PRINT_PARAM("  - depth_update_flat_eigen_multiplier?: %f\n", depth_update_flat_eigen_multiplier);
+    PRINT_PARAM("  - depth_update_print_eigenvalus?: %d\n", depth_update_print_eigenvalus);
 
-    PRINT_DEBUG("  - enable_stereo_ransac?: %d\n", enable_stereo_ransac);
-    PRINT_DEBUG("  - stereo_ransac_estimate_full6d?: %d\n", stereo_ransac_estimate_full6d);    
-    PRINT_DEBUG("  - stereo_ransac_error_thr?: %f\n", stereo_ransac_error_thr);
-    PRINT_DEBUG("  - stereo_ransac_min_inlier_ratio?: %f\n", stereo_ransac_min_inlier_ratio);
-    PRINT_DEBUG("  - stereo_ransac_confidence?: %f\n", stereo_ransac_confidence);
-    PRINT_DEBUG("  - stereo_ransac_local_opt_max_iter?: %d\n", stereo_ransac_local_opt_max_iter);
-    PRINT_DEBUG("  - stereo_ransac_debug?: %d\n", stereo_ransac_debug);
+    PRINT_PARAM("  - enable_stereo_ransac?: %d\n", enable_stereo_ransac);
+    PRINT_PARAM("  - stereo_ransac_estimate_full6d?: %d\n", stereo_ransac_estimate_full6d);    
+    PRINT_PARAM("  - stereo_ransac_error_thr?: %f\n", stereo_ransac_error_thr);
+    PRINT_PARAM("  - stereo_ransac_min_inlier_ratio?: %f\n", stereo_ransac_min_inlier_ratio);
+    PRINT_PARAM("  - stereo_ransac_confidence?: %f\n", stereo_ransac_confidence);
+    PRINT_PARAM("  - stereo_ransac_local_opt_max_iter?: %d\n", stereo_ransac_local_opt_max_iter);
+    PRINT_PARAM("  - stereo_ransac_debug?: %d\n", stereo_ransac_debug);
 
-    PRINT_DEBUG("  - feat_viz_cur_only_highlighted?: %d\n", feat_viz_cur_only_highlighted);
-    PRINT_DEBUG("  - feat_viz_prev_only_highlighted?: %d\n", feat_viz_prev_only_highlighted);
+    PRINT_PARAM("  - feat_viz_cur_only_highlighted?: %d\n", feat_viz_cur_only_highlighted);
+    PRINT_PARAM("  - feat_viz_prev_only_highlighted?: %d\n", feat_viz_prev_only_highlighted);
   }
 
   // NOISE / CHI2 ============================
@@ -328,7 +331,7 @@ struct VioManagerOptions {
     imu_noises.sigma_ab_2 = std::pow(imu_noises.sigma_ab, 2);
   }
   void print_and_load_noise(const std::shared_ptr<ov_core::YamlParser> &parser = nullptr) {
-    PRINT_DEBUG("NOISE PARAMETERS:\n");
+    PRINT_PARAM("NOISE PARAMETERS:\n");
     if (parser != nullptr) {
       double sigma_w, sigma_wb, sigma_a, sigma_ab;
       parser->parse_external("relative_config_imu", "imu0", "gyroscope_noise_density", sigma_w);
@@ -361,15 +364,15 @@ struct VioManagerOptions {
       aruco_options.sigma_pix_sq = std::pow(aruco_options.sigma_pix, 2);
       parser->parse_config("zupt_chi2_multipler", zupt_options.chi2_multipler);
     }
-    PRINT_DEBUG("  Updater MSCKF Feats:\n");
+    PRINT_PARAM("  Updater MSCKF Feats:\n");
     msckf_options.print();
-    PRINT_DEBUG("  Updater SLAM Feats:\n");
+    PRINT_PARAM("  Updater SLAM Feats:\n");
     slam_options.print();
-    PRINT_DEBUG("  Updater MAPPOINT Feats:\n");
+    PRINT_PARAM("  Updater MAPPOINT Feats:\n");
     mappoint_options.print();
-    PRINT_DEBUG("  Updater ARUCO Tags:\n");
+    PRINT_PARAM("  Updater ARUCO Tags:\n");
     aruco_options.print();
-    PRINT_DEBUG("  Updater ZUPT:\n");
+    PRINT_PARAM("  Updater ZUPT:\n");
     zupt_options.print();
   }
 
@@ -553,10 +556,10 @@ struct VioManagerOptions {
         }
       }
     }
-    PRINT_DEBUG("STATE PARAMETERS:\n");
-    PRINT_DEBUG("  - gravity_mag: %.4f\n", gravity_mag);
-    PRINT_DEBUG("  - gravity: %.3f, %.3f, %.3f\n", 0.0, 0.0, gravity_mag);
-    PRINT_DEBUG("  - camera masks?: %d\n", use_mask);
+    PRINT_PARAM("STATE PARAMETERS:\n");
+    PRINT_PARAM("  - gravity_mag: %.4f\n", gravity_mag);
+    PRINT_PARAM("  - gravity: %.3f, %.3f, %.3f\n", 0.0, 0.0, gravity_mag);
+    PRINT_PARAM("  - camera masks?: %d\n", use_mask);
     if (state_options.use_rgbd) {
       assert(state_options.num_cameras == 1);
       assert(camera_intrinsics.size() == 2);
@@ -569,7 +572,7 @@ struct VioManagerOptions {
                   state_options.num_cameras);
       std::exit(EXIT_FAILURE);
     }
-    PRINT_DEBUG("  - calib_camimu_dt: %.4f\n", calib_camimu_dt);
+    PRINT_PARAM("  - calib_camimu_dt: %.4f\n", calib_camimu_dt);
     for (int n = 0; n < state_options.num_cameras; n++) {
       std::stringstream ss;
       ss << "cam_" << n << "_fisheye:" << (std::dynamic_pointer_cast<ov_core::CamEqui>(camera_intrinsics.at(n)) != nullptr) << std::endl;
@@ -584,7 +587,7 @@ struct VioManagerOptions {
       T_CtoI.block(0, 0, 3, 3) = ov_core::quat_2_Rot(camera_extrinsics.at(n).block(0, 0, 4, 1)).transpose();
       T_CtoI.block(0, 3, 3, 1) = -T_CtoI.block(0, 0, 3, 3) * camera_extrinsics.at(n).block(4, 0, 3, 1);
       ss << "T_C" << n << "toI:" << std::endl << T_CtoI << std::endl << std::endl;
-      PRINT_DEBUG(ss.str().c_str());
+      PRINT_PARAM(ss.str().c_str());
     }
   }
 
@@ -695,54 +698,54 @@ struct VioManagerOptions {
       parser->parse_config("knn_ratio", knn_ratio);
       parser->parse_config("track_frequency", track_frequency);
     }
-    PRINT_DEBUG("FEATURE TRACKING PARAMETERS:\n");
-    PRINT_DEBUG("  - use_stereo: %d\n", use_stereo);
-    PRINT_DEBUG("  - use_rgbd: %d\n", state_options.use_rgbd);
-    PRINT_DEBUG("  - virtual_baseline_for_rgbd: %.5f\n", state_options.virtual_baseline_for_rgbd);
-    PRINT_DEBUG("  - depth_unit_for_rgbd: %.5f\n", state_options.depth_unit_for_rgbd);
+    PRINT_PARAM("FEATURE TRACKING PARAMETERS:\n");
+    PRINT_PARAM("  - use_stereo: %d\n", use_stereo);
+    PRINT_PARAM("  - use_rgbd: %d\n", state_options.use_rgbd);
+    PRINT_PARAM("  - virtual_baseline_for_rgbd: %.5f\n", state_options.virtual_baseline_for_rgbd);
+    PRINT_PARAM("  - depth_unit_for_rgbd: %.5f\n", state_options.depth_unit_for_rgbd);
 
-    PRINT_DEBUG("  - rgbd_mapping: %d\n", rgbd_mapping);
-    PRINT_DEBUG("  - rgbd_mapping_pixel_downsample: %d\n", rgbd_mapping_pixel_downsample);
-    PRINT_DEBUG("  - rgbd_mapping_pixel_start_row: %d\n", rgbd_mapping_pixel_start_row);
-    PRINT_DEBUG("  - rgbd_mapping_pixel_end_row: %d\n", rgbd_mapping_pixel_end_row);
-    PRINT_DEBUG("  - rgbd_mapping_pixel_start_col: %d\n", rgbd_mapping_pixel_start_col);
-    PRINT_DEBUG("  - rgbd_mapping_pixel_end_col: %d\n", rgbd_mapping_pixel_end_col);
-    PRINT_DEBUG("  - rgbd_mapping_resolution: %.5f\n", rgbd_mapping_resolution);
-    PRINT_DEBUG("  - rgbd_mapping_max_depth: %.5f\n", rgbd_mapping_max_depth);
-    PRINT_DEBUG("  - rgbd_mapping_max_height: %.5f\n", rgbd_mapping_max_height);
-    PRINT_DEBUG("  - rgbd_mapping_min_height: %.5f\n", rgbd_mapping_min_height);
-    PRINT_DEBUG("  - rgbd_mapping_max_voxels: %d\n", rgbd_mapping_max_voxels);
-    PRINT_DEBUG("  - rgbd_mapping_max_dispaly_voxels: %d\n", rgbd_mapping_max_dispaly_voxels);    
+    PRINT_PARAM("  - rgbd_mapping: %d\n", rgbd_mapping);
+    PRINT_PARAM("  - rgbd_mapping_pixel_downsample: %d\n", rgbd_mapping_pixel_downsample);
+    PRINT_PARAM("  - rgbd_mapping_pixel_start_row: %d\n", rgbd_mapping_pixel_start_row);
+    PRINT_PARAM("  - rgbd_mapping_pixel_end_row: %d\n", rgbd_mapping_pixel_end_row);
+    PRINT_PARAM("  - rgbd_mapping_pixel_start_col: %d\n", rgbd_mapping_pixel_start_col);
+    PRINT_PARAM("  - rgbd_mapping_pixel_end_col: %d\n", rgbd_mapping_pixel_end_col);
+    PRINT_PARAM("  - rgbd_mapping_resolution: %.5f\n", rgbd_mapping_resolution);
+    PRINT_PARAM("  - rgbd_mapping_max_depth: %.5f\n", rgbd_mapping_max_depth);
+    PRINT_PARAM("  - rgbd_mapping_max_height: %.5f\n", rgbd_mapping_max_height);
+    PRINT_PARAM("  - rgbd_mapping_min_height: %.5f\n", rgbd_mapping_min_height);
+    PRINT_PARAM("  - rgbd_mapping_max_voxels: %d\n", rgbd_mapping_max_voxels);
+    PRINT_PARAM("  - rgbd_mapping_max_dispaly_voxels: %d\n", rgbd_mapping_max_dispaly_voxels);    
 
-    PRINT_DEBUG("  - use_semantic_masking: %d\n", use_semantic_masking);
-    PRINT_DEBUG("  - semantic_masking_model_path: %s\n", semantic_masking_model_path.c_str());
-    PRINT_DEBUG("  - semantic_masking_profiler_path: %s\n", semantic_masking_profiler_path.c_str());
+    PRINT_PARAM("  - use_semantic_masking: %d\n", use_semantic_masking);
+    PRINT_PARAM("  - semantic_masking_model_path: %s\n", semantic_masking_model_path.c_str());
+    PRINT_PARAM("  - semantic_masking_profiler_path: %s\n", semantic_masking_profiler_path.c_str());
     std::string labels_to_mask_str = "";
     for (const auto& label : semantic_masking_labels_to_mask) {
       labels_to_mask_str += std::to_string(label) + " ";
     }
-    PRINT_DEBUG("  - semantic_masking_labels_to_mask: %s\n", labels_to_mask_str.c_str());
-    PRINT_DEBUG("  - semantic_masking_dilate_kernel_size: %d\n", semantic_masking_dilate_kernel_size);
+    PRINT_PARAM("  - semantic_masking_labels_to_mask: %s\n", labels_to_mask_str.c_str());
+    PRINT_PARAM("  - semantic_masking_dilate_kernel_size: %d\n", semantic_masking_dilate_kernel_size);
 
-    PRINT_DEBUG("  - use_klt: %d\n", use_klt);
-    PRINT_DEBUG("  - klt_left_major_stereo: %d\n", klt_left_major_stereo);
-    PRINT_DEBUG("  - klt_strict_stereo: %d\n", klt_strict_stereo);
-    PRINT_DEBUG("  - klt_force_fundamental: %d\n", klt_force_fundamental);
-    PRINT_DEBUG("  - feattrack_high_frequency_log: %d\n", feattrack_high_frequency_log);
-    PRINT_DEBUG("  - feattrack_predict_keypoints: %d\n", feattrack_predict_keypoints);
-    PRINT_DEBUG("  - use_aruco: %d\n", use_aruco);
-    PRINT_DEBUG("  - downsize aruco: %d\n", downsize_aruco);
-    PRINT_DEBUG("  - downsize cameras: %d\n", downsample_cameras);
-    PRINT_DEBUG("  - num opencv threads: %d\n", num_opencv_threads);
-    PRINT_DEBUG("  - use multi-threading pubs: %d\n", use_multi_threading_pubs);
-    PRINT_DEBUG("  - use multi-threading subs: %d\n", use_multi_threading_subs);
-    PRINT_DEBUG("  - num_pts: %d\n", num_pts);
-    PRINT_DEBUG("  - fast threshold: %d\n", fast_threshold);
-    PRINT_DEBUG("  - grid X by Y: %d by %d\n", grid_x, grid_y);
-    PRINT_DEBUG("  - min px dist: %d\n", min_px_dist);
-    PRINT_DEBUG("  - hist method: %d\n", (int)histogram_method);
-    PRINT_DEBUG("  - knn ratio: %.3f\n", knn_ratio);
-    PRINT_DEBUG("  - track frequency: %.1f\n", track_frequency);
+    PRINT_PARAM("  - use_klt: %d\n", use_klt);
+    PRINT_PARAM("  - klt_left_major_stereo: %d\n", klt_left_major_stereo);
+    PRINT_PARAM("  - klt_strict_stereo: %d\n", klt_strict_stereo);
+    PRINT_PARAM("  - klt_force_fundamental: %d\n", klt_force_fundamental);
+    PRINT_PARAM("  - feattrack_high_frequency_log: %d\n", feattrack_high_frequency_log);
+    PRINT_PARAM("  - feattrack_predict_keypoints: %d\n", feattrack_predict_keypoints);
+    PRINT_PARAM("  - use_aruco: %d\n", use_aruco);
+    PRINT_PARAM("  - downsize aruco: %d\n", downsize_aruco);
+    PRINT_PARAM("  - downsize cameras: %d\n", downsample_cameras);
+    PRINT_PARAM("  - num opencv threads: %d\n", num_opencv_threads);
+    PRINT_PARAM("  - use multi-threading pubs: %d\n", use_multi_threading_pubs);
+    PRINT_PARAM("  - use multi-threading subs: %d\n", use_multi_threading_subs);
+    PRINT_PARAM("  - num_pts: %d\n", num_pts);
+    PRINT_PARAM("  - fast threshold: %d\n", fast_threshold);
+    PRINT_PARAM("  - grid X by Y: %d by %d\n", grid_x, grid_y);
+    PRINT_PARAM("  - min px dist: %d\n", min_px_dist);
+    PRINT_PARAM("  - hist method: %d\n", (int)histogram_method);
+    PRINT_PARAM("  - knn ratio: %.3f\n", knn_ratio);
+    PRINT_PARAM("  - track frequency: %.1f\n", track_frequency);
     featinit_options.print(parser);
   }
 
@@ -799,17 +802,17 @@ struct VioManagerOptions {
       parser->parse_config("sim_min_feature_gen_dist", sim_min_feature_gen_distance);
       parser->parse_config("sim_max_feature_gen_dist", sim_max_feature_gen_distance);
     }
-    PRINT_DEBUG("SIMULATION PARAMETERS:\n");
+    PRINT_PARAM("SIMULATION PARAMETERS:\n");
     PRINT_WARNING(BOLDRED "  - state init seed: %d \n" RESET, sim_seed_state_init);
     PRINT_WARNING(BOLDRED "  - perturb seed: %d \n" RESET, sim_seed_preturb);
     PRINT_WARNING(BOLDRED "  - measurement seed: %d \n" RESET, sim_seed_measurements);
     PRINT_WARNING(BOLDRED "  - do perturb?: %d\n" RESET, sim_do_perturbation);
-    PRINT_DEBUG("  - traj path: %s\n", sim_traj_path.c_str());
-    PRINT_DEBUG("  - dist thresh: %.2f\n", sim_distance_threshold);
-    PRINT_DEBUG("  - cam feq: %.2f\n", sim_freq_cam);
-    PRINT_DEBUG("  - imu feq: %.2f\n", sim_freq_imu);
-    PRINT_DEBUG("  - min feat dist: %.2f\n", sim_min_feature_gen_distance);
-    PRINT_DEBUG("  - max feat dist: %.2f\n", sim_max_feature_gen_distance);
+    PRINT_PARAM("  - traj path: %s\n", sim_traj_path.c_str());
+    PRINT_PARAM("  - dist thresh: %.2f\n", sim_distance_threshold);
+    PRINT_PARAM("  - cam feq: %.2f\n", sim_freq_cam);
+    PRINT_PARAM("  - imu feq: %.2f\n", sim_freq_imu);
+    PRINT_PARAM("  - min feat dist: %.2f\n", sim_min_feature_gen_distance);
+    PRINT_PARAM("  - max feat dist: %.2f\n", sim_max_feature_gen_distance);
   }
 };
 
