@@ -36,6 +36,14 @@
 #include "state/State.h"
 #include "utils/sensor_data.h"
 
+#include "update/UpdaterSLAM.h"
+
+#ifdef USE_HEAR_SLAM
+namespace hear_slam {
+  class TimeCounter;
+}
+#endif
+
 class SemanticSegmentorWrapper;
 
 namespace ov_core {
@@ -210,7 +218,24 @@ protected:
   struct ImgProcessContext {
     std::chrono::high_resolution_clock::time_point rT0, rT1, rT2, rT3, rT4, rT5, rT6, rT7;
     std::shared_ptr<ov_core::CameraData> message;
-  };  
+
+    struct {
+      Eigen::MatrixXd R_big;
+      Eigen::MatrixXd Hmat;
+      Eigen::VectorXd resmat;
+
+      std::vector<std::shared_ptr<ov_core::Feature>> feats;
+      std::shared_ptr<UpdaterSLAM::FeatToMappointMatches> matches;
+
+      std::atomic<bool> ready;
+      std::mutex mtx;
+      std::condition_variable cond;
+
+#ifdef USE_HEAR_SLAM
+      std::shared_ptr<hear_slam::TimeCounter> tc;
+#endif
+    } depth_updt;
+  };
   using ImgProcessContextPtr = std::shared_ptr<ImgProcessContext>;
   using ImgProcessContextQueue = std::deque<ImgProcessContextPtr>;
 
@@ -249,7 +274,9 @@ protected:
       const ov_core::CameraData &message,
       const Eigen::Matrix3d& R_I1toI0);
 
-  void depth_update(ImgProcessContextPtr c, int first_row, std::shared_ptr<State> state_clone);
+  void prepare_for_depth_update(ImgProcessContextPtr c, int first_row, std::shared_ptr<State> state_clone);
+  void wait_depth_update_ready(ImgProcessContextPtr c);
+  void depth_update(ImgProcessContextPtr c);
 
   /**
    * @brief Given a new set of camera images, this will track them.
@@ -295,7 +322,6 @@ protected:
 
   /// Our master state object :D
   std::shared_ptr<State> state;
-  std::mutex state_mtx;
 
   /// Propagator of our state
   std::shared_ptr<Propagator> propagator;

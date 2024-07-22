@@ -2133,12 +2133,13 @@ VioManager::choose_stereo_feature_for_propagation(
   return ret_vec;
 }
 
-
-void VioManager::depth_update(ImgProcessContextPtr c, int first_row, std::shared_ptr<State> state_clone) {
+void VioManager::prepare_for_depth_update(ImgProcessContextPtr c, int first_row, std::shared_ptr<State> state_clone) {
 
 #ifdef USE_HEAR_SLAM
     using hear_slam::TimeCounter;
-    TimeCounter tc;
+    c->depth_updt.tc.reset(new TimeCounter());
+    TimeCounter& tc = *(c->depth_updt.tc);
+    tc.reset();
 #endif
 
   const int resdim_perpt = 1;  // point to plane
@@ -2530,8 +2531,8 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row, std::shared
   }
 
   size_t measurement_size = matches.size();
-  Eigen::MatrixXd Hmat;
-  Eigen::VectorXd resmat;
+  Eigen::MatrixXd& Hmat   = c->depth_updt.Hmat  ;
+  Eigen::VectorXd& resmat = c->depth_updt.resmat;
   Hmat.resize(measurement_size * resdim_perpt, Hx_cols);
   resmat.resize(measurement_size * resdim_perpt);
   size_t total_Hmat_rows = 0;
@@ -2545,28 +2546,55 @@ void VioManager::depth_update(ImgProcessContextPtr c, int first_row, std::shared
 
   std::cout << "DEBUG_aKNN: matches.size after merge: " << matches.size() << ", feats.size = " << feats.size() << std::endl;
 
+  std::swap(c->depth_updt.feats, feats);
+  c->depth_updt.matches.reset(new UpdaterSLAM::FeatToMappointMatches(std::move(matches)));
+  if (Hmat.rows() > 0) {
+    UpdaterHelper::measurement_compress_inplace(Hmat, resmat);
+    c->depth_updt.R_big = Eigen::MatrixXd::Identity(resmat.rows(), resmat.rows());
+  }
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("prepareDone");
+#endif
+}
+
+void VioManager::wait_depth_update_ready(ImgProcessContextPtr c) {
+  std::atomic<bool>& ready = c->depth_updt.ready;
+  std::mutex& mtx = c->depth_updt.mtx;
+  std::condition_variable& cond = c->depth_updt.cond;
+
+  if (ready) {
+    return;
+  }
+
+  std::unique_lock<std::mutex> lock(mtx);
+  cond.wait(lock, [&ready](){ std::cout << "wait_depth_update_ready: ..." << std::endl; return ready.load(); });
+}
+
+void VioManager::depth_update(ImgProcessContextPtr c) {
+  const size_t color_cam_id = 0;
+  const size_t depth_cam_id = 1;
+
+#ifdef USE_HEAR_SLAM
+  using hear_slam::TimeCounter;
+  TimeCounter& tc = *(c->depth_updt.tc);
+#endif
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("waitVisualDone");
+#endif
+
   bool use_visual_err = false;
   if (use_visual_err) {
-    std::unique_lock<std::mutex> lock(state_mtx);
-#ifdef USE_HEAR_SLAM
-    tc.tag("waiLockDone");
-#endif
-    updaterSLAM->mappoint_update(state, feats, matches);
+    updaterSLAM->mappoint_update(state, c->depth_updt.feats, *(c->depth_updt.matches));
   } else {
-    UpdaterHelper::measurement_compress_inplace(Hmat, resmat);
-    if (Hmat.rows() > 0) {
-      Eigen::MatrixXd R_big = Eigen::MatrixXd::Identity(resmat.rows(), resmat.rows());
-
-      std::unique_lock<std::mutex> lock(state_mtx);
-#ifdef USE_HEAR_SLAM
-    tc.tag("waiLockDone");
-#endif
+    if (c->depth_updt.Hmat.rows() > 0) {
       std::vector<std::shared_ptr<Type>> Hx_order;
       Hx_order.push_back(state->_clones_IMU.at(state->_timestamp));
-      if (Hx_cols == 12) {
+      if (c->depth_updt.Hmat.cols() == 12) {
         Hx_order.push_back(state->_calib_IMUtoCAM.at(color_cam_id));
-      }      
-      StateHelper::EKFUpdate(state, Hx_order, Hmat, resmat, R_big);
+      }
+      StateHelper::EKFUpdate(state, Hx_order, c->depth_updt.Hmat, c->depth_updt.resmat, c->depth_updt.R_big);
     }
   }
 
@@ -2640,17 +2668,16 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   }
   has_moved_since_zupt = true;
 
-  std::unique_lock<std::mutex> state_lock(state_mtx);
   auto state_clone_for_depth_update = state->clone();
   if (params.enable_depth_update) {
+    c->depth_updt.ready.store(false);
     hear_slam::ThreadPool::getNamed("ov_update_depth")->schedule([=](){
       ++ depth_update_count;
       if (depth_update_count % params.depth_update_freq_downsample == 0) {
-        // depth_update() might block for a while if the visual updates are not
-        // finished after the jacobians for depth observation are computed, but
-        // that is fine because we are running in a separate thread.
-        depth_update(c, 0, state_clone_for_depth_update);
+        prepare_for_depth_update(c, 0, state_clone_for_depth_update);
       }
+      c->depth_updt.ready.store(true);
+      c->depth_updt.cond.notify_one();
     });
   }
 
@@ -3095,15 +3122,16 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     tc.tag("DelayInitDone");
 #endif
 
-  state_lock.unlock();  // To make depth_update() continue.
-
   if (params.enable_depth_update) {
-    hear_slam::ThreadPool::getNamed("ov_update_depth")->waitUntilAllTasksDone();
-  }
-
+    wait_depth_update_ready(c);
 #ifdef USE_HEAR_SLAM
     tc.tag("WaitDepthDone");
 #endif
+    depth_update(c);
+#ifdef USE_HEAR_SLAM
+    tc.tag("DepthUpDone");
+#endif
+  }
 
   if (params.propagate_with_stereo_feature && params.grivaty_update_after_propagate_with_stereo_feature) {
     propagator->gravity_update(state);
