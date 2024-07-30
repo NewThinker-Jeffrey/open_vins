@@ -2674,7 +2674,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
   has_moved_since_zupt = true;
 
   auto state_clone_for_depth_update = state->clone();
-  if (params.enable_depth_update) {
+  if (params.enable_depth_update && params.rgbd_mapping) {
     c->depth_updt.ready.store(false);
     hear_slam::ThreadPool::getNamed("ov_update_depth")->schedule([=](){
       ++ depth_update_count;
@@ -3127,7 +3127,7 @@ void VioManager::do_feature_propagate_update(ImgProcessContextPtr c) {
     tc.tag("DelayInitDone");
 #endif
 
-  if (params.enable_depth_update) {
+  if (params.enable_depth_update && params.rgbd_mapping) {
     wait_depth_update_ready(c);
 #ifdef USE_HEAR_SLAM
     tc.tag("WaitDepthDone");
