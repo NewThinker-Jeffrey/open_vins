@@ -461,6 +461,10 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
     last_propagate_time = message.timestamp;
   }
 
+  if (imu_count % 200 == 0) {
+    PRINT_INFO("feed_measurement_imu: imu_time = %f\n", message.timestamp);
+  }
+
   trackFEATS->feed_imu(message, oldest_time);
   // trackARUCO->feed_imu(message, oldest_time);
 
@@ -615,7 +619,7 @@ void VioManager::semantic_masking_thread_func() {
     do_semantic_masking(c);
     c->rT1 = std::chrono::high_resolution_clock::now();
     double time_mask = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT1 - c->rT0).count();
-    PRINT_INFO(GREEN "[TIME]: %.4f seconds for semantic masking\n" RESET, time_mask);
+    PRINT_INFO(GREEN "[TIME]: %.4f seconds for semantic masking (image timestatmpe = %.3f)\n" RESET, time_mask, c->message->timestamp);
 
     {
       std::unique_lock<std::mutex> locker(feature_tracking_task_queue_mutex_);
@@ -672,7 +676,7 @@ void VioManager::feature_tracking_thread_func() {
     do_feature_tracking(c);
     auto t1 = std::chrono::high_resolution_clock::now();
     double time_track = std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0).count();
-    PRINT_INFO(GREEN "[TIME]: %.4f seconds for feature tracking\n" RESET, time_track);
+    PRINT_INFO(GREEN "[TIME]: %.4f seconds for feature tracking  (image timestatmpe = %.3f)\n" RESET, time_track, c->message->timestamp);
 
     {
       std::unique_lock<std::mutex> locker(update_task_queue_mutex_);
@@ -749,6 +753,7 @@ void VioManager::update_thread_func() {
 #ifdef USE_HEAR_SLAM
     tc.tag("update_output_Done");
     tc.report("UpdateTiming: ", true);
+    PRINT_INFO(GREEN "[TIME]: %.4f seconds for updating  (image timestatmpe = %.3f)\n" RESET, tc.elapsed().seconds(), c->message->timestamp);
 #endif
   }
 }
