@@ -891,6 +891,9 @@ struct SimpleDenseMapT final {
       LOGI("NeedRemoveOldBlocks: blocks_map.size()=%d, kMaxBlocks=%d, time_to_blocks.size()=%d, to_remove_size=%d, newly_updated_blocks.size()=%d",
             blocks_map.size(), kMaxBlocks, time_to_blocks.size(), tmp_size, time_to_blocks[time].size());
     }
+#ifdef USE_HEAR_SLAM  
+    LOGI("blocks_map_mem: capacity: %d, bucketCount: %d", blocks_map.capacity(), blocks_map.bucketCount());
+#endif
 
     auto foreach_block_to_remove = [&](const std::function<void(const BlockKey3& bk)>& f) {
       for (const auto& item : to_remove_time_to_blocks) {
