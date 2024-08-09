@@ -387,14 +387,16 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
 
   double oldest_time;
   {
-    std::unique_lock<std::mutex> locker(output_mutex_);
-    // it's ok to get these timestamps from the last cloned state.
-    oldest_time = output.state_clone->margtimestep();
-    if (oldest_time > output.state_clone->_timestamp) {
-      oldest_time = -1;
-    }
+    // std::unique_lock<std::mutex> locker(output_mutex_);
+    // // it's ok to get these timestamps from the last cloned state.
+    // oldest_time = output.state_clone->margtimestep();
+    // if (oldest_time > output.state_clone->_timestamp) {
+    //   oldest_time = -1;
+    // }
     if (!output.status.initialized) {
       oldest_time = message.timestamp - params.init_options.init_window_time + output.state_clone->_calib_dt_CAMtoIMU->value()(0) - 0.10;
+    } else {
+      oldest_time = message.timestamp - 5.0 + output.state_clone->_calib_dt_CAMtoIMU->value()(0) - 0.10;
     }
   }
 
@@ -462,7 +464,7 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
   }
 
   if (imu_count % 200 == 0) {
-    PRINT_INFO("feed_measurement_imu: imu_time = %f\n", message.timestamp);
+    PRINT_INFO("feed_measurement_imu: imu_time = %f, oldest_time = %f, keep_window = %f\n", message.timestamp, oldest_time, message.timestamp - oldest_time);
   }
 
   trackFEATS->feed_imu(message, oldest_time);

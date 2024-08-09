@@ -183,14 +183,26 @@ public:
   void clean_old_imu_measurements_nolock(double oldest_time) {
     if (oldest_time < 0)
       return;
-    auto it0 = imu_data.begin();
-    while (it0 != imu_data.end()) {
-      if (it0->timestamp < oldest_time) {
-        it0 = imu_data.erase(it0);
-      } else {
-        it0++;
+    // auto it0 = imu_data.begin();
+    // while (it0 != imu_data.end()) {
+    //   if (it0->timestamp < oldest_time) {
+    //     it0 = imu_data.erase(it0);
+    //   } else {
+    //     it0++;
+    //   }
+    // }
+
+    if (imu_data.empty() || imu_data[0].timestamp >= oldest_time) {
+      return;
+    }
+
+    size_t i;
+    for (i=1; i<imu_data.size(); i++) {
+      if (imu_data[i].timestamp >= oldest_time) {
+        break;
       }
     }
+    imu_data.erase(imu_data.begin(), imu_data.begin()+i);
   }
 
   void clean_old_imu_measurements(double oldest_time) {

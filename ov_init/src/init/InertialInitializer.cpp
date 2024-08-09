@@ -59,14 +59,26 @@ void InertialInitializer::feed_imu(const ov_core::ImuData &message, double oldes
   // Loop through and delete imu messages that are older than our requested time
   // std::cout << "INIT: imu_data.size() " << imu_data->size() << std::endl;
   if (oldest_time != -1) {
-    auto it0 = imu_data->begin();
-    while (it0 != imu_data->end()) {
-      if (message.timestamp < oldest_time) {
-        it0 = imu_data->erase(it0);
-      } else {
-        it0++;
+    // auto it0 = imu_data->begin();
+    // while (it0 != imu_data->end()) {
+    //   if (message.timestamp < oldest_time) {
+    //     it0 = imu_data->erase(it0);
+    //   } else {
+    //     it0++;
+    //   }
+    // }
+    if (imu_data->empty() || imu_data->at(0).timestamp >= oldest_time) {
+      return;
+    }
+
+    size_t i;
+    for (i=1; i<imu_data->size(); i++) {
+      if (imu_data->at(i).timestamp >= oldest_time) {
+        break;
       }
     }
+    imu_data->erase(imu_data->begin(), imu_data->begin()+i);
+
   }
 }
 
