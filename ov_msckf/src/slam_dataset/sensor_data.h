@@ -3,10 +3,10 @@
 
 #ifdef USE_HEAR_SLAM
 
-#include "hear_slam/common/datasource/vi_source.h"
-#include "hear_slam/common/datasource/vi_recorder.h"
-#include "hear_slam/common/datasource/vi_player.h"
-#include "hear_slam/common/datasource/rs/rs_capture.h"
+#include "hear_slam/utils/datasource/vi_source.h"
+#include "hear_slam/utils/datasource/vi_recorder.h"
+#include "hear_slam/utils/datasource/vi_player.h"
+#include "hear_slam/utils/datasource/rs/rs_capture.h"
 
 namespace slam_dataset {
   using namespace hear_slam;

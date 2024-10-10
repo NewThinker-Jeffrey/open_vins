@@ -27,8 +27,8 @@
 #include <vector>
 
 #ifdef USE_HEAR_SLAM
-#include "hear_slam/common/sensors/imu.h"
-#include "hear_slam/common/sensors/camera.h"
+#include "hear_slam/utils/sensors/imu.h"
+#include "hear_slam/utils/sensors/camera.h"
 #endif
 
 namespace ov_core {
