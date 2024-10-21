@@ -783,6 +783,9 @@ void VioManager::do_depth_masking(ImgProcessContextPtr c) {
   cv::Mat depth_mask;
   cv::threshold(depth, depth_mask, depth_thr, 255, cv::THRESH_BINARY_INV);
 
+  // convert depth_mask to uint8_t
+  depth_mask.convertTo(depth_mask, CV_8UC1);
+
   // Compose the semantic_mask and the original mask (i.e. message.masks.at(0))
   c->message->masks.at(0) |= depth_mask;
 

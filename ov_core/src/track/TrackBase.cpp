@@ -828,6 +828,12 @@ void TrackBase::fundamental_ransac(
 #endif
 
 #ifdef USE_HEAR_SLAM_TWO_VIEW_GEOMETRY
+  if (pts0_n.size() < 10) {
+    for (size_t i = 0; i < pts0_n.size(); i++)
+      inliers_mask.push_back((uchar)0);
+    PRINT_DEBUG("fundamental_ransac: Too few points (%d)\n", pts0_n.size());
+    return;
+  }
 
   hear_slam::RansacOptions ransac_options = hear_slam::TwoViewGeometryEstimator::defaultRansacOptions();
   ransac_options.error_thr = fundamental_inlier_thr * fundamental_inlier_thr;
