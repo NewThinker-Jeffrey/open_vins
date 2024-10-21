@@ -618,6 +618,7 @@ void VioManager::semantic_masking_thread_func() {
     }
 
     c->rT0 = std::chrono::high_resolution_clock::now();
+    do_depth_masking(c);
     do_semantic_masking(c);
     c->rT1 = std::chrono::high_resolution_clock::now();
     double time_mask = std::chrono::duration_cast<std::chrono::duration<double>>(c->rT1 - c->rT0).count();
@@ -761,7 +762,8 @@ void VioManager::update_thread_func() {
 }
 
 void VioManager::do_depth_masking(ImgProcessContextPtr c) {
-  if (!params.use_depth_masking) {
+  
+  if (!params.state_options.use_rgbd || !params.use_depth_masking) {
     return;
   }
 
@@ -1585,6 +1587,7 @@ void VioManager::track_image_and_update(ov_core::CameraData &&message_in) {
     semantic_masking_task_queue_cond_.notify_one();
   } else {
     PRINT_DEBUG("Run feature tracking and state update in the same thread\n");
+    do_depth_masking(c);
     do_semantic_masking(c);
     do_feature_tracking(c);
     do_update(c);
