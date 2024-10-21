@@ -762,8 +762,9 @@ void VioManager::update_thread_func() {
 }
 
 void VioManager::do_depth_masking(ImgProcessContextPtr c) {
-  
-  if (!params.state_options.use_rgbd || !params.use_depth_masking) {
+  std::shared_ptr<Output> output = getLastOutput();  
+  if (!params.state_options.use_rgbd || !params.use_depth_masking ||
+      (params.skip_depth_masking_when_initializing && !output->status.initialized)) {
     return;
   }
 
