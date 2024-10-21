@@ -239,6 +239,7 @@ protected:
   using ImgProcessContextPtr = std::shared_ptr<ImgProcessContext>;
   using ImgProcessContextQueue = std::deque<ImgProcessContextPtr>;
 
+  void do_depth_masking(ImgProcessContextPtr c);
   void do_semantic_masking(ImgProcessContextPtr c);
   void do_feature_tracking(ImgProcessContextPtr c);
   void do_update(ImgProcessContextPtr c);

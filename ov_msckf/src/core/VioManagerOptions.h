@@ -416,6 +416,9 @@ struct VioManagerOptions {
   int semantic_masking_image_downsample = 2;
   int semantic_masking_dilate_kernel_size = 5;
 
+  bool use_depth_masking = false;
+  double depth_masking_min_depth = 0.0;
+
   bool rgbd_mapping = true;
   int  rgbd_mapping_pixel_downsample = 3;
   int  rgbd_mapping_pixel_start_row = 0;
@@ -506,6 +509,9 @@ struct VioManagerOptions {
         semantic_masking_labels_to_mask.insert(label);
       }
       parser->parse_config("semantic_masking_dilate_kernel_size", semantic_masking_dilate_kernel_size, false);
+
+      parser->parse_config("use_depth_masking", use_depth_masking, false);
+      parser->parse_config("depth_masking_min_depth", depth_masking_min_depth, 0.0);
 
       for (int i = 0; i < state_options.num_cameras; i++) {
 
@@ -729,6 +735,9 @@ struct VioManagerOptions {
     }
     PRINT_PARAM("  - semantic_masking_labels_to_mask: %s\n", labels_to_mask_str.c_str());
     PRINT_PARAM("  - semantic_masking_dilate_kernel_size: %d\n", semantic_masking_dilate_kernel_size);
+
+    PRINT_PARAM("  - use_depth_masking: %d\n", use_depth_masking);
+    PRINT_PARAM("  - depth_masking_min_depth: %f\n", depth_masking_min_depth);
 
     PRINT_PARAM("  - use_klt: %d\n", use_klt);
     PRINT_PARAM("  - klt_left_major_stereo: %d\n", klt_left_major_stereo);

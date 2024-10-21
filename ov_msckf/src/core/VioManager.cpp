@@ -760,6 +760,36 @@ void VioManager::update_thread_func() {
   }
 }
 
+void VioManager::do_depth_masking(ImgProcessContextPtr c) {
+  if (!params.use_depth_masking) {
+    return;
+  }
+
+  double depth_masking_min_depth = params.depth_masking_min_depth;
+
+#ifdef USE_HEAR_SLAM
+    using hear_slam::TimeCounter;
+    TimeCounter tc;
+#endif
+
+  const size_t color_cam_id = 0;
+  const size_t depth_cam_id = 1;
+  const cv::Mat& color = c->message->images.at(color_cam_id);
+  const cv::Mat& depth = c->message->images.at(depth_cam_id);
+
+  uint16_t depth_thr = static_cast<uint16_t>(depth_masking_min_depth * 1000);
+  cv::Mat depth_mask;
+  cv::threshold(depth, depth_mask, depth_thr, 255, cv::THRESH_BINARY_INV);
+
+  // Compose the semantic_mask and the original mask (i.e. message.masks.at(0))
+  c->message->masks.at(0) |= depth_mask;
+
+#ifdef USE_HEAR_SLAM
+    tc.tag("DepthMaskingDone");
+    tc.report("DepthMaskingTiming: ", true);
+#endif
+}
+
 void VioManager::do_semantic_masking(ImgProcessContextPtr c) {
 #if ENABLE_MMSEG
   if (!params.use_semantic_masking) {
@@ -1006,7 +1036,10 @@ void VioManager::update_rgbd_map(ImgProcessContextPtr c) {
     const cv::Mat& mask = c->message->masks.at(color_cam_id);
 
     cv::Mat masked_depth;
-    depth.copyTo(masked_depth, mask == 0);
+
+    masked_depth = depth;
+    // depth.copyTo(masked_depth, mask == 0);
+
 
     // cv::imshow("masked_depth", visualizeDepthImage(masked_depth));
     // cv::waitKey(1);
